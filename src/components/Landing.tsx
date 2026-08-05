@@ -300,7 +300,7 @@ export default function Landing() {
               </p>
             </div>
 
-            <div className="sectionCtaRow" id="demo">
+            <div className="sectionCtaRow">
               <button className="btn btnPrimary btnLg" type="button" onClick={() => setShowContact(true)}>
                 <CalendarIcon size={18} />
                 Book Appointment
