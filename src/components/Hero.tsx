@@ -10,6 +10,7 @@ import {
   ShuffleIcon,
   SparklesIcon,
   TrendingUpIcon,
+  UsersIcon,
   ZapIcon,
 } from './icons'
 
@@ -57,7 +58,7 @@ const steps: Step[] = [
   },
 ]
 
-export default function Hero() {
+export default function Hero({ onBook }: { onBook: () => void }) {
   return (
     <section className="hero" id="top">
       <div className="container">
@@ -75,14 +76,28 @@ export default function Hero() {
           </p>
 
           <div className="heroCtas">
-            <a className="btn btnPrimary btnLg" href="#book">
+            <button className="btn btnPrimary btnLg" type="button" onClick={onBook}>
               <CalendarIcon size={18} />
               Book Appointment
-            </a>
+            </button>
             <a className="btn btnOutline btnLg" href="#demo">
               <PhoneIcon size={18} />
               Talk to AI Right now
             </a>
+          </div>
+
+          <div className="trustStrip">
+            <span className="trustAvatars" aria-hidden="true">
+              <span className="trustAvatar" />
+              <span className="trustAvatar" />
+              <span className="trustAvatar" />
+              <span className="trustAvatar trustAvatarMore">
+                <UsersIcon size={13} />
+              </span>
+            </span>
+            <span className="trustText">
+              AI agents supporting <strong>100+ customers</strong> across home services, clinics, and firms
+            </span>
           </div>
 
           <div className="heroProof">

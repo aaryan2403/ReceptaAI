@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
+import ContactModal from './ContactModal'
 import Hero from './Hero'
 import Navbar from './Navbar'
 import {
@@ -209,6 +210,7 @@ export default function Landing() {
   ]
   const [activeIndustry, setActiveIndustry] = useState(0)
   const [openPlan, setOpenPlan] = useState<number | null>(null)
+  const [showContact, setShowContact] = useState(false)
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -222,9 +224,9 @@ export default function Landing() {
 
   return (
     <>
-      <Navbar />
+      <Navbar onBook={() => setShowContact(true)} />
       <main>
-        <Hero />
+        <Hero onBook={() => setShowContact(true)} />
 
         <section className="section" id="product">
           <div className="container">
@@ -299,10 +301,10 @@ export default function Landing() {
             </div>
 
             <div className="sectionCtaRow" id="demo">
-              <a className="btn btnPrimary btnLg" href="#book">
+              <button className="btn btnPrimary btnLg" type="button" onClick={() => setShowContact(true)}>
                 <CalendarIcon size={18} />
                 Book Appointment
-              </a>
+              </button>
               <a className="btn btnOutline btnLg" href="#industries">
                 Explore industries
                 <ArrowRightIcon size={18} />
@@ -404,19 +406,20 @@ export default function Landing() {
               ))}
             </div>
 
+            {/* TODO: placeholder copy — replace with a real client quote and attribution before launch. */}
             <div className="workQuote">
               <QuoteIcon size={22} className="workQuoteIcon" />
               <p className="workQuoteText">
                 The new site looked great on day one, but the real change was the phone. Nothing rings out anymore.
               </p>
-              <div className="workQuoteAuthor">Operations lead, Shivora</div>
+              <div className="workQuoteAuthor">Operations lead, retail client</div>
             </div>
 
             <div className="sectionCtaRow">
-              <a className="btn btnPrimary btnLg" href="#book">
+              <button className="btn btnPrimary btnLg" type="button" onClick={() => setShowContact(true)}>
                 <CalendarIcon size={18} />
                 Book Appointment
-              </a>
+              </button>
               <a className="btn btnOutline btnLg" href="#pricing">
                 See pricing
                 <ArrowRightIcon size={18} />
@@ -459,10 +462,10 @@ export default function Landing() {
                     <FileTextIcon size={17} />
                     View details
                   </button>
-                  <a className="btn btnPrimary btnLg" href="#book">
+                  <button className="btn btnPrimary btnLg" type="button" onClick={() => setShowContact(true)}>
                     <CalendarIcon size={17} />
                     Book Appointment
-                  </a>
+                  </button>
                 </TiltCard>
               ))}
             </div>
@@ -501,10 +504,10 @@ export default function Landing() {
               </div>
 
               <div className="sectionCtaRow">
-                <a className="btn btnPrimary btnLg" href="#book">
+                <button className="btn btnPrimary btnLg" type="button" onClick={() => setShowContact(true)}>
                   <CalendarIcon size={18} />
                   Book Appointment
-                </a>
+                </button>
                 <a className="btn btnOutline btnLg" href="#demo">
                   <PhoneIcon size={18} />
                   Talk to AI right now
@@ -513,6 +516,8 @@ export default function Landing() {
             </div>
           </div>
         </section>
+
+        {showContact && <ContactModal onClose={() => setShowContact(false)} />}
 
         {openPlan !== null && (
           <div className="modalOverlay" role="dialog" aria-modal="true" aria-label={`${pricingPlans[openPlan].name} details`}>
@@ -535,10 +540,17 @@ export default function Landing() {
                 <button className="btn btnOutline btnLg" type="button" onClick={() => setOpenPlan(null)}>
                   Close
                 </button>
-                <a className="btn btnPrimary btnLg" href="#book" onClick={() => setOpenPlan(null)}>
+                <button
+                  className="btn btnPrimary btnLg"
+                  type="button"
+                  onClick={() => {
+                    setOpenPlan(null)
+                    setShowContact(true)
+                  }}
+                >
                   <CalendarIcon size={17} />
                   Book Appointment
-                </a>
+                </button>
               </div>
             </div>
           </div>
@@ -565,10 +577,10 @@ export default function Landing() {
                 <ZapIcon size={14} />
                 Pricing
               </a>
-              <a className="footerLink" href="#book">
+              <button className="footerLink" type="button" onClick={() => setShowContact(true)}>
                 <CalendarIcon size={14} />
                 Book Appointment
-              </a>
+              </button>
             </nav>
 
             <div className="footerText">© {new Date().getFullYear()} Recepta. Less hassle, more hustle.</div>

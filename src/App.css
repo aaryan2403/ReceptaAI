@@ -336,6 +336,58 @@
   justify-content: center;
 }
 
+/* social proof under the hero CTAs */
+.trustStrip {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 28px;
+  padding: 8px 16px 8px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.trustAvatars {
+  display: inline-flex;
+  align-items: center;
+}
+
+.trustAvatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(0, 200, 83, 0.5), rgba(0, 120, 60, 0.35));
+  border: 2px solid #050505;
+  margin-right: -9px;
+}
+
+.trustAvatar:nth-child(2) {
+  background: linear-gradient(135deg, rgba(0, 170, 255, 0.5), rgba(0, 80, 140, 0.35));
+}
+
+.trustAvatar:nth-child(3) {
+  background: linear-gradient(135deg, rgba(253, 251, 229, 0.45), rgba(120, 118, 90, 0.3));
+}
+
+.trustAvatarMore {
+  margin-right: 0;
+  background: rgba(0, 200, 83, 0.16);
+  color: var(--green);
+}
+
+.trustText {
+  font-size: 13px;
+  color: rgba(253, 251, 229, 0.6);
+}
+
+.trustText strong {
+  color: var(--text-light);
+  font-weight: 700;
+}
+
 .heroProof {
   display: grid;
   grid-template-columns: 1fr;
@@ -1148,9 +1200,14 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font-family: inherit;
   font-size: 13px;
   font-weight: 500;
   color: rgba(253, 251, 229, 0.6);
+  cursor: pointer;
   transition: color 160ms ease;
 }
 
@@ -1281,6 +1338,142 @@
   flex-wrap: wrap;
   gap: 12px;
   justify-content: flex-end;
+}
+
+/* ===== CONTACT MODAL ===== */
+.contactHeading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+}
+
+.contactHeadingIcon {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 200, 83, 0.12);
+  border: 1px solid rgba(0, 200, 83, 0.26);
+  color: var(--green);
+}
+
+.contactTitle {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+.contactSubtitle {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(253, 251, 229, 0.55);
+}
+
+.contactMethods {
+  display: grid;
+  gap: 12px;
+}
+
+.contactMethod {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, transform 120ms ease;
+}
+
+.contactMethod:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(0, 200, 83, 0.28);
+}
+
+.contactMethod:active {
+  transform: translateY(1px);
+}
+
+.contactMethod:focus-visible {
+  outline: 2px solid rgba(0, 200, 83, 0.45);
+  outline-offset: 2px;
+}
+
+.contactMethod--copied {
+  background: rgba(0, 200, 83, 0.08);
+  border-color: rgba(0, 200, 83, 0.38);
+}
+
+.contactIcon {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 200, 83, 0.10);
+  border: 1px solid rgba(0, 200, 83, 0.20);
+  color: var(--green);
+}
+
+.contactDetail {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.contactLabel {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(253, 251, 229, 0.45);
+}
+
+.contactValue {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  overflow-wrap: anywhere;
+}
+
+.contactCopy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(253, 251, 229, 0.6);
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.contactMethod--copied .contactCopy {
+  background: rgba(0, 200, 83, 0.18);
+  color: var(--green);
+}
+
+.contactHint {
+  margin: 14px 0 0;
+  font-size: 12px;
+  text-align: center;
+  color: rgba(253, 251, 229, 0.45);
 }
 
 .preload {
@@ -1472,6 +1665,30 @@
 
   .workName {
     font-size: 18px;
+  }
+
+  .trustStrip {
+    gap: 10px;
+    padding: 8px 14px 8px 8px;
+  }
+
+  .trustText {
+    font-size: 12px;
+    text-align: left;
+  }
+
+  .contactMethod {
+    padding: 14px;
+    gap: 10px;
+  }
+
+  .contactValue {
+    font-size: 14px;
+  }
+
+  .contactCopy {
+    padding: 5px 9px;
+    font-size: 10px;
   }
 
   .bookCard {

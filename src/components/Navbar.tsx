@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { CalendarIcon } from './icons'
 
-export default function Navbar() {
+export default function Navbar({ onBook }: { onBook: () => void }) {
   const [isHidden, setIsHidden] = useState(false)
   const [isScrolled, setIsScrolled] = useState(false)
   const lastScroll = useRef(0)
@@ -51,10 +51,10 @@ export default function Navbar() {
           <a className="btn btnGhost" href="#login">
             Log in
           </a>
-          <a className="btn btnPrimary" href="#book">
+          <button className="btn btnPrimary" type="button" onClick={onBook}>
             <CalendarIcon size={16} />
             Book Appointment
-          </a>
+          </button>
         </div>
       </div>
     </header>
