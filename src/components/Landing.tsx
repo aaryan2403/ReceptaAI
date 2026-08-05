@@ -508,10 +508,6 @@ export default function Landing() {
                   <CalendarIcon size={18} />
                   Book Appointment
                 </button>
-                <a className="btn btnOutline btnLg" href="#demo">
-                  <PhoneIcon size={18} />
-                  Talk to AI right now
-                </a>
               </div>
             </div>
           </div>

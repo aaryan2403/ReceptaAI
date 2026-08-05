@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import {
+  ArrowRightIcon,
   BotIcon,
   CalendarIcon,
   CheckIcon,
@@ -80,9 +81,9 @@ export default function Hero({ onBook }: { onBook: () => void }) {
               <CalendarIcon size={18} />
               Book Appointment
             </button>
-            <a className="btn btnOutline btnLg" href="#demo">
-              <PhoneIcon size={18} />
-              Talk to AI Right now
+            <a className="btn btnOutline btnLg" href="#pricing">
+              See pricing
+              <ArrowRightIcon size={18} />
             </a>
           </div>
 
