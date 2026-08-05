@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { CalendarIcon } from './icons'
 
 export default function Navbar() {
   const [isHidden, setIsHidden] = useState(false)
@@ -35,6 +36,9 @@ export default function Navbar() {
           <a className="navLink" href="#industries">
             Industries
           </a>
+          <a className="navLink" href="#work">
+            Our work
+          </a>
           <a className="navLink" href="#pricing">
             Pricing
           </a>
@@ -47,8 +51,9 @@ export default function Navbar() {
           <a className="btn btnGhost" href="#login">
             Log in
           </a>
-          <a className="btn btnPrimary" href="#demo">
-            Get a demo
+          <a className="btn btnPrimary" href="#book">
+            <CalendarIcon size={16} />
+            Book Appointment
           </a>
         </div>
       </div>
