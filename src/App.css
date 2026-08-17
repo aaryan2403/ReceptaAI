@@ -1240,29 +1240,45 @@
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(8px);
-  display: grid;
-  place-items: center;
-  padding: 24px;
+  background: transparent;
+  backdrop-filter: none;
+  pointer-events: none;
+
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+
+  padding: 90px 24px 24px;
   animation: modalFadeIn 200ms ease;
 }
-
 @keyframes modalFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
 .modalCard {
-  background: rgba(10, 10, 10, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 16px;
-  width: min(560px, 100%);
-  padding: 32px;
-  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+
+  background: rgba(2, 26, 0, 0.97);
+  border: 1px solid rgba(0, 200, 83, 0.22);
+  border-radius: 18px;
+
+  width: min(1100px, calc(100vw - 48px));
+  max-height: calc(100vh - 120px);
+
+  padding: 24px;
+
+  overflow-y: auto;
+  overscroll-behavior: contain;
+
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.55),
+    0 0 35px rgba(0, 200, 83, 0.08);
+
   color: var(--text-light);
   animation: modalSlideUp 250ms ease;
 }
+  
 
 @keyframes modalSlideUp {
   from { opacity: 0; transform: translateY(16px); }
@@ -2207,5 +2223,34 @@
 
   .footerText {
     font-size: 12px;
+  }
+}
+/* ===== CAL.COM BOOKING MODAL ===== */
+
+.bookingOverlay .modalCard {
+  width: min(1100px, calc(100vw - 48px));
+  max-height: calc(100vh - 120px);
+  background: rgba(2, 26, 0, 0.97);
+  border: 1px solid rgba(0, 200, 83, 0.22);
+}
+
+.bookingOverlay .cal-embed {
+  width: 100%;
+  min-height: 600px;
+}
+
+@media (max-width: 768px) {
+  .modalOverlay {
+    padding: 72px 12px 12px;
+  }
+
+  .bookingOverlay .modalCard {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 90px);
+    padding: 16px;
+  }
+
+  .bookingOverlay .cal-embed {
+    min-height: 650px;
   }
 }
