@@ -53,7 +53,7 @@ export default function Navbar({ onBook }: { onBook: () => void }) {
           </a>
           <button className="btn btnPrimary" type="button" onClick={onBook}>
             <CalendarIcon size={16} />
-            Book Appointment
+            Book a Demo
           </button>
         </div>
       </div>
