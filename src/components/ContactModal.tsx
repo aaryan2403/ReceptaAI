@@ -16,15 +16,23 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="modalOverlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Book a Recepta discovery call"
+     <div
+  className="modalOverlay bookingOverlay"
+  role="dialog"
+  aria-label="Book a Recepta discovery call"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="modalCard" style={{ maxWidth: '1100px', width: '95vw' }}>
+      <div
+        className="modalCard"
+        style={{
+          width: '92vw',
+          maxWidth: '1050px',
+          maxHeight: '90vh',
+          overflow: 'hidden',
+        }}
+      >
         <div className="modalHeader">
           <div className="contactHeading">
             <span className="contactHeadingIcon">
@@ -32,7 +40,10 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
             </span>
 
             <div>
-              <div className="contactTitle">Book a Recepta Discovery Call</div>
+              <div className="contactTitle">
+                Book a Recepta Discovery Call
+              </div>
+
               <div className="contactSubtitle">
                 Choose a time that works for you.
               </div>
@@ -49,16 +60,26 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <iframe
-          src="https://cal.com/recepta/30min?embed=true&theme=dark"
-          title="Recepta Discovery Call"
+        <div
           style={{
+            height: '560px',
             width: '100%',
-            height: '700px',
-            border: '0',
-            borderRadius: '16px',
+            overflow: 'hidden',
+            borderRadius: '14px',
+            background: '#0a0a0a',
           }}
-        />
+        >
+          <iframe
+            src="https://cal.com/recepta/30min?embed=true&theme=dark&layout=month_view"
+            title="Recepta Discovery Call"
+            style={{
+              width: '100%',
+              height: '100%',
+              border: '0',
+              display: 'block',
+            }}
+          />
+        </div>
       </div>
     </div>
   )
