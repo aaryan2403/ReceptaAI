@@ -79,7 +79,7 @@ export default function Hero({ onBook }: { onBook: () => void }) {
           <div className="heroCtas">
             <button className="btn btnPrimary btnLg" type="button" onClick={onBook}>
               <CalendarIcon size={18} />
-              Book Appointment
+              Book a Demo 
             </button>
             <a className="btn btnOutline btnLg" href="#pricing">
               See pricing
@@ -97,7 +97,7 @@ export default function Hero({ onBook }: { onBook: () => void }) {
               </span>
             </span>
             <span className="trustText">
-              AI agents supporting <strong>100+ customers</strong> across home services, clinics, and firms
+               Built for home services, clinics, and professional firms that can't afford to miss calls.
             </span>
           </div>
 
@@ -153,13 +153,13 @@ export default function Hero({ onBook }: { onBook: () => void }) {
           <div className="miniCards">
             <div className="miniCard">
               <TrendingUpIcon size={18} className="miniIcon" />
-              <div className="miniKpi">+18%</div>
-              <div className="miniLabel">More booked jobs</div>
+             <div className="miniKpi">24/7</div>
+<div className="miniLabel">Lead capture</div>
             </div>
             <div className="miniCard">
               <ZapIcon size={18} className="miniIcon" />
-              <div className="miniKpi">&lt;1s</div>
-              <div className="miniLabel">Pickup time</div>
+             <div className="miniKpi">Instant</div>
+<div className="miniLabel">Call answering</div>
             </div>
             <div className="miniCard">
               <ClockIcon size={18} className="miniIcon" />
