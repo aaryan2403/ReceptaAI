@@ -1,8 +1,6 @@
 import { useEffect } from 'react'
 import { CalendarIcon } from './icons'
 
-const BOOKING_URL = 'https://cal.com/recepta/30min'
-
 export default function ContactModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -26,7 +24,7 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="modalCard">
+      <div className="modalCard" style={{ maxWidth: '1100px', width: '95vw' }}>
         <div className="modalHeader">
           <div className="contactHeading">
             <span className="contactHeadingIcon">
@@ -36,7 +34,7 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
             <div>
               <div className="contactTitle">Book a Recepta Discovery Call</div>
               <div className="contactSubtitle">
-                Choose a time that works for you and see how Recepta can help your business.
+                Choose a time that works for you.
               </div>
             </div>
           </div>
@@ -51,25 +49,16 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <div className="modalActions">
-          <button
-            className="btn btnOutline btnLg"
-            type="button"
-            onClick={onClose}
-          >
-            Close
-          </button>
-
-          <a
-            className="btn btnPrimary btnLg"
-            href={BOOKING_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <CalendarIcon size={17} />
-            Choose a Time
-          </a>
-        </div>
+        <iframe
+          src="https://cal.com/recepta/30min?embed=true&theme=dark"
+          title="Recepta Discovery Call"
+          style={{
+            width: '100%',
+            height: '700px',
+            border: '0',
+            borderRadius: '16px',
+          }}
+        />
       </div>
     </div>
   )
