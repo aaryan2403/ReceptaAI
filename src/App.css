@@ -2254,3 +2254,131 @@
     min-height: 650px;
   }
 }
+/* ===== NEW RECEPTA HERO ===== */
+
+.heroNew {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  padding: 120px 0 80px;
+  overflow: hidden;
+}
+
+.heroNewInner {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.heroNewGlow {
+  position: absolute;
+  width: 700px;
+  height: 700px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(0, 200, 83, 0.18) 0%,
+    rgba(0, 200, 83, 0.06) 35%,
+    transparent 70%
+  );
+  filter: blur(20px);
+  pointer-events: none;
+}
+
+.heroNewContent {
+  position: relative;
+  z-index: 1;
+  max-width: 900px;
+  text-align: center;
+}
+
+.heroNewEyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--green);
+  margin-bottom: 22px;
+}
+
+.heroNewTitle {
+  margin: 0;
+  font-size: clamp(88px, 15vw, 190px);
+  line-height: 0.9;
+  letter-spacing: -0.07em;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.heroNewSubtitle {
+  margin: 32px 0 0;
+  font-size: clamp(22px, 3vw, 34px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: #ffffff;
+}
+
+.heroNewDescription {
+  max-width: 650px;
+  margin: 18px auto 0;
+  font-size: 16px;
+  line-height: 1.7;
+  color: rgba(253, 251, 229, 0.62);
+}
+
+.heroNewCtas {
+  margin-top: 34px;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.heroNewProof {
+  margin-top: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(253, 251, 229, 0.45);
+}
+
+.heroProofDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+@media (max-width: 768px) {
+  .heroNew {
+    min-height: 90vh;
+    padding: 100px 0 60px;
+  }
+
+  .heroNewTitle {
+    font-size: clamp(60px, 20vw, 110px);
+  }
+
+  .heroNewSubtitle {
+    font-size: 23px;
+  }
+
+  .heroNewDescription {
+    font-size: 14px;
+    max-width: 90%;
+  }
+
+  .heroNewCtas {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .heroNewCtas .btn {
+    width: 100%;
+  }
+}
