@@ -2382,3 +2382,40 @@
     width: 100%;
   }
 }
+/* ===== MINIMAL NAVBAR ===== */
+
+.navMinimal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.navMinimalInner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.navMinimalActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .navMinimalActions .btn {
+    padding: 9px 12px;
+    font-size: 12px;
+  }
+
+  .navMinimalActions {
+    gap: 8px;
+  }
+}
