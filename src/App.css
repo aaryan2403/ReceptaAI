@@ -2419,3 +2419,151 @@
     gap: 8px;
   }
 }
+/* ===== LOGIN PAGE ===== */
+
+.loginPage {
+  min-height: 100vh;
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 40px 20px;
+  background: #000000;
+  overflow: hidden;
+}
+
+.loginGlow {
+  position: absolute;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(0, 200, 83, 0.18) 0%,
+    rgba(0, 200, 83, 0.06) 40%,
+    transparent 70%
+  );
+  filter: blur(24px);
+  pointer-events: none;
+}
+
+.loginCard {
+  position: relative;
+  z-index: 1;
+  width: min(430px, 100%);
+  padding: 36px;
+  border-radius: 20px;
+  background: rgba(10, 10, 10, 0.94);
+  border: 1px solid rgba(0, 200, 83, 0.18);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.55),
+    0 0 40px rgba(0, 200, 83, 0.05);
+}
+
+.loginBrand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 28px;
+}
+
+.loginLogo {
+  height: 48px;
+  width: auto;
+}
+
+.loginHeading {
+  text-align: center;
+}
+
+.loginHeading h1 {
+  margin: 0;
+  font-size: 30px;
+  color: #ffffff;
+  letter-spacing: -0.03em;
+}
+
+.loginHeading p {
+  margin: 10px 0 0;
+  color: rgba(253, 251, 229, 0.55);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.loginForm {
+  margin-top: 28px;
+  display: grid;
+  gap: 18px;
+}
+
+.loginForm label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(253, 251, 229, 0.78);
+}
+
+.loginForm input {
+  width: 100%;
+  padding: 13px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: #ffffff;
+  font: inherit;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.loginForm input:focus {
+  border-color: rgba(0, 200, 83, 0.55);
+  box-shadow: 0 0 0 3px rgba(0, 200, 83, 0.10);
+}
+
+.loginForm input::placeholder {
+  color: rgba(253, 251, 229, 0.28);
+}
+
+.loginOptions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -4px;
+}
+
+.forgotPassword {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--green);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.loginButton {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.loginHelp {
+  margin: 22px 0 0;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(253, 251, 229, 0.38);
+}
+
+@media (max-width: 480px) {
+  .loginCard {
+    padding: 28px 20px;
+    border-radius: 16px;
+  }
+
+  .loginHeading h1 {
+    font-size: 26px;
+  }
+
+  .loginLogo {
+    height: 42px;
+  }
+}
