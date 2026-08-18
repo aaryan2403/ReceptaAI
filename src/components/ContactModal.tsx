@@ -16,10 +16,10 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-     <div
-  className="modalOverlay bookingOverlay"
-  role="dialog"
-  aria-label="Book a Recepta discovery call"
+      className="modalOverlay bookingOverlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Book a Recepta discovery call"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
