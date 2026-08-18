@@ -1,4 +1,5 @@
-import { FormEvent, useState } from 'react'
+import { useState } from 'react'
+import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { supabase } from '../lib/supabase'
 
@@ -73,7 +74,11 @@ export default function Login() {
 
           <div className="loginOptions">
             <span />
-            <button type="button" className="forgotPassword">
+
+            <button
+              type="button"
+              className="forgotPassword"
+            >
               Forgot password?
             </button>
           </div>
