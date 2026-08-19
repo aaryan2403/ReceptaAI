@@ -10,6 +10,7 @@ import Calls from './pages/Calls.tsx'
 import Appointments from './pages/Appointments.tsx'
 import Agent from './pages/Agent.tsx'
 import Billing from './pages/Billing.tsx'
+import Settings from './pages/Settings.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 
 createRoot(document.getElementById('root')!).render(
@@ -60,6 +61,15 @@ createRoot(document.getElementById('root')!).render(
           element={
             <ProtectedRoute>
               <Billing />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/dashboard/settings"
+          element={
+            <ProtectedRoute>
+              <Settings />
             </ProtectedRoute>
           }
         />
