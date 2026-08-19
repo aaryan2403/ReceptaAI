@@ -10,12 +10,14 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
     setLoading(true)
     setErrorMessage('')
+    setSuccessMessage('')
 
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -29,6 +31,31 @@ export default function Login() {
     }
 
     navigate('/dashboard')
+  }
+
+  const handleForgotPassword = async () => {
+    setErrorMessage('')
+    setSuccessMessage('')
+
+    if (!email) {
+      setErrorMessage('Enter your email first.')
+      return
+    }
+
+    setLoading(true)
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+
+    if (error) {
+      setErrorMessage('Could not send password reset email.')
+      setLoading(false)
+      return
+    }
+
+    setSuccessMessage('Password reset email sent.')
+    setLoading(false)
   }
 
   return (
@@ -78,6 +105,8 @@ export default function Login() {
             <button
               type="button"
               className="forgotPassword"
+              onClick={handleForgotPassword}
+              disabled={loading}
             >
               Forgot password?
             </button>
@@ -89,12 +118,18 @@ export default function Login() {
             </p>
           )}
 
+          {successMessage && (
+            <p className="loginSuccess">
+              {successMessage}
+            </p>
+          )}
+
           <button
             className="btn btnPrimary loginButton"
             type="submit"
             disabled={loading}
           >
-            {loading ? 'Signing in...' : 'Log in'}
+            {loading ? 'Please wait...' : 'Log in'}
           </button>
         </form>
 
