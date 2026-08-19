@@ -10,17 +10,25 @@ export default function Dashboard() {
           <a href="/dashboard" className="dashboardNavItem dashboardNavItemActive">
             Overview
           </a>
+
           <a href="/dashboard/calls" className="dashboardNavItem">
             Calls
           </a>
+
           <a href="/dashboard/appointments" className="dashboardNavItem">
             Appointments
           </a>
+
           <a href="/dashboard/agent" className="dashboardNavItem">
             Agent
           </a>
+
           <a href="/dashboard/billing" className="dashboardNavItem">
             Billing
+          </a>
+
+          <a href="/dashboard/settings" className="dashboardNavItem">
+            Settings
           </a>
         </nav>
       </aside>
@@ -30,12 +38,26 @@ export default function Dashboard() {
           <div>
             <p className="dashboardEyebrow">OVERVIEW</p>
             <h1>Your AI receptionist</h1>
-            <p>Track how Recepta is handling your calls.</p>
+            <p>
+              Track your Recepta receptionist once your onboarding is complete.
+            </p>
           </div>
 
-          <div className="agentLiveBadge">
-            <span />
-            Agent Live
+          <div
+            className="agentLiveBadge"
+            style={{
+              color: '#f5b942',
+              borderColor: 'rgba(245, 185, 66, 0.25)',
+              background: 'rgba(245, 185, 66, 0.08)',
+            }}
+          >
+            <span
+              style={{
+                background: '#f5b942',
+                boxShadow: '0 0 12px rgba(245, 185, 66, 0.6)',
+              }}
+            />
+            Setup in progress
           </div>
         </div>
 
@@ -57,14 +79,23 @@ export default function Dashboard() {
 
           <div className="dashboardStatCard">
             <span>Avg. Call Duration</span>
-            <strong>0m 00s</strong>
+            <strong>—</strong>
           </div>
         </div>
 
         <div className="dashboardEmptyState">
-          <h2>No call activity yet</h2>
+          <h2>Your Recepta setup is underway</h2>
+
           <p>
-            Once your Recepta agent starts handling calls, your activity will appear here automatically.
+            Our team is configuring your business information, call handling
+            rules, appointment preferences, and AI receptionist before your
+            service goes live.
+          </p>
+
+          <p>
+            Once your receptionist is activated and starts handling real calls,
+            your calls, appointments, minutes talked, and call activity will
+            appear here automatically.
           </p>
         </div>
       </section>
