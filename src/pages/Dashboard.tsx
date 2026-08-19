@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 type ClientStatus = 'setup' | 'testing' | 'live' | 'paused'
@@ -9,12 +9,24 @@ type Client = {
   status: ClientStatus
 }
 
+type Call = {
+  duration_seconds: number
+  appointment_booked: boolean
+}
+
+type Appointment = {
+  id: string
+  status: 'booked' | 'cancelled' | 'completed'
+}
+
 export default function Dashboard() {
   const [client, setClient] = useState<Client | null>(null)
+  const [calls, setCalls] = useState<Call[]>([])
+  const [appointments, setAppointments] = useState<Appointment[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const loadClient = async () => {
+    const loadDashboard = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser()
@@ -24,21 +36,68 @@ export default function Dashboard() {
         return
       }
 
-      const { data, error } = await supabase
-        .from('clients')
-        .select('company_name, contact_email, status')
-        .eq('id', user.id)
-        .single()
+      const [
+        { data: clientData },
+        { data: callsData },
+        { data: appointmentsData },
+      ] = await Promise.all([
+        supabase
+          .from('clients')
+          .select('company_name, contact_email, status')
+          .eq('id', user.id)
+          .single(),
 
-      if (!error && data) {
-        setClient(data)
-      }
+        supabase
+          .from('calls')
+          .select('duration_seconds, appointment_booked')
+          .eq('client_id', user.id),
+
+        supabase
+          .from('appointments')
+          .select('id, status')
+          .eq('client_id', user.id),
+      ])
+
+      if (clientData) setClient(clientData)
+      if (callsData) setCalls(callsData)
+      if (appointmentsData) setAppointments(appointmentsData)
 
       setLoading(false)
     }
 
-    loadClient()
+    loadDashboard()
   }, [])
+
+  const stats = useMemo(() => {
+    const callsAnswered = calls.length
+
+    const totalSeconds = calls.reduce(
+      (total, call) => total + (call.duration_seconds || 0),
+      0
+    )
+
+    const minutesTalked = Math.round(totalSeconds / 60)
+
+    const averageSeconds =
+      callsAnswered > 0 ? Math.round(totalSeconds / callsAnswered) : 0
+
+    const averageMinutes = Math.floor(averageSeconds / 60)
+    const averageRemainingSeconds = averageSeconds % 60
+
+    const appointmentsBooked = appointments.filter(
+      (appointment) => appointment.status === 'booked'
+    ).length
+
+    return {
+      callsAnswered,
+      appointmentsBooked,
+      minutesTalked,
+      averageDuration:
+        callsAnswered > 0
+          ? `${averageMinutes}m ${String(averageRemainingSeconds).padStart(2, '0')}s`
+          : '—',
+    }
+  }, [calls, appointments])
 
   const getStatusInfo = () => {
     switch (client?.status) {
@@ -85,14 +144,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <main className="dashboardPage">
-        <section
-          className="dashboardMain"
-          style={{
-            display: 'grid',
-            placeItems: 'center',
-            minHeight: '100vh',
-          }}
-        >
+        <section className="dashboardMain">
           Loading your Recepta dashboard...
         </section>
       </main>
@@ -107,10 +159,7 @@ export default function Dashboard() {
         </a>
 
         <nav className="dashboardNav">
-          <a
-            href="/dashboard"
-            className="dashboardNavItem dashboardNavItemActive"
-          >
+          <a href="/dashboard" className="dashboardNavItem dashboardNavItemActive">
             Overview
           </a>
 
@@ -141,13 +190,9 @@ export default function Dashboard() {
           <div>
             <p className="dashboardEyebrow">OVERVIEW</p>
 
-            <h1>
-              {client?.company_name || 'Your AI receptionist'}
-            </h1>
+            <h1>{client?.company_name || 'Your AI receptionist'}</h1>
 
-            <p>
-              Track how Recepta is handling your customer calls.
-            </p>
+            <p>Track how Recepta is handling your customer calls.</p>
           </div>
 
           <div
@@ -164,7 +209,6 @@ export default function Dashboard() {
                 boxShadow: `0 0 12px ${status.shadow}`,
               }}
             />
-
             {status.label}
           </div>
         </div>
@@ -172,32 +216,37 @@ export default function Dashboard() {
         <div className="dashboardStats">
           <div className="dashboardStatCard">
             <span>Calls Answered</span>
-            <strong>0</strong>
+            <strong>{stats.callsAnswered}</strong>
           </div>
 
           <div className="dashboardStatCard">
             <span>Appointments Booked</span>
-            <strong>0</strong>
+            <strong>{stats.appointmentsBooked}</strong>
           </div>
 
           <div className="dashboardStatCard">
             <span>Minutes Talked</span>
-            <strong>0 min</strong>
+            <strong>{stats.minutesTalked} min</strong>
           </div>
 
           <div className="dashboardStatCard">
             <span>Avg. Call Duration</span>
-            <strong>—</strong>
+            <strong>{stats.averageDuration}</strong>
           </div>
         </div>
 
         {client?.status === 'live' ? (
           <div className="dashboardEmptyState">
-            <h2>No call activity yet</h2>
+            <h2>
+              {calls.length === 0
+                ? 'No call activity yet'
+                : 'Your receptionist is working'}
+            </h2>
 
             <p>
-              Your Recepta receptionist is live. Once calls begin coming in,
-              your activity and performance will automatically appear here.
+              {calls.length === 0
+                ? 'Your Recepta receptionist is live. Once calls begin coming in, your activity will automatically appear here.'
+                : 'Your dashboard is now showing real activity from your Recepta receptionist.'}
             </p>
           </div>
         ) : (
@@ -211,8 +260,7 @@ export default function Dashboard() {
 
             <p>
               Once your receptionist is activated, calls, appointments,
-              minutes talked, and performance data will appear here
-              automatically.
+              minutes talked, and performance data will appear here automatically.
             </p>
           </div>
         )}
