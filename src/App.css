@@ -2761,3 +2761,9 @@
     font-size: 28px;
   }
 }
+.loginSuccess {
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: var(--green);
+  text-align: center;
+}
