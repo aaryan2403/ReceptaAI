@@ -1,19 +1,21 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-type ClientStatus = 'setup' | 'testing' | 'live' | 'paused'
+type AgentStatus = 'setup' | 'testing' | 'live' | 'paused'
 
-type Client = {
-  company_name: string | null
-  status: ClientStatus
+type AgentRecord = {
+  agent_name: string | null
+  phone_number: string | null
+  business_hours: string | null
+  status: AgentStatus
 }
 
 export default function Agent() {
-  const [client, setClient] = useState<Client | null>(null)
+  const [agent, setAgent] = useState<AgentRecord | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const loadClient = async () => {
+    const loadAgent = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser()
@@ -24,23 +26,23 @@ export default function Agent() {
       }
 
       const { data, error } = await supabase
-        .from('clients')
-        .select('company_name, status')
-        .eq('id', user.id)
-        .single()
+        .from('agents')
+        .select('agent_name, phone_number, business_hours, status')
+        .eq('client_id', user.id)
+        .maybeSingle()
 
       if (!error && data) {
-        setClient(data)
+        setAgent(data)
       }
 
       setLoading(false)
     }
 
-    loadClient()
+    loadAgent()
   }, [])
 
   const getStatusInfo = () => {
-    switch (client?.status) {
+    switch (agent?.status) {
       case 'live':
         return {
           label: 'Agent Live',
@@ -84,14 +86,7 @@ export default function Agent() {
   if (loading) {
     return (
       <main className="dashboardPage">
-        <section
-          className="dashboardMain"
-          style={{
-            display: 'grid',
-            placeItems: 'center',
-            minHeight: '100vh',
-          }}
-        >
+        <section className="dashboardMain">
           Loading agent...
         </section>
       </main>
@@ -139,7 +134,7 @@ export default function Agent() {
         <div className="dashboardHeader">
           <div>
             <p className="dashboardEyebrow">YOUR AGENT</p>
-            <h1>{client?.company_name || 'AI Receptionist'}</h1>
+            <h1>{agent?.agent_name || 'AI Receptionist'}</h1>
             <p>
               View the status and configuration of your Recepta receptionist.
             </p>
@@ -164,27 +159,42 @@ export default function Agent() {
           </div>
         </div>
 
+        <div className="dashboardStats">
+          <div className="dashboardStatCard">
+            <span>Agent Name</span>
+            <strong>{agent?.agent_name || 'Not assigned'}</strong>
+          </div>
+
+          <div className="dashboardStatCard">
+            <span>Phone Number</span>
+            <strong>{agent?.phone_number || 'Not assigned'}</strong>
+          </div>
+
+          <div className="dashboardStatCard">
+            <span>Business Hours</span>
+            <strong>{agent?.business_hours || 'Not configured'}</strong>
+          </div>
+
+          <div className="dashboardStatCard">
+            <span>Status</span>
+            <strong>{status.label}</strong>
+          </div>
+        </div>
+
         <div className="dashboardEmptyState">
-          {client?.status === 'live' ? (
+          {agent?.status === 'live' ? (
             <>
               <h2>Your receptionist is live</h2>
               <p>
-                Your Recepta receptionist is active and ready to handle customer calls.
-              </p>
-              <p>
-                Phone number, business hours, calendar status, and usage details will appear here as we connect your live agent data.
+                Recepta is active and ready to handle customer calls.
               </p>
             </>
           ) : (
             <>
-              <h2>We're building your receptionist</h2>
+              <h2>Your receptionist is being prepared</h2>
               <p>
-                Our team is configuring your business information, call handling rules,
-                appointment preferences, and AI receptionist before your service goes live.
-              </p>
-              <p>
-                Once setup is complete, your agent status, business phone number,
-                operating hours, and other information will appear here.
+                We’re configuring your business details, call rules, appointment
+                preferences, and phone setup before your receptionist goes live.
               </p>
             </>
           )}
