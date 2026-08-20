@@ -12,7 +12,10 @@ import Agent from './pages/Agent.tsx'
 import Billing from './pages/Billing.tsx'
 import Settings from './pages/Settings.tsx'
 import ResetPassword from './pages/ResetPassword.tsx'
+import Admin from './pages/Admin.tsx'
+
 import ProtectedRoute from './components/ProtectedRoute.tsx'
+import AdminRoute from './components/AdminRoute.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -73,6 +76,15 @@ createRoot(document.getElementById('root')!).render(
             <ProtectedRoute>
               <Settings />
             </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin"
+          element={
+            <AdminRoute>
+              <Admin />
+            </AdminRoute>
           }
         />
       </Routes>
