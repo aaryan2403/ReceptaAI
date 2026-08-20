@@ -22,6 +22,12 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
     >
       <div
         className="modalCard bookingModalCard"
+        style={{
+          width: '92vw',
+          maxWidth: '960px',
+          maxHeight: '90vh',
+          overflow: 'hidden',
+        }}
       >
         <div className="modalHeader">
           <div className="contactHeading">
@@ -50,11 +56,27 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <div className="bookingCalendarWrap">
+        <div
+          className="bookingCalendarWrap"
+          style={{
+            width: '100%',
+            height: '530px',
+            minHeight: '450px',
+            overflow: 'hidden',
+            borderRadius: '14px',
+            background: '#050806',
+          }}
+        >
           <iframe
             src="https://cal.com/recepta/30min?embed=true&theme=dark&layout=month_view"
             title="Recepta Discovery Call"
             className="bookingCalendar"
+            style={{
+              width: '100%',
+              height: '100%',
+              border: '0',
+              display: 'block',
+            }}
           />
         </div>
       </div>
