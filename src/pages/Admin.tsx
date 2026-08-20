@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import OnboardingForm from '../components/OnboardingForm'
 
 type ClientStatus = 'setup' | 'testing' | 'live' | 'paused'
 
@@ -152,8 +153,8 @@ export default function Admin() {
             <p className="dashboardEyebrow">NEW CLIENT</p>
             <h2>Add Client</h2>
             <p>
-              Create a Recepta account after the customer has completed your
-              sales and onboarding process.
+              Create a Recepta account after the customer has completed
+              your sales process.
             </p>
           </div>
 
@@ -292,9 +293,7 @@ export default function Admin() {
                 <div className="callMeta">
                   <span>
                     Added:{' '}
-                    {new Date(
-                      client.created_at
-                    ).toLocaleDateString()}
+                    {new Date(client.created_at).toLocaleDateString()}
                   </span>
                 </div>
 
@@ -350,6 +349,11 @@ export default function Admin() {
                     Pause
                   </button>
                 </div>
+
+                <OnboardingForm
+                  clientId={client.id}
+                  companyName={client.company_name || 'Client'}
+                />
               </div>
             ))}
           </div>
