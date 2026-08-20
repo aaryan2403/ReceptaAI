@@ -12,6 +12,82 @@ export default async (request: Request) => {
   }
 
   try {
+    const supabaseUrl = process.env.SUPABASE_URL
+    const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY
+
+    if (!supabaseUrl || !supabaseSecretKey) {
+      return new Response(
+        JSON.stringify({
+          error: 'Server configuration is missing.',
+        }),
+        {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const authHeader = request.headers.get('authorization')
+
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const accessToken = authHeader.replace('Bearer ', '')
+
+    const adminSupabase = createClient(
+      supabaseUrl,
+      supabaseSecretKey,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }
+    )
+
+    const {
+      data: { user },
+      error: userError,
+    } = await adminSupabase.auth.getUser(accessToken)
+
+    if (userError || !user) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const { data: requester, error: roleError } =
+      await adminSupabase
+        .from('clients')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+    if (
+      roleError ||
+      !requester ||
+      requester.role !== 'admin'
+    ) {
+      return new Response(
+        JSON.stringify({ error: 'Admin access required' }),
+        {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
     const body = await request.json()
 
     const {
@@ -34,45 +110,21 @@ export default async (request: Request) => {
       )
     }
 
-    const supabaseUrl = process.env.SUPABASE_URL
-    const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY
-
-    if (!supabaseUrl || !supabaseSecretKey) {
-      return new Response(
-        JSON.stringify({
-          error: 'Server configuration is missing.',
-        }),
-        {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
-    const adminSupabase = createClient(
-      supabaseUrl,
-      supabaseSecretKey,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      }
-    )
-
     const {
-      data: { user },
-      error: userError,
+      data: { user: newUser },
+      error: createUserError,
     } = await adminSupabase.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
     })
 
-    if (userError || !user) {
+    if (createUserError || !newUser) {
       return new Response(
         JSON.stringify({
-          error: userError?.message || 'Could not create user.',
+          error:
+            createUserError?.message ||
+            'Could not create user.',
         }),
         {
           status: 400,
@@ -84,7 +136,7 @@ export default async (request: Request) => {
     const { error: clientError } = await adminSupabase
       .from('clients')
       .insert({
-        id: user.id,
+        id: newUser.id,
         company_name: companyName,
         contact_email: email,
         status: 'setup',
@@ -92,12 +144,10 @@ export default async (request: Request) => {
       })
 
     if (clientError) {
-      await adminSupabase.auth.admin.deleteUser(user.id)
+      await adminSupabase.auth.admin.deleteUser(newUser.id)
 
       return new Response(
-        JSON.stringify({
-          error: clientError.message,
-        }),
+        JSON.stringify({ error: clientError.message }),
         {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -108,7 +158,7 @@ export default async (request: Request) => {
     const { error: agentError } = await adminSupabase
       .from('agents')
       .insert({
-        client_id: user.id,
+        client_id: newUser.id,
         agent_name: `${companyName} Receptionist`,
         business_hours: 'Not configured',
         status: 'setup',
@@ -116,9 +166,7 @@ export default async (request: Request) => {
 
     if (agentError) {
       return new Response(
-        JSON.stringify({
-          error: agentError.message,
-        }),
+        JSON.stringify({ error: agentError.message }),
         {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -127,14 +175,15 @@ export default async (request: Request) => {
     }
 
     if (planName && monthlyPrice) {
-      const { error: subscriptionError } = await adminSupabase
-        .from('subscriptions')
-        .insert({
-          client_id: user.id,
-          plan_name: planName,
-          monthly_price: monthlyPrice,
-          status: 'pending',
-        })
+      const { error: subscriptionError } =
+        await adminSupabase
+          .from('subscriptions')
+          .insert({
+            client_id: newUser.id,
+            plan_name: planName,
+            monthly_price: monthlyPrice,
+            status: 'pending',
+          })
 
       if (subscriptionError) {
         return new Response(
@@ -152,7 +201,7 @@ export default async (request: Request) => {
     return new Response(
       JSON.stringify({
         success: true,
-        userId: user.id,
+        userId: newUser.id,
       }),
       {
         status: 200,
