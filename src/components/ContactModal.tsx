@@ -18,20 +18,10 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
     <div
       className="modalOverlay bookingOverlay"
       role="dialog"
-      aria-modal="true"
       aria-label="Book a Recepta discovery call"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
     >
       <div
-        className="modalCard"
-        style={{
-          width: '92vw',
-          maxWidth: '1050px',
-          maxHeight: '90vh',
-          overflow: 'hidden',
-        }}
+        className="modalCard bookingModalCard"
       >
         <div className="modalHeader">
           <div className="contactHeading">
@@ -60,24 +50,11 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <div
-          style={{
-            height: '560px',
-            width: '100%',
-            overflow: 'hidden',
-            borderRadius: '14px',
-            background: '#0a0a0a',
-          }}
-        >
+        <div className="bookingCalendarWrap">
           <iframe
             src="https://cal.com/recepta/30min?embed=true&theme=dark&layout=month_view"
             title="Recepta Discovery Call"
-            style={{
-              width: '100%',
-              height: '100%',
-              border: '0',
-              display: 'block',
-            }}
+            className="bookingCalendar"
           />
         </div>
       </div>
