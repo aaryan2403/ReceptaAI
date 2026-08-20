@@ -16,6 +16,16 @@ export default function Admin() {
   const [loading, setLoading] = useState(true)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
 
+  const [companyName, setCompanyName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [planName, setPlanName] = useState('Recepta Pro')
+  const [monthlyPrice, setMonthlyPrice] = useState('300')
+
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState('')
+  const [createSuccess, setCreateSuccess] = useState('')
+
   const loadClients = async () => {
     const { data, error } = await supabase
       .from('clients')
@@ -57,6 +67,54 @@ export default function Admin() {
     setUpdatingId(null)
   }
 
+  const handleCreateClient = async (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault()
+
+    setCreating(true)
+    setCreateError('')
+    setCreateSuccess('')
+
+    try {
+      const response = await fetch('/.netlify/functions/create-client', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          companyName,
+          email,
+          password,
+          planName,
+          monthlyPrice: Number(monthlyPrice),
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        setCreateError(result.error || 'Could not create client.')
+        setCreating(false)
+        return
+      }
+
+      setCreateSuccess('Client created successfully.')
+
+      setCompanyName('')
+      setEmail('')
+      setPassword('')
+      setPlanName('Recepta Pro')
+      setMonthlyPrice('300')
+
+      await loadClients()
+    } catch {
+      setCreateError('Could not connect to the server.')
+    }
+
+    setCreating(false)
+  }
+
   return (
     <main className="dashboardPage">
       <aside className="dashboardSidebar">
@@ -84,9 +142,122 @@ export default function Admin() {
             <p className="dashboardEyebrow">ADMIN</p>
             <h1>Client Management</h1>
             <p>
-              Manage client onboarding and agent status.
+              Create clients, manage onboarding, and control agent status.
             </p>
           </div>
+        </div>
+
+        <div className="adminCreateCard">
+          <div>
+            <p className="dashboardEyebrow">NEW CLIENT</p>
+            <h2>Add Client</h2>
+            <p>
+              Create a Recepta account after the customer has completed your
+              sales and onboarding process.
+            </p>
+          </div>
+
+          <form
+            className="adminCreateForm"
+            onSubmit={handleCreateClient}
+          >
+            <label>
+              Company Name
+              <input
+                type="text"
+                value={companyName}
+                onChange={(event) =>
+                  setCompanyName(event.target.value)
+                }
+                placeholder="ABC Plumbing"
+                required
+              />
+            </label>
+
+            <label>
+              Client Email
+              <input
+                type="email"
+                value={email}
+                onChange={(event) =>
+                  setEmail(event.target.value)
+                }
+                placeholder="owner@company.com"
+                required
+              />
+            </label>
+
+            <label>
+              Temporary Password
+              <input
+                type="password"
+                value={password}
+                onChange={(event) =>
+                  setPassword(event.target.value)
+                }
+                placeholder="Minimum 8 characters"
+                minLength={8}
+                required
+              />
+            </label>
+
+            <label>
+              Plan
+              <select
+                value={planName}
+                onChange={(event) =>
+                  setPlanName(event.target.value)
+                }
+              >
+                <option value="Recepta Standard">
+                  Recepta Standard
+                </option>
+
+                <option value="Recepta Pro">
+                  Recepta Pro
+                </option>
+              </select>
+            </label>
+
+            <label>
+              Monthly Price
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={monthlyPrice}
+                onChange={(event) =>
+                  setMonthlyPrice(event.target.value)
+                }
+                required
+              />
+            </label>
+
+            {createError && (
+              <p className="loginError">
+                {createError}
+              </p>
+            )}
+
+            {createSuccess && (
+              <p className="loginSuccess">
+                {createSuccess}
+              </p>
+            )}
+
+            <button
+              className="btn btnPrimary"
+              type="submit"
+              disabled={creating}
+            >
+              {creating ? 'Creating Client...' : 'Create Client'}
+            </button>
+          </form>
+        </div>
+
+        <div style={{ marginTop: '36px' }}>
+          <p className="dashboardEyebrow">CLIENTS</p>
+          <h2>Current Clients</h2>
         </div>
 
         {loading ? (
