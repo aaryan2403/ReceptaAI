@@ -78,11 +78,22 @@ export default function Admin() {
     setCreateSuccess('')
 
     try {
-      const response = await fetch('/.netlify/functions/create-client', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      const {
+  data: { session },
+} = await supabase.auth.getSession()
+
+if (!session) {
+  setCreateError('You are not logged in.')
+  setCreating(false)
+  return
+}
+
+const response = await fetch('/.netlify/functions/create-client', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session.access_token}`,
+  },
         body: JSON.stringify({
           companyName,
           email,
