@@ -13,8 +13,8 @@ export default function PreloadGate({ children }: PreloadGateProps) {
 
   useEffect(() => {
     let isFinished = false
-    const minVisibleMs = 900
-    const exitMs = 420
+    const minVisibleMs = 1200
+    const exitMs = 500
     const start = performance.now()
 
     const finish = () => {
@@ -26,7 +26,10 @@ export default function PreloadGate({ children }: PreloadGateProps) {
 
       window.setTimeout(() => {
         setIsExiting(true)
-        window.setTimeout(() => setIsDone(true), exitMs)
+
+        window.setTimeout(() => {
+          setIsDone(true)
+        }, exitMs)
       }, remaining)
     }
 
@@ -37,31 +40,53 @@ export default function PreloadGate({ children }: PreloadGateProps) {
       animInstance = lottie.loadAnimation({
         container: animContainer,
         renderer: 'svg',
-        loop: false,
+        loop: true,
         autoplay: true,
         path: '/components/BlobLoad.json',
         rendererSettings: {
           preserveAspectRatio: 'xMidYMid meet',
         },
       })
-
-      animInstance.addEventListener('complete', finish)
     }
 
-    const fallbackTimer = window.setTimeout(() => finish(), 7000)
+    const finishTimer = window.setTimeout(() => {
+      finish()
+    }, 1600)
 
     return () => {
-      window.clearTimeout(fallbackTimer)
-      animInstance?.removeEventListener('complete', finish)
+      window.clearTimeout(finishTimer)
       animInstance?.destroy()
     }
   }, [])
 
-  if (isDone) return <>{children}</>
+  if (isDone) {
+    return <>{children}</>
+  }
 
   return (
     <div className={isExiting ? 'preload preload--exit' : 'preload'}>
-      <div ref={animRef} className="preloadAnim" aria-hidden />
+      <div className="preloadGlow" />
+
+      <div className="preloadContent">
+        <div
+          ref={animRef}
+          className="preloadAnim"
+          aria-hidden="true"
+        />
+
+        <div className="preloadBrand">
+          RECEPTA
+        </div>
+
+        <div className="preloadTagline">
+          AI RECEPTIONIST
+        </div>
+
+        <div className="preloadStatus">
+          <span className="preloadStatusDot" />
+          Preparing your workspace
+        </div>
+      </div>
     </div>
   )
 }
