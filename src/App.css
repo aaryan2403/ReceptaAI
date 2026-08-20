@@ -3434,3 +3434,151 @@
     min-height: 120px;
   }
 }
+/* ===== CLIENT ONBOARDING PROGRESS ===== */
+
+.onboardingProgressCard {
+  position: relative;
+  z-index: 1;
+  margin-top: 24px;
+  padding: 28px;
+  border-radius: 20px;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(245, 185, 66, 0.08),
+      transparent 30%
+    ),
+    linear-gradient(
+      145deg,
+      rgba(14, 24, 17, 0.98),
+      rgba(7, 13, 9, 0.98)
+    );
+  border: 1px solid rgba(245, 185, 66, 0.12);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.20);
+}
+
+.onboardingProgressHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.onboardingProgressHead h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.025em;
+  color: #ffffff;
+}
+
+.onboardingProgressHead p:last-child {
+  margin: 8px 0 0;
+  color: rgba(235, 244, 238, 0.48);
+  font-size: 13px;
+}
+
+.onboardingProgressPercent {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #f5b942;
+}
+
+.onboardingProgressBar {
+  height: 8px;
+  margin-top: 24px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.onboardingProgressFill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    #00e676,
+    #f5b942
+  );
+  box-shadow: 0 0 18px rgba(0, 230, 118, 0.20);
+  transition: width 300ms ease;
+}
+
+.onboardingSteps {
+  margin-top: 26px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.onboardingStep {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 15px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.onboardingStep > span {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(235, 244, 238, 0.38);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.onboardingStep strong {
+  display: block;
+  font-size: 12px;
+  color: rgba(235, 244, 238, 0.72);
+}
+
+.onboardingStep small {
+  display: block;
+  margin-top: 5px;
+  color: rgba(235, 244, 238, 0.34);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.onboardingStep--done {
+  border-color: rgba(0, 230, 118, 0.11);
+}
+
+.onboardingStep--done > span {
+  background: rgba(0, 230, 118, 0.11);
+  color: #00e676;
+}
+
+.onboardingStep--active {
+  border-color: rgba(245, 185, 66, 0.16);
+  background: rgba(245, 185, 66, 0.03);
+}
+
+.onboardingStep--active > span {
+  background: rgba(245, 185, 66, 0.11);
+  color: #f5b942;
+}
+
+@media (max-width: 900px) {
+  .onboardingSteps {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .onboardingProgressHead {
+    flex-direction: column;
+  }
+
+  .onboardingSteps {
+    grid-template-columns: 1fr;
+  }
+}
