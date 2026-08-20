@@ -39,7 +39,7 @@ export default function Billing() {
     loadSubscription()
   }, [])
 
-  const getStatusLabel = () => {
+  const statusLabel = () => {
     switch (subscription?.status) {
       case 'active':
         return 'Active'
@@ -48,7 +48,7 @@ export default function Billing() {
       case 'cancelled':
         return 'Cancelled'
       default:
-        return 'Billing Setup Pending'
+        return 'Setup Pending'
     }
   }
 
@@ -63,26 +63,21 @@ export default function Billing() {
           <a href="/dashboard" className="dashboardNavItem">
             Overview
           </a>
-
           <a href="/dashboard/calls" className="dashboardNavItem">
             Calls
           </a>
-
           <a href="/dashboard/appointments" className="dashboardNavItem">
             Appointments
           </a>
-
           <a href="/dashboard/agent" className="dashboardNavItem">
             Agent
           </a>
-
           <a
             href="/dashboard/billing"
             className="dashboardNavItem dashboardNavItemActive"
           >
             Billing
           </a>
-
           <a href="/dashboard/settings" className="dashboardNavItem">
             Settings
           </a>
@@ -93,51 +88,96 @@ export default function Billing() {
         <div className="dashboardHeader">
           <div>
             <p className="dashboardEyebrow">BILLING</p>
-            <h1>Billing & Plan</h1>
-            <p>View your Recepta subscription and payment status.</p>
+            <h1>Your Recepta plan</h1>
+            <p>Manage your subscription and billing details.</p>
           </div>
         </div>
 
         {loading ? (
           <div className="dashboardEmptyState">
-            <p>Loading billing information...</p>
+            <p>Loading billing...</p>
           </div>
         ) : subscription ? (
-          <div className="dashboardStats">
-            <div className="dashboardStatCard">
-              <span>Current Plan</span>
-              <strong>{subscription.plan_name || 'Not assigned'}</strong>
+          <div className="billingLayout">
+            <div className="billingHeroCard">
+              <div className="billingPlanTop">
+                <div>
+                  <span className="billingLabel">CURRENT PLAN</span>
+
+                  <h2>
+                    {subscription.plan_name || 'Recepta Pro'}
+                  </h2>
+                </div>
+
+                <span
+                  className={`billingStatus billingStatus--${subscription.status}`}
+                >
+                  {statusLabel()}
+                </span>
+              </div>
+
+              <div className="billingPrice">
+                <strong>
+                  {subscription.monthly_price !== null
+                    ? `$${subscription.monthly_price.toFixed(0)}`
+                    : '—'}
+                </strong>
+
+                <span>/ month</span>
+              </div>
+
+              <p className="billingPlanDescription">
+                Your AI receptionist, managed and configured by Recepta.
+              </p>
+
+              <div className="billingFeatures">
+                <span>✓ 24/7 AI call answering</span>
+                <span>✓ Appointment booking</span>
+                <span>✓ Call summaries & analytics</span>
+                <span>✓ Human handoff</span>
+                <span>✓ Managed onboarding & configuration</span>
+              </div>
+
+              <button className="btn btnPrimary billingManageButton">
+                Manage Billing
+              </button>
             </div>
 
-            <div className="dashboardStatCard">
-              <span>Monthly Price</span>
-              <strong>
-                {subscription.monthly_price !== null
-                  ? `$${subscription.monthly_price.toFixed(2)}`
-                  : '—'}
-              </strong>
-            </div>
+            <div className="billingSideGrid">
+              <div className="billingInfoCard">
+                <span>Next Billing Date</span>
+                <strong>
+                  {subscription.next_billing_date
+                    ? new Date(
+                        subscription.next_billing_date
+                      ).toLocaleDateString()
+                    : 'Not scheduled'}
+                </strong>
+              </div>
 
-            <div className="dashboardStatCard">
-              <span>Payment Status</span>
-              <strong>{getStatusLabel()}</strong>
-            </div>
+              <div className="billingInfoCard">
+                <span>Payment Status</span>
+                <strong>{statusLabel()}</strong>
+              </div>
 
-            <div className="dashboardStatCard">
-              <span>Next Billing Date</span>
-              <strong>
-                {subscription.next_billing_date
-                  ? new Date(subscription.next_billing_date).toLocaleDateString()
-                  : '—'}
-              </strong>
+              <div className="billingInfoCard">
+                <span>Billing Cycle</span>
+                <strong>Monthly</strong>
+              </div>
+
+              <div className="billingInfoCard">
+                <span>Support</span>
+                <strong>Managed by Recepta</strong>
+              </div>
             </div>
           </div>
         ) : (
           <div className="dashboardEmptyState">
             <h2>Billing setup pending</h2>
+
             <p>
-              Your Recepta plan will appear here once onboarding and payment setup
-              are completed.
+              Your subscription details will appear here once your onboarding
+              and payment setup are completed.
             </p>
           </div>
         )}
