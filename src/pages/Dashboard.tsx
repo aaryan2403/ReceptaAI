@@ -104,19 +104,19 @@ export default function Dashboard() {
       case 'live':
         return {
           label: 'Agent Live',
-          color: '#00c853',
-          background: 'rgba(0, 200, 83, 0.10)',
-          border: 'rgba(0, 200, 83, 0.20)',
-          shadow: 'rgba(0, 200, 83, 0.7)',
+          color: '#00e676',
+          background: 'rgba(0, 230, 118, 0.10)',
+          border: 'rgba(0, 230, 118, 0.20)',
+          shadow: 'rgba(0, 230, 118, 0.7)',
         }
 
       case 'testing':
         return {
           label: 'Agent Testing',
-          color: '#3da5ff',
-          background: 'rgba(61, 165, 255, 0.10)',
-          border: 'rgba(61, 165, 255, 0.20)',
-          shadow: 'rgba(61, 165, 255, 0.7)',
+          color: '#58b7ff',
+          background: 'rgba(88, 183, 255, 0.10)',
+          border: 'rgba(88, 183, 255, 0.20)',
+          shadow: 'rgba(88, 183, 255, 0.7)',
         }
 
       case 'paused':
@@ -140,6 +140,15 @@ export default function Dashboard() {
   }
 
   const status = getStatusInfo()
+
+  const onboardingStep =
+    client?.status === 'live'
+      ? 4
+      : client?.status === 'testing'
+      ? 3
+      : client?.status === 'paused'
+      ? 3
+      : 2
 
   if (loading) {
     return (
@@ -209,6 +218,7 @@ export default function Dashboard() {
                 boxShadow: `0 0 12px ${status.shadow}`,
               }}
             />
+
             {status.label}
           </div>
         </div>
@@ -235,32 +245,83 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {client?.status === 'live' ? (
+        {client?.status !== 'live' && (
+          <div className="onboardingProgressCard">
+            <div className="onboardingProgressHead">
+              <div>
+                <p className="dashboardEyebrow">ONBOARDING</p>
+                <h2>Your Recepta is being prepared</h2>
+                <p>
+                  Our team is configuring and testing your receptionist before it goes live.
+                </p>
+              </div>
+
+              <span className="onboardingProgressPercent">
+                {onboardingStep === 2 ? '50%' : '75%'}
+              </span>
+            </div>
+
+            <div className="onboardingProgressBar">
+              <div
+                className="onboardingProgressFill"
+                style={{
+                  width: onboardingStep === 2 ? '50%' : '75%',
+                }}
+              />
+            </div>
+
+            <div className="onboardingSteps">
+              <div className="onboardingStep onboardingStep--done">
+                <span>✓</span>
+                <div>
+                  <strong>Account created</strong>
+                  <small>Your Recepta workspace is ready.</small>
+                </div>
+              </div>
+
+              <div className="onboardingStep onboardingStep--done">
+                <span>✓</span>
+                <div>
+                  <strong>Business configuration</strong>
+                  <small>Your call rules and business details are being prepared.</small>
+                </div>
+              </div>
+
+              <div
+                className={`onboardingStep ${
+                  onboardingStep >= 3 ? 'onboardingStep--done' : 'onboardingStep--active'
+                }`}
+              >
+                <span>{onboardingStep >= 3 ? '✓' : '3'}</span>
+                <div>
+                  <strong>Agent testing</strong>
+                  <small>We test calls, bookings, transfers, and edge cases.</small>
+                </div>
+              </div>
+
+              <div className="onboardingStep">
+                <span>4</span>
+                <div>
+                  <strong>Go live</strong>
+                  <small>Your receptionist starts handling real customer calls.</small>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {client?.status === 'live' && (
           <div className="dashboardEmptyState">
             <h2>
               {calls.length === 0
-                ? 'No call activity yet'
+                ? 'Your receptionist is live'
                 : 'Your receptionist is working'}
             </h2>
 
             <p>
               {calls.length === 0
-                ? 'Your Recepta receptionist is live. Once calls begin coming in, your activity will automatically appear here.'
+                ? 'Recepta is ready to handle customer calls. Your dashboard will populate automatically as calls come in.'
                 : 'Your dashboard is now showing real activity from your Recepta receptionist.'}
-            </p>
-          </div>
-        ) : (
-          <div className="dashboardEmptyState">
-            <h2>Your Recepta setup is underway</h2>
-
-            <p>
-              Our team is configuring your business information, call handling
-              rules, appointment preferences, and AI receptionist.
-            </p>
-
-            <p>
-              Once your receptionist is activated, calls, appointments,
-              minutes talked, and performance data will appear here automatically.
             </p>
           </div>
         )}
