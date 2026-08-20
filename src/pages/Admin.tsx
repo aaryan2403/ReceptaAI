@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import OnboardingForm from '../components/OnboardingForm'
 
@@ -50,26 +51,39 @@ export default function Admin() {
   ) => {
     setUpdatingId(clientId)
 
-    const { error } = await supabase
+    const { error: clientError } = await supabase
       .from('clients')
       .update({ status })
       .eq('id', clientId)
 
-    if (!error) {
-      setClients((current) =>
-        current.map((client) =>
-          client.id === clientId
-            ? { ...client, status }
-            : client
-        )
-      )
+    if (clientError) {
+      setUpdatingId(null)
+      return
     }
+
+    const { error: agentError } = await supabase
+      .from('agents')
+      .update({ status })
+      .eq('client_id', clientId)
+
+    if (agentError) {
+      setUpdatingId(null)
+      return
+    }
+
+    setClients((current) =>
+      current.map((client) =>
+        client.id === clientId
+          ? { ...client, status }
+          : client
+      )
+    )
 
     setUpdatingId(null)
   }
 
   const handleCreateClient = async (
-    event: React.FormEvent<HTMLFormElement>
+    event: FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault()
 
@@ -79,21 +93,21 @@ export default function Admin() {
 
     try {
       const {
-  data: { session },
-} = await supabase.auth.getSession()
+        data: { session },
+      } = await supabase.auth.getSession()
 
-if (!session) {
-  setCreateError('You are not logged in.')
-  setCreating(false)
-  return
-}
+      if (!session) {
+        setCreateError('You are not logged in.')
+        setCreating(false)
+        return
+      }
 
-const response = await fetch('/.netlify/functions/create-client', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${session.access_token}`,
-  },
+      const response = await fetch('/.netlify/functions/create-client', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({
           companyName,
           email,
