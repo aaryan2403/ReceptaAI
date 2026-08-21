@@ -13,6 +13,7 @@ import Billing from './pages/Billing.tsx'
 import Settings from './pages/Settings.tsx'
 import ResetPassword from './pages/ResetPassword.tsx'
 import Admin from './pages/Admin.tsx'
+import AdminClient from './pages/AdminClient.tsx'
 
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import AdminRoute from './components/AdminRoute.tsx'
@@ -21,10 +22,12 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
+        {/* PUBLIC */}
         <Route path="/" element={<App />} />
         <Route path="/login" element={<Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />
 
+        {/* CLIENT DASHBOARD */}
         <Route
           path="/dashboard"
           element={
@@ -79,11 +82,21 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
+        {/* ADMIN */}
         <Route
           path="/admin"
           element={
             <AdminRoute>
               <Admin />
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path="/admin/client/:id"
+          element={
+            <AdminRoute>
+              <AdminClient />
             </AdminRoute>
           }
         />
