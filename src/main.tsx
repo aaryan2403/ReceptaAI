@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Routes, Route } from 'react-router'
+import { BrowserRouter, Route, Routes } from 'react-router'
 import './index.css'
 
 import App from './App.tsx'
@@ -22,12 +22,10 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
-        {/* PUBLIC */}
         <Route path="/" element={<App />} />
         <Route path="/login" element={<Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />
 
-        {/* CLIENT DASHBOARD */}
         <Route
           path="/dashboard"
           element={
@@ -82,7 +80,6 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
-        {/* ADMIN */}
         <Route
           path="/admin"
           element={
