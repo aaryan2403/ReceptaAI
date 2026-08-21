@@ -6147,3 +6147,246 @@
     flex-direction: column;
   }
 }
+/* =========================================================
+   RECEPTA ACCOUNT SETTINGS
+   ========================================================= */
+
+.settingsPanel {
+  position: relative;
+  overflow: hidden;
+  margin-top: 18px;
+  padding: 24px;
+  border-radius: 20px;
+
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(0, 230, 118, 0.045),
+      transparent 32%
+    ),
+    linear-gradient(
+      145deg,
+      rgba(12, 27, 18, 0.97),
+      rgba(6, 13, 9, 0.98)
+    );
+
+  border: 1px solid rgba(255, 255, 255, 0.07);
+
+  box-shadow:
+    0 22px 60px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.settingsPanelHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.settingsSectionLabel {
+  display: block;
+  color: #00e676;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+}
+
+.settingsPanelHeading h2,
+.settingsSupportPanel h2 {
+  margin: 6px 0 0;
+  color: #ffffff;
+  font-size: 20px;
+  letter-spacing: -0.025em;
+}
+
+.settingsInfoGrid {
+  margin-top: 18px;
+
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+
+  gap: 10px;
+}
+
+.settingsInfoGrid > div {
+  min-width: 0;
+
+  padding: 16px;
+
+  border-radius: 13px;
+
+  background: rgba(255, 255, 255, 0.024);
+
+  border: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.settingsInfoGrid span {
+  display: block;
+
+  color: rgba(235, 244, 238, 0.34);
+
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+
+  text-transform: uppercase;
+}
+
+.settingsInfoGrid strong {
+  display: block;
+
+  margin-top: 8px;
+
+  color: #ffffff;
+
+  font-size: 12px;
+  line-height: 1.45;
+
+  overflow-wrap: anywhere;
+}
+
+.settingsAccountBadge {
+  display: inline-flex;
+  align-items: center;
+
+  padding: 7px 11px;
+
+  border-radius: 999px;
+
+  font-size: 10px;
+  font-weight: 800;
+
+  text-transform: capitalize;
+}
+
+.settingsAccountBadge--live {
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.09);
+  border: 1px solid rgba(0, 230, 118, 0.16);
+}
+
+.settingsAccountBadge--testing {
+  color: #58b7ff;
+  background: rgba(88, 183, 255, 0.09);
+  border: 1px solid rgba(88, 183, 255, 0.16);
+}
+
+.settingsAccountBadge--setup {
+  color: #f5b942;
+  background: rgba(245, 185, 66, 0.09);
+  border: 1px solid rgba(245, 185, 66, 0.16);
+}
+
+.settingsAccountBadge--paused {
+  color: #a0a0a0;
+  background: rgba(160, 160, 160, 0.09);
+  border: 1px solid rgba(160, 160, 160, 0.15);
+}
+
+/* SECURITY */
+
+.settingsActionRow {
+  margin-top: 18px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 20px;
+
+  padding: 16px;
+
+  border-radius: 14px;
+
+  background: rgba(255, 255, 255, 0.024);
+
+  border: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.settingsActionRow strong {
+  color: #ffffff;
+  font-size: 12px;
+}
+
+.settingsActionRow p {
+  margin: 4px 0 0;
+
+  color: rgba(235, 244, 238, 0.36);
+
+  font-size: 10px;
+}
+
+.settingsMessage {
+  margin: 12px 0 0;
+
+  color: #00e676;
+
+  font-size: 11px;
+}
+
+/* SUPPORT */
+
+.settingsSupportPanel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 24px;
+
+  border-color: rgba(0, 230, 118, 0.11);
+}
+
+.settingsSupportPanel p {
+  max-width: 520px;
+
+  margin: 7px 0 0;
+
+  color: rgba(235, 244, 238, 0.4);
+
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* TABLET */
+
+@media (max-width: 900px) {
+  .settingsInfoGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* MOBILE */
+
+@media (max-width: 560px) {
+  .settingsPanel {
+    padding: 18px;
+    border-radius: 17px;
+  }
+
+  .settingsPanelHeading {
+    flex-direction: column;
+  }
+
+  .settingsInfoGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .settingsActionRow {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .settingsActionRow .btn {
+    width: 100%;
+  }
+
+  .settingsSupportPanel {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .settingsSupportPanel .btn {
+    width: 100%;
+  }
+}
