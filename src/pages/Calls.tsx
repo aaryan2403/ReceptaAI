@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 type CallRecord = {
@@ -14,7 +14,9 @@ type CallRecord = {
 
 export default function Calls() {
   const [calls, setCalls] = useState<CallRecord[]>([])
+  const [selectedCall, setSelectedCall] = useState<CallRecord | null>(null)
   const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     const loadCalls = async () => {
@@ -37,6 +39,10 @@ export default function Calls() {
 
       if (!error && data) {
         setCalls(data)
+
+        if (data.length > 0) {
+          setSelectedCall(data[0])
+        }
       }
 
       setLoading(false)
@@ -50,6 +56,61 @@ export default function Calls() {
     const remainingSeconds = seconds % 60
 
     return `${minutes}m ${String(remainingSeconds).padStart(2, '0')}s`
+  }
+
+  const filteredCalls = useMemo(() => {
+    const query = search.toLowerCase().trim()
+
+    if (!query) return calls
+
+    return calls.filter((call) => {
+      return (
+        call.caller_name?.toLowerCase().includes(query) ||
+        call.caller_number?.toLowerCase().includes(query) ||
+        call.outcome?.toLowerCase().includes(query)
+      )
+    })
+  }, [calls, search])
+
+  const analytics = useMemo(() => {
+    const totalCalls = calls.length
+
+    const totalSeconds = calls.reduce(
+      (total, call) => total + call.duration_seconds,
+      0
+    )
+
+    const averageSeconds =
+      totalCalls > 0 ? Math.round(totalSeconds / totalCalls) : 0
+
+    const appointments = calls.filter(
+      (call) => call.appointment_booked
+    ).length
+
+    const bookingRate =
+      totalCalls > 0
+        ? Math.round((appointments / totalCalls) * 100)
+        : 0
+
+    return {
+      totalCalls,
+      totalMinutes: Math.round(totalSeconds / 60),
+      averageDuration:
+        totalCalls > 0 ? formatDuration(averageSeconds) : '—',
+      bookingRate,
+    }
+  }, [calls])
+
+  if (loading) {
+    return (
+      <main className="dashboardPage">
+        <section className="dashboardMain">
+          <div className="dashboardEmptyState">
+            <p>Loading call history...</p>
+          </div>
+        </section>
+      </main>
+    )
   }
 
   return (
@@ -93,64 +154,250 @@ export default function Calls() {
         <div className="dashboardHeader">
           <div>
             <p className="dashboardEyebrow">CALLS</p>
-            <h1>Call history</h1>
+            <h1>Call Center</h1>
             <p>
-              Every call handled by your Recepta receptionist appears here.
+              Monitor conversations, inspect call details and track performance.
             </p>
           </div>
         </div>
 
-        {loading ? (
-          <div className="dashboardEmptyState">
-            <p>Loading calls...</p>
+        {/* LIVE CALL MONITOR */}
+
+        <section className="callsLiveCard">
+          <div className="callsSectionHeading">
+            <div>
+              <span className="callsSectionLabel">LIVE MONITOR</span>
+              <h2>Current call</h2>
+            </div>
+
+            <span className="callsIdleBadge">
+              <span />
+              Idle
+            </span>
           </div>
-        ) : calls.length === 0 ? (
-          <div className="dashboardEmptyState">
-            <h2>No calls yet</h2>
-            <p>
-              Once your AI receptionist starts handling calls, caller details,
-              duration, summaries, and outcomes will appear here.
-            </p>
+
+          <div className="callsLiveEmpty">
+            <div className="callsLivePulse">
+              <span />
+            </div>
+
+            <div>
+              <strong>No active call</strong>
+              <p>
+                When your receptionist is speaking with a customer, the live
+                call will appear here.
+              </p>
+            </div>
           </div>
-        ) : (
-          <div className="callsList">
-            {calls.map((call) => (
-              <div className="callCard" key={call.id}>
-                <div className="callCardTop">
+        </section>
+
+        {/* CALL HISTORY + DETAILS */}
+
+        <div className="callsWorkspace">
+          <section className="callsHistoryPanel">
+            <div className="callsSectionHeading">
+              <div>
+                <span className="callsSectionLabel">HISTORY</span>
+                <h2>Call history</h2>
+              </div>
+
+              <span className="callsCount">
+                {calls.length} calls
+              </span>
+            </div>
+
+            <div className="callsSearch">
+              <input
+                type="search"
+                placeholder="Search caller, number or outcome..."
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
+
+            {filteredCalls.length === 0 ? (
+              <div className="callsInnerEmpty">
+                <strong>No calls yet</strong>
+                <p>
+                  Your completed conversations will appear here automatically.
+                </p>
+              </div>
+            ) : (
+              <div className="callsHistoryList">
+                {filteredCalls.map((call) => (
+                  <button
+                    key={call.id}
+                    type="button"
+                    className={
+                      selectedCall?.id === call.id
+                        ? 'callsHistoryItem callsHistoryItem--active'
+                        : 'callsHistoryItem'
+                    }
+                    onClick={() => setSelectedCall(call)}
+                  >
+                    <div className="callsHistoryMain">
+                      <strong>
+                        {call.caller_name ||
+                          call.caller_number ||
+                          'Unknown caller'}
+                      </strong>
+
+                      <span>
+                        {new Date(call.started_at).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div className="callsHistorySide">
+                      <strong>
+                        {formatDuration(call.duration_seconds)}
+                      </strong>
+
+                      {call.appointment_booked && (
+                        <span className="callsBookedBadge">
+                          Booked
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="callsDetailPanel">
+            <div className="callsSectionHeading">
+              <div>
+                <span className="callsSectionLabel">DETAILS</span>
+                <h2>Call details</h2>
+              </div>
+            </div>
+
+            {!selectedCall ? (
+              <div className="callsInnerEmpty">
+                <strong>Select a call</strong>
+                <p>
+                  Choose a conversation from Call History to inspect it.
+                </p>
+              </div>
+            ) : (
+              <div className="callsDetailContent">
+                <div className="callsDetailHero">
                   <div>
+                    <span>CALLER</span>
+
                     <strong>
-                      {call.caller_name || call.caller_number || 'Unknown caller'}
+                      {selectedCall.caller_name ||
+                        selectedCall.caller_number ||
+                        'Unknown caller'}
                     </strong>
 
-                    <span>
-                      {new Date(call.started_at).toLocaleString()}
-                    </span>
+                    {selectedCall.caller_name &&
+                      selectedCall.caller_number && (
+                        <small>
+                          {selectedCall.caller_number}
+                        </small>
+                      )}
                   </div>
 
-                  <span className="callDuration">
-                    {formatDuration(call.duration_seconds)}
+                  <span className="callsOutcomeBadge">
+                    {selectedCall.outcome || 'Completed'}
                   </span>
                 </div>
 
-                <div className="callMeta">
-                  <span>
-                    Outcome: {call.outcome || 'Not classified'}
-                  </span>
+                <div className="callsDetailGrid">
+                  <div>
+                    <span>Date & time</span>
+                    <strong>
+                      {new Date(
+                        selectedCall.started_at
+                      ).toLocaleString()}
+                    </strong>
+                  </div>
 
-                  <span>
-                    Appointment: {call.appointment_booked ? 'Booked' : 'No'}
-                  </span>
+                  <div>
+                    <span>Duration</span>
+                    <strong>
+                      {formatDuration(
+                        selectedCall.duration_seconds
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Appointment</span>
+                    <strong>
+                      {selectedCall.appointment_booked
+                        ? 'Booked'
+                        : 'Not booked'}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Outcome</span>
+                    <strong>
+                      {selectedCall.outcome ||
+                        'Not classified'}
+                    </strong>
+                  </div>
                 </div>
 
-                {call.summary && (
-                  <p className="callSummary">
-                    {call.summary}
+                <div className="callsSummaryBox">
+                  <span>AI CALL SUMMARY</span>
+
+                  <p>
+                    {selectedCall.summary ||
+                      'A call summary will appear here once Recepta receives one from the AI receptionist.'}
                   </p>
-                )}
+                </div>
+
+                <div className="callsFutureTools">
+                  <div>
+                    <span>Transcript</span>
+                    <strong>Available after Retell integration</strong>
+                  </div>
+
+                  <div>
+                    <span>Recording</span>
+                    <strong>Available after Retell integration</strong>
+                  </div>
+                </div>
               </div>
-            ))}
+            )}
+          </section>
+        </div>
+
+        {/* ANALYTICS */}
+
+        <section className="callsAnalytics">
+          <div className="callsSectionHeading">
+            <div>
+              <span className="callsSectionLabel">PERFORMANCE</span>
+              <h2>Call analytics</h2>
+            </div>
           </div>
-        )}
+
+          <div className="callsAnalyticsGrid">
+            <div>
+              <span>Total Calls</span>
+              <strong>{analytics.totalCalls}</strong>
+            </div>
+
+            <div>
+              <span>Minutes Talked</span>
+              <strong>{analytics.totalMinutes}</strong>
+            </div>
+
+            <div>
+              <span>Avg. Duration</span>
+              <strong>{analytics.averageDuration}</strong>
+            </div>
+
+            <div>
+              <span>Booking Rate</span>
+              <strong>{analytics.bookingRate}%</strong>
+            </div>
+          </div>
+        </section>
       </section>
     </main>
   )
