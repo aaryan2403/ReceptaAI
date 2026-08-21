@@ -5643,7 +5643,442 @@
   padding: 34px 20px;
 
   text-align: center;
+/* =========================================================
+   RECEPTA AGENT CONTROL CENTER
+   ========================================================= */
 
+.agentControlHero,
+.agentPanel {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(0, 230, 118, 0.055),
+      transparent 32%
+    ),
+    linear-gradient(
+      145deg,
+      rgba(12, 27, 18, 0.97),
+      rgba(6, 13, 9, 0.98)
+    );
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow:
+    0 22px 60px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.agentControlHero {
+  padding: 26px;
+}
+
+.agentControlIdentity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.agentControlAvatar {
+  width: 58px;
+  height: 58px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 17px;
+  border: 1px solid;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+.agentSectionLabel {
+  display: block;
+  color: #00e676;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+}
+
+.agentControlIdentity h2,
+.agentPanelHeading h2 {
+  margin: 6px 0 0;
+  color: #ffffff;
+  letter-spacing: -0.025em;
+}
+
+.agentControlIdentity h2 {
+  font-size: 23px;
+}
+
+.agentControlIdentity p {
+  margin: 6px 0 0;
+  color: rgba(235, 244, 238, 0.42);
+  font-size: 12px;
+}
+
+.agentControlFacts {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.agentControlFacts > div,
+.agentConfigurationGrid > div,
+.agentPerformanceGrid > div {
+  min-width: 0;
+  padding: 15px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.agentControlFacts span,
+.agentConfigurationGrid span,
+.agentPerformanceGrid span {
+  display: block;
+  color: rgba(235, 244, 238, 0.33);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.agentControlFacts strong,
+.agentConfigurationGrid strong {
+  display: block;
+  margin-top: 7px;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* PANELS */
+
+.agentPanel {
+  margin-top: 18px;
+  padding: 24px;
+}
+
+.agentPanelHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.agentPanelHeading h2 {
+  font-size: 20px;
+}
+
+/* LIVE */
+
+.agentLivePanel {
+  border-color: rgba(0, 230, 118, 0.11);
+}
+
+.agentIdleStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  color: rgba(235, 244, 238, 0.55);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.agentIdleStatus > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #00e676;
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.6);
+}
+
+.agentLiveState {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 18px;
+  border-radius: 15px;
+  background: rgba(0, 230, 118, 0.025);
+  border: 1px solid rgba(0, 230, 118, 0.07);
+}
+
+.agentLiveOrb {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(0, 230, 118, 0.07);
+  border: 1px solid rgba(0, 230, 118, 0.12);
+}
+
+.agentLiveOrb span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #00e676;
+  box-shadow: 0 0 16px rgba(0, 230, 118, 0.65);
+}
+
+.agentLiveState strong {
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.agentLiveState p {
+  margin: 4px 0 0;
+  color: rgba(235, 244, 238, 0.42);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.agentLiveNotice {
+  margin-top: 10px;
+  color: rgba(235, 244, 238, 0.27);
+  font-size: 10px;
+}
+
+/* HEALTH + CONFIG */
+
+.agentTwoColumn {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.agentHealthList {
+  margin-top: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.agentHealthRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.agentHealthRow strong {
+  display: block;
+  color: #ffffff;
+  font-size: 11px;
+}
+
+.agentHealthRow div > span {
+  display: block;
+  margin-top: 3px;
+  color: rgba(235, 244, 238, 0.3);
+  font-size: 9px;
+}
+
+.agentHealthBadge {
+  flex-shrink: 0;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.agentHealthBadge--good {
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.08);
+  border: 1px solid rgba(0, 230, 118, 0.12);
+}
+
+.agentHealthBadge--pending {
+  color: #f5b942;
+  background: rgba(245, 185, 66, 0.08);
+  border: 1px solid rgba(245, 185, 66, 0.13);
+}
+
+.agentConfigurationGrid {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.agentConfigurationNotice {
+  margin-top: 12px;
+  padding: 15px;
+  border-radius: 13px;
+  background: rgba(88, 183, 255, 0.025);
+  border: 1px solid rgba(88, 183, 255, 0.08);
+}
+
+.agentConfigurationNotice > strong {
+  color: #ffffff;
+  font-size: 11px;
+}
+
+.agentConfigurationNotice p {
+  margin: 5px 0 12px;
+  color: rgba(235, 244, 238, 0.38);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+/* PERFORMANCE */
+
+.agentPerformanceGrid {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.agentPerformanceGrid strong {
+  display: block;
+  margin-top: 8px;
+  color: #ffffff;
+  font-size: 22px;
+}
+
+/* ACTIVITY */
+
+.agentActivityList {
+  margin-top: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.agentActivityRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.agentActivityIcon {
+  width: 31px;
+  height: 31px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.07);
+}
+
+.agentActivityText {
+  min-width: 0;
+  flex: 1;
+}
+
+.agentActivityText strong {
+  display: block;
+  color: #ffffff;
+  font-size: 11px;
+}
+
+.agentActivityText span {
+  display: block;
+  margin-top: 3px;
+  color: rgba(235, 244, 238, 0.32);
+  font-size: 9px;
+}
+
+.agentActivityRow time {
+  flex-shrink: 0;
+  color: rgba(235, 244, 238, 0.3);
+  font-size: 9px;
+}
+
+.agentActivityEmpty {
+  margin-top: 18px;
+  padding: 30px 18px;
+  text-align: center;
+  border-radius: 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.agentActivityEmpty strong {
+  color: #ffffff;
+  font-size: 12px;
+}
+
+.agentActivityEmpty p {
+  max-width: 370px;
+  margin: 6px auto 0;
+  color: rgba(235, 244, 238, 0.35);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+/* MOBILE */
+
+@media (max-width: 900px) {
+  .agentControlFacts,
+  .agentPerformanceGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agentTwoColumn {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .agentControlHero,
+  .agentPanel {
+    padding: 18px;
+    border-radius: 17px;
+  }
+
+  .agentControlIdentity {
+    align-items: flex-start;
+  }
+
+  .agentControlAvatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+  }
+
+  .agentControlFacts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agentConfigurationGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .agentPerformanceGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agentLiveState {
+    align-items: flex-start;
+  }
+
+  .agentActivityRow {
+    align-items: flex-start;
+  }
+
+  .agentActivityRow time {
+    max-width: 85px;
+    text-align: right;
+    line-height: 1.4;
+  }
+}
   border-radius: 14px;
 
   border: 1px dashed rgba(255, 255, 255, 0.08);
