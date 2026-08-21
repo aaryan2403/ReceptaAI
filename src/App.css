@@ -4526,6 +4526,7 @@
     flex-direction: column;
   }
 }
+
 /* =========================================================
    RECEPTA AGENT CONTROL CENTER
    ========================================================= */
@@ -4962,74 +4963,7 @@
     line-height: 1.4;
   }
 }
-  border-radius: 14px;
 
-  border: 1px dashed rgba(255, 255, 255, 0.08);
-}
-
-.callsInnerEmpty strong {
-  color: #ffffff;
-
-  font-size: 13px;
-}
-
-.callsInnerEmpty p {
-  margin: 6px auto 0;
-
-  max-width: 300px;
-
-  color: rgba(235, 244, 238, 0.38);
-
-  font-size: 11px;
-
-  line-height: 1.6;
-}
-
-/* MOBILE */
-
-@media (max-width: 900px) {
-  .callsWorkspace {
-    grid-template-columns: 1fr;
-  }
-
-  .callsHistoryList {
-    max-height: 380px;
-  }
-
-  .callsAnalyticsGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 560px) {
-  .callsLiveCard,
-  .callsHistoryPanel,
-  .callsDetailPanel,
-  .callsAnalytics {
-    padding: 18px;
-    border-radius: 17px;
-  }
-
-  .callsLiveEmpty {
-    align-items: flex-start;
-  }
-
-  .callsDetailGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .callsFutureTools {
-    grid-template-columns: 1fr;
-  }
-
-  .callsAnalyticsGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .callsDetailHero {
-    flex-direction: column;
-  }
-}
 /* =========================================================
    RECEPTA ACCOUNT SETTINGS
    ========================================================= */
