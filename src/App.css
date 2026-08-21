@@ -3582,3 +3582,354 @@
     grid-template-columns: 1fr;
   }
 }
+/* =========================================================
+   RECEPTA MOBILE DASHBOARD FIX
+   Keep this at the VERY BOTTOM of App.css
+   ========================================================= */
+
+@media (max-width: 900px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
+    background: #030704;
+  }
+
+  .dashboardPage {
+    display: block;
+    width: 100%;
+    max-width: 100vw;
+    min-height: 100vh;
+    overflow-x: hidden;
+
+    background:
+      radial-gradient(
+        circle at 10% 12%,
+        rgba(0, 230, 118, 0.09),
+        transparent 32%
+      ),
+      radial-gradient(
+        circle at 90% 55%,
+        rgba(0, 170, 255, 0.045),
+        transparent 34%
+      ),
+      linear-gradient(
+        180deg,
+        #030805 0%,
+        #020503 100%
+      );
+  }
+
+  /* REMOVE THE WEIRD HALF-SCREEN GLOW / RECTANGLE */
+  .dashboardMain::before {
+    display: none;
+  }
+
+  /* ===== MOBILE TOP AREA ===== */
+
+  .dashboardSidebar {
+    width: 100%;
+    max-width: 100%;
+    min-height: auto;
+    padding: 18px 18px 16px;
+
+    background:
+      linear-gradient(
+        180deg,
+        rgba(2, 16, 7, 0.98),
+        rgba(2, 10, 5, 0.98)
+      );
+
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow: none;
+  }
+
+  .dashboardSidebar::after {
+    display: none;
+  }
+
+  .dashboardBrand {
+    padding: 4px 4px 18px;
+    margin: 0 0 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+  }
+
+  .dashboardBrand img {
+    height: 34px;
+    width: auto;
+  }
+
+  /* ===== MOBILE NAV ===== */
+
+  .dashboardNav {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+
+    overflow: visible;
+    padding: 0;
+  }
+
+  .dashboardNavItem {
+    min-width: 0;
+    min-height: 42px;
+    padding: 9px 6px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    text-align: center;
+    white-space: nowrap;
+
+    border-radius: 11px;
+
+    font-size: 12px;
+    font-weight: 700;
+
+    color: rgba(235, 244, 238, 0.52);
+
+    transform: none !important;
+  }
+
+  .dashboardNavItem:hover {
+    transform: none;
+  }
+
+  .dashboardNavItemActive {
+    color: #00e676;
+
+    background:
+      linear-gradient(
+        145deg,
+        rgba(0, 230, 118, 0.13),
+        rgba(0, 230, 118, 0.045)
+      );
+
+    border: 1px solid rgba(0, 230, 118, 0.18);
+
+    box-shadow:
+      inset 0 0 0 1px rgba(0, 230, 118, 0.025),
+      0 0 20px rgba(0, 230, 118, 0.035);
+  }
+
+  /* ===== MAIN MOBILE CONTENT ===== */
+
+  .dashboardMain {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+
+    padding: 28px 18px 50px;
+
+    background: transparent;
+  }
+
+  .dashboardHeader {
+    margin-bottom: 24px;
+    gap: 16px;
+  }
+
+  .dashboardHeader h1 {
+    font-size: 30px;
+    line-height: 1.08;
+  }
+
+  .dashboardHeader p {
+    max-width: 100%;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .dashboardEyebrow {
+    font-size: 10px;
+  }
+
+  .agentLiveBadge {
+    width: fit-content;
+    min-height: 34px;
+    padding: 7px 11px;
+  }
+
+  /* ===== STAT CARDS ===== */
+
+  .dashboardStats {
+    width: 100%;
+    margin-top: 22px;
+
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .dashboardStatCard {
+    width: 100%;
+    min-width: 0;
+    min-height: 115px;
+
+    padding: 18px;
+
+    border-radius: 16px;
+  }
+
+  .dashboardStatCard span {
+    font-size: 10px;
+  }
+
+  .dashboardStatCard strong {
+    margin-top: 14px;
+    font-size: 25px;
+  }
+
+  /* ===== GENERAL CARDS ===== */
+
+  .dashboardEmptyState,
+  .onboardingProgressCard,
+  .billingHeroCard,
+  .billingInfoCard,
+  .adminCreateCard,
+  .callCard,
+  .appointmentCard {
+    max-width: 100%;
+  }
+
+  .dashboardEmptyState {
+    padding: 34px 20px;
+  }
+
+  /* ===== ONBOARDING ===== */
+
+  .onboardingProgressCard {
+    padding: 22px 18px;
+  }
+
+  .onboardingProgressHead {
+    gap: 12px;
+  }
+
+  .onboardingProgressHead h2 {
+    font-size: 20px;
+  }
+
+  .onboardingProgressPercent {
+    font-size: 23px;
+  }
+
+  .onboardingSteps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  /* ===== BILLING ===== */
+
+  .billingLayout {
+    width: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .billingHeroCard {
+    width: 100%;
+    padding: 24px 20px;
+  }
+
+  .billingPlanTop h2 {
+    font-size: 26px;
+  }
+
+  .billingPrice strong {
+    font-size: 48px;
+  }
+
+  .billingFeatures {
+    gap: 10px;
+  }
+
+  .billingSideGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .billingInfoCard {
+    min-width: 0;
+    padding: 18px;
+  }
+
+  .billingInfoCard strong {
+    font-size: 15px;
+    word-break: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* ===== CALLS + APPOINTMENTS ===== */
+
+  .callsList,
+  .appointmentsList {
+    width: 100%;
+  }
+
+  .callCard,
+  .appointmentCard {
+    width: 100%;
+    padding: 18px;
+  }
+
+  /* ===== ADMIN ===== */
+
+  .adminCreateForm {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .dashboardStats {
+    /* KEEP 2 CARDS PER ROW ON PHONES */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboardStatCard {
+    min-height: 108px;
+    padding: 16px;
+  }
+
+  .dashboardStatCard strong {
+    font-size: 23px;
+  }
+
+  .dashboardHeader {
+    flex-direction: column;
+  }
+
+  .onboardingSteps {
+    grid-template-columns: 1fr;
+  }
+
+  .billingSideGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 390px) {
+  .dashboardSidebar {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .dashboardMain {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .dashboardNavItem {
+    font-size: 11px;
+    padding-left: 3px;
+    padding-right: 3px;
+  }
+
+  .dashboardStats {
+    grid-template-columns: 1fr;
+  }
+}
