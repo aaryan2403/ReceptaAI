@@ -12,6 +12,7 @@ type Client = {
 type Subscription = {
   plan_name: string | null
   monthly_price: number | null
+  monthly_minutes: number | null
   status: string | null
 }
 
@@ -28,9 +29,11 @@ type Appointment = {
 
 export default function Dashboard() {
   const [client, setClient] = useState<Client | null>(null)
-  const [subscription, setSubscription] = useState<Subscription | null>(null)
+  const [subscription, setSubscription] =
+    useState<Subscription | null>(null)
   const [calls, setCalls] = useState<Call[]>([])
-  const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [appointments, setAppointments] =
+    useState<Appointment[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -57,7 +60,9 @@ export default function Dashboard() {
 
         supabase
           .from('subscriptions')
-          .select('plan_name, monthly_price, status')
+          .select(
+            'plan_name, monthly_price, monthly_minutes, status'
+          )
           .eq('client_id', user.id)
           .maybeSingle(),
 
@@ -67,11 +72,20 @@ export default function Dashboard() {
           .eq('client_id', user.id),
       ])
 
-      if (clientData) setClient(clientData)
-      if (subscriptionData) setSubscription(subscriptionData)
-      if (callsData) setCalls(callsData)
+      if (clientData) {
+        setClient(clientData)
+      }
 
-      const isPro = subscriptionData?.plan_name === 'Recepta Pro'
+      if (subscriptionData) {
+        setSubscription(subscriptionData)
+      }
+
+      if (callsData) {
+        setCalls(callsData)
+      }
+
+      const isPro =
+        subscriptionData?.plan_name === 'Recepta Pro'
 
       if (isPro) {
         const { data: appointmentsData } = await supabase
@@ -92,49 +106,80 @@ export default function Dashboard() {
     loadDashboard()
   }, [])
 
-  const isPro = subscription?.plan_name === 'Recepta Pro'
+  const isPro =
+    subscription?.plan_name === 'Recepta Pro'
 
   const stats = useMemo(() => {
     const callsAnswered = calls.length
 
     const totalSeconds = calls.reduce(
-      (total, call) => total + (call.duration_seconds || 0),
+      (total, call) =>
+        total + (call.duration_seconds || 0),
       0
     )
 
-    const minutesTalked = Math.round(totalSeconds / 60)
+    const minutesTalked =
+      Math.round(totalSeconds / 60)
+
+    const monthlyMinutes =
+      subscription?.monthly_minutes ?? 300
+
+    const minutesRemaining = Math.max(
+      monthlyMinutes - minutesTalked,
+      0
+    )
+
+    const usagePercentage =
+      monthlyMinutes > 0
+        ? Math.min(
+            (minutesTalked / monthlyMinutes) * 100,
+            100
+          )
+        : 0
 
     const averageSeconds =
       callsAnswered > 0
         ? Math.round(totalSeconds / callsAnswered)
         : 0
 
-    const averageMinutes = Math.floor(averageSeconds / 60)
-    const averageRemainingSeconds = averageSeconds % 60
+    const averageMinutes =
+      Math.floor(averageSeconds / 60)
+
+    const averageRemainingSeconds =
+      averageSeconds % 60
 
     const today = new Date()
 
-    const appointmentsToday = appointments.filter((appointment) => {
-      if (
-        !appointment.appointment_time ||
-        appointment.status === 'cancelled'
-      ) {
-        return false
-      }
+    const appointmentsToday =
+      appointments.filter((appointment) => {
+        if (
+          !appointment.appointment_time ||
+          appointment.status === 'cancelled'
+        ) {
+          return false
+        }
 
-      const appointmentDate = new Date(appointment.appointment_time)
+        const appointmentDate =
+          new Date(appointment.appointment_time)
 
-      return (
-        appointmentDate.getFullYear() === today.getFullYear() &&
-        appointmentDate.getMonth() === today.getMonth() &&
-        appointmentDate.getDate() === today.getDate()
-      )
-    }).length
+        return (
+          appointmentDate.getFullYear() ===
+            today.getFullYear() &&
+          appointmentDate.getMonth() ===
+            today.getMonth() &&
+          appointmentDate.getDate() ===
+            today.getDate()
+        )
+      }).length
 
     return {
       callsAnswered,
       minutesTalked,
+      monthlyMinutes,
+      minutesRemaining,
+      usagePercentage,
       appointmentsToday,
+
       averageDuration:
         callsAnswered > 0
           ? `${averageMinutes}m ${String(
@@ -142,7 +187,7 @@ export default function Dashboard() {
             ).padStart(2, '0')}s`
           : '—',
     }
-  }, [calls, appointments])
+  }, [calls, appointments, subscription])
 
   const getStatusInfo = () => {
     switch (client?.status) {
@@ -209,7 +254,10 @@ export default function Dashboard() {
     <main className="dashboardPage">
       <aside className="dashboardSidebar">
         <a href="/" className="dashboardBrand">
-          <img src="/components/logoR.png" alt="Recepta" />
+          <img
+            src="/components/logoR.png"
+            alt="Recepta"
+          />
         </a>
 
         <nav className="dashboardNav">
@@ -272,15 +320,19 @@ export default function Dashboard() {
         <div className="dashboardHeader">
           <div>
             <p className="dashboardEyebrow">
-              {isPro ? 'RECEPTA PRO' : 'RECEPTA STANDARD'}
+              {isPro
+                ? 'RECEPTA PRO'
+                : 'RECEPTA STANDARD'}
             </p>
 
             <h1>
-              {client?.company_name || 'Your AI receptionist'}
+              {client?.company_name ||
+                'Your AI receptionist'}
             </h1>
 
             <p>
-              Track how Recepta is handling your customer calls.
+              Track how Recepta is handling your
+              customer calls.
             </p>
           </div>
 
@@ -306,7 +358,6 @@ export default function Dashboard() {
         <div className="dashboardStats">
           <div className="dashboardStatCard">
             <span>Calls Answered</span>
-
             <strong>{stats.callsAnswered}</strong>
           </div>
 
@@ -317,7 +368,9 @@ export default function Dashboard() {
             >
               <span>Appointments Today</span>
 
-              <strong>{stats.appointmentsToday}</strong>
+              <strong>
+                {stats.appointmentsToday}
+              </strong>
 
               <small>
                 {stats.appointmentsToday === 1
@@ -328,15 +381,53 @@ export default function Dashboard() {
           )}
 
           <div className="dashboardStatCard">
-            <span>Minutes Talked</span>
+            <span>Minutes Used</span>
 
-            <strong>{stats.minutesTalked} min</strong>
+            <strong>
+              {stats.minutesTalked} /{' '}
+              {stats.monthlyMinutes} min
+            </strong>
+
+            <div
+              style={{
+                width: '100%',
+                height: '6px',
+                marginTop: '12px',
+                overflow: 'hidden',
+                borderRadius: '999px',
+                background:
+                  'rgba(255,255,255,0.08)',
+              }}
+            >
+              <div
+                style={{
+                  width: `${stats.usagePercentage}%`,
+                  height: '100%',
+                  borderRadius: '999px',
+                  background: '#00e676',
+                  transition: 'width 0.3s ease',
+                }}
+              />
+            </div>
+
+            <small
+              style={{
+                display: 'block',
+                marginTop: '8px',
+              }}
+            >
+              {stats.minutesRemaining > 0
+                ? `${stats.minutesRemaining} minutes remaining`
+                : 'Monthly minutes used'}
+            </small>
           </div>
 
           <div className="dashboardStatCard">
             <span>Avg. Call Duration</span>
 
-            <strong>{stats.averageDuration}</strong>
+            <strong>
+              {stats.averageDuration}
+            </strong>
           </div>
         </div>
 
@@ -381,16 +472,20 @@ export default function Dashboard() {
                   ONBOARDING
                 </p>
 
-                <h2>Your Recepta is being prepared</h2>
+                <h2>
+                  Your Recepta is being prepared
+                </h2>
 
                 <p>
-                  Our team is configuring and testing your
-                  receptionist before it goes live.
+                  Our team is configuring and testing
+                  your receptionist before it goes live.
                 </p>
               </div>
 
               <span className="onboardingProgressPercent">
-                {onboardingStep === 2 ? '50%' : '75%'}
+                {onboardingStep === 2
+                  ? '50%'
+                  : '75%'}
               </span>
             </div>
 
@@ -411,7 +506,9 @@ export default function Dashboard() {
                 <span>✓</span>
 
                 <div>
-                  <strong>Account created</strong>
+                  <strong>
+                    Account created
+                  </strong>
 
                   <small>
                     Your Recepta workspace is ready.
@@ -423,11 +520,13 @@ export default function Dashboard() {
                 <span>✓</span>
 
                 <div>
-                  <strong>Business configuration</strong>
+                  <strong>
+                    Business configuration
+                  </strong>
 
                   <small>
-                    Your call rules and business details are
-                    being prepared.
+                    Your call rules and business details
+                    are being prepared.
                   </small>
                 </div>
               </div>
@@ -440,14 +539,19 @@ export default function Dashboard() {
                 }`}
               >
                 <span>
-                  {onboardingStep >= 3 ? '✓' : '3'}
+                  {onboardingStep >= 3
+                    ? '✓'
+                    : '3'}
                 </span>
 
                 <div>
-                  <strong>Agent testing</strong>
+                  <strong>
+                    Agent testing
+                  </strong>
 
                   <small>
-                    We test calls, transfers and edge cases.
+                    We test calls, transfers and edge
+                    cases.
                   </small>
                 </div>
               </div>
@@ -456,11 +560,13 @@ export default function Dashboard() {
                 <span>4</span>
 
                 <div>
-                  <strong>Go live</strong>
+                  <strong>
+                    Go live
+                  </strong>
 
                   <small>
-                    Your receptionist starts handling real
-                    customer calls.
+                    Your receptionist starts handling
+                    real customer calls.
                   </small>
                 </div>
               </div>
