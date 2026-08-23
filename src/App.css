@@ -6831,3 +6831,498 @@
     width: 100%;
   }
 }
+/* =========================================================
+   RECEPTA — INTERNAL ADMIN
+   ========================================================= */
+
+.adminPage {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  background:
+    radial-gradient(circle at 80% 0%, rgba(0, 230, 118, 0.045), transparent 30%),
+    #050906;
+  color: #fff;
+}
+
+.adminSidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: rgba(5, 12, 8, 0.98);
+  border-right: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.adminBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.adminBrand img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+}
+
+.adminBrand strong,
+.adminBrand span {
+  display: block;
+}
+
+.adminBrand strong {
+  font-size: 13px;
+}
+
+.adminBrand span {
+  margin-top: 2px;
+  color: #00e676;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+}
+
+.adminNav {
+  margin-top: 32px;
+}
+
+.adminNavItem {
+  display: flex;
+  padding: 11px 12px;
+  color: rgba(235, 244, 238, 0.45);
+  text-decoration: none;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.adminNavItem--active {
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.07);
+  border: 1px solid rgba(0, 230, 118, 0.11);
+}
+
+.adminSidebarFooter span {
+  color: rgba(235, 244, 238, 0.24);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.adminSidebarFooter p {
+  margin: 4px 0 0;
+  color: rgba(235, 244, 238, 0.38);
+  font-size: 9px;
+}
+
+.adminMain {
+  min-width: 0;
+  padding: 36px;
+}
+
+.adminHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.adminEyebrow {
+  display: block;
+  color: #00e676;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+}
+
+.adminHeader h1 {
+  margin: 6px 0 0;
+  font-size: 30px;
+  letter-spacing: -0.04em;
+}
+
+.adminHeader p,
+.adminPanelHeading p,
+.adminClientHeader p {
+  margin: 6px 0 0;
+  color: rgba(235, 244, 238, 0.4);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.adminStats {
+  margin-top: 26px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.adminStatCard {
+  padding: 17px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.adminStatCard span {
+  color: rgba(235, 244, 238, 0.3);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.adminStatCard strong {
+  display: block;
+  margin-top: 9px;
+  font-size: 25px;
+}
+
+.adminPanel {
+  margin-top: 18px;
+  padding: 22px;
+  border-radius: 18px;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(12, 27, 18, 0.97),
+      rgba(6, 13, 9, 0.98)
+    );
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+}
+
+.adminPanelHeading h2,
+.adminClientHeader h2 {
+  margin: 5px 0 0;
+  font-size: 18px;
+}
+
+.adminNewClientForm {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns:
+    repeat(5, minmax(0, 1fr))
+    auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.adminNewClientForm label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.adminNewClientForm label > span {
+  color: rgba(235, 244, 238, 0.4);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.adminNewClientForm input,
+.adminNewClientForm select,
+.adminSearch input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 42px;
+  padding: 0 11px;
+  outline: none;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9px;
+  color-scheme: dark;
+}
+
+.adminNewClientForm input:focus,
+.adminNewClientForm select:focus,
+.adminSearch input:focus {
+  border-color: rgba(0, 230, 118, 0.35);
+  box-shadow: 0 0 0 3px rgba(0, 230, 118, 0.05);
+}
+
+.adminPriceInput {
+  position: relative;
+}
+
+.adminPriceInput > span {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  z-index: 1;
+  transform: translateY(-50%);
+  color: rgba(235, 244, 238, 0.35);
+  font-size: 10px;
+}
+
+.adminPriceInput input {
+  padding-left: 29px;
+}
+
+.adminCreateAction {
+  display: flex;
+}
+
+.adminCreateAction .btn {
+  white-space: nowrap;
+}
+
+.adminFormMessage {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-size: 10px;
+}
+
+.adminFormMessage--success {
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.06);
+  border: 1px solid rgba(0, 230, 118, 0.11);
+}
+
+.adminFormMessage--error {
+  color: #ff7b7b;
+  background: rgba(255, 123, 123, 0.06);
+  border: 1px solid rgba(255, 123, 123, 0.12);
+}
+
+.adminClientHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.adminSearch {
+  width: min(270px, 100%);
+}
+
+.adminClientList {
+  margin-top: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 12px;
+}
+
+.adminClientListHeader,
+.adminClientRow {
+  display: grid;
+  grid-template-columns:
+    minmax(200px, 1.6fr)
+    100px
+    100px
+    100px
+    100px
+    90px;
+  align-items: center;
+  gap: 12px;
+}
+
+.adminClientListHeader {
+  padding: 10px 13px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.adminClientListHeader span {
+  color: rgba(235, 244, 238, 0.27);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.adminClientRow {
+  padding: 11px 13px;
+  border-top: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.adminClientIdentity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.adminClientAvatar {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.07);
+  border: 1px solid rgba(0, 230, 118, 0.12);
+  border-radius: 9px;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.adminClientIdentity strong,
+.adminClientIdentity span {
+  display: block;
+}
+
+.adminClientIdentity strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminClientIdentity span {
+  margin-top: 3px;
+  overflow: hidden;
+  color: rgba(235, 244, 238, 0.34);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminPlanBadge,
+.adminStatusBadge {
+  display: inline-flex;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.adminPlanBadge {
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.06);
+  border: 1px solid rgba(0, 230, 118, 0.11);
+}
+
+.adminPlanBadge--pro {
+  color: #f7b93e;
+  background: rgba(247, 185, 62, 0.07);
+  border-color: rgba(247, 185, 62, 0.14);
+}
+
+.adminStatusBadge--live {
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.06);
+}
+
+.adminStatusBadge--testing {
+  color: #58b7ff;
+  background: rgba(88, 183, 255, 0.06);
+}
+
+.adminStatusBadge--setup {
+  color: #f7b93e;
+  background: rgba(247, 185, 62, 0.06);
+}
+
+.adminStatusBadge--paused {
+  color: rgba(235, 244, 238, 0.45);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.adminBillingCell strong,
+.adminBillingCell span {
+  display: block;
+}
+
+.adminBillingCell strong {
+  font-size: 10px;
+}
+
+.adminBillingCell span {
+  margin-top: 2px;
+  color: rgba(235, 244, 238, 0.3);
+  font-size: 8px;
+  text-transform: capitalize;
+}
+
+.adminDateCell {
+  color: rgba(235, 244, 238, 0.4);
+  font-size: 9px;
+}
+
+.adminEmpty {
+  margin-top: 18px;
+  padding: 30px;
+  text-align: center;
+  color: rgba(235, 244, 238, 0.4);
+  background: rgba(255, 255, 255, 0.018);
+  border: 1px dashed rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  font-size: 10px;
+}
+
+.adminEmpty strong {
+  display: block;
+  color: #fff;
+  font-size: 12px;
+}
+
+.adminEmpty p {
+  margin: 5px 0 0;
+}
+
+@media (max-width: 1100px) {
+  .adminNewClientForm {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .adminClientList {
+    overflow-x: auto;
+  }
+
+  .adminClientListHeader,
+  .adminClientRow {
+    min-width: 820px;
+  }
+}
+
+@media (max-width: 760px) {
+  .adminPage {
+    display: block;
+  }
+
+  .adminSidebar {
+    position: relative;
+    width: auto;
+    height: auto;
+  }
+
+  .adminSidebarFooter {
+    display: none;
+  }
+
+  .adminMain {
+    padding: 22px 16px;
+  }
+
+  .adminHeader,
+  .adminClientHeader {
+    flex-direction: column;
+  }
+
+  .adminStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .adminSearch {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .adminStats,
+  .adminNewClientForm {
+    grid-template-columns: 1fr;
+  }
+
+  .adminHeader .btn {
+    width: 100%;
+  }
+}
