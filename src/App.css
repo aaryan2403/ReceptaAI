@@ -5673,3 +5673,421 @@
     width: 100%;
   }
 }
+/* =========================================================
+   RECEPTA — EMPLOYEES / TEAM & AVAILABILITY
+   ========================================================= */
+
+.employeePanel {
+  position: relative;
+  margin-top: 20px;
+  padding: 24px;
+  overflow: hidden;
+
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(0, 230, 118, 0.055),
+      transparent 34%
+    ),
+    linear-gradient(
+      145deg,
+      rgba(12, 27, 18, 0.97),
+      rgba(6, 13, 9, 0.98)
+    );
+
+  border: 1px solid rgba(0, 230, 118, 0.1);
+  border-radius: 18px;
+
+  box-shadow:
+    0 18px 50px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.employeePanelHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.employeePanelHeading h2 {
+  margin: 4px 0 0;
+  color: #fff;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.employeeSectionLabel {
+  display: block;
+  color: #00e676;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.employeeCreateGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.employeeCreateGrid label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.employeeCreateGrid label > span {
+  color: rgba(235, 244, 238, 0.5);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.employeeCreateGrid input,
+.employeeTimeInputs input {
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
+
+  color: #fff;
+  background: rgba(255, 255, 255, 0.035);
+
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.employeeCreateGrid input {
+  min-height: 44px;
+  padding: 0 13px;
+}
+
+.employeeCreateGrid input::placeholder {
+  color: rgba(235, 244, 238, 0.24);
+}
+
+.employeeCreateGrid input:focus,
+.employeeTimeInputs input:focus {
+  border-color: rgba(0, 230, 118, 0.45);
+  background: rgba(0, 230, 118, 0.035);
+  box-shadow: 0 0 0 3px rgba(0, 230, 118, 0.06);
+}
+
+.employeeWorkspace {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.72fr) minmax(0, 1.5fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.employeeCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-width: 30px;
+  height: 30px;
+  padding: 0 9px;
+
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.08);
+  border: 1px solid rgba(0, 230, 118, 0.14);
+  border-radius: 999px;
+
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.employeeList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.employeeCard {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+
+  padding: 11px;
+  text-align: left;
+  cursor: pointer;
+
+  color: inherit;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 12px;
+
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.employeeCard:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(0, 230, 118, 0.14);
+}
+
+.employeeCard--active {
+  background: rgba(0, 230, 118, 0.055);
+  border-color: rgba(0, 230, 118, 0.28);
+}
+
+.employeeAvatar {
+  width: 38px;
+  height: 38px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.08);
+  border: 1px solid rgba(0, 230, 118, 0.13);
+  border-radius: 10px;
+
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.employeeCardInfo {
+  min-width: 0;
+}
+
+.employeeCardInfo strong,
+.employeeCardInfo span {
+  display: block;
+}
+
+.employeeCardInfo strong {
+  overflow: hidden;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.employeeCardInfo span {
+  margin-top: 3px;
+  overflow: hidden;
+
+  color: rgba(235, 244, 238, 0.38);
+  font-size: 10px;
+
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.employeeStatus {
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.employeeStatus--active {
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.07);
+  border: 1px solid rgba(0, 230, 118, 0.13);
+}
+
+.employeeStatus--inactive {
+  color: rgba(235, 244, 238, 0.4);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.employeeEmpty {
+  padding: 28px 16px;
+  text-align: center;
+
+  background: rgba(255, 255, 255, 0.018);
+  border: 1px dashed rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+}
+
+.employeeEmpty strong {
+  display: block;
+  color: #fff;
+  font-size: 13px;
+}
+
+.employeeEmpty p {
+  margin: 6px 0 0;
+  color: rgba(235, 244, 238, 0.36);
+  font-size: 10px;
+}
+
+.employeeProfileSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.employeeProfileSummary > div {
+  min-width: 0;
+  padding: 12px;
+
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 11px;
+}
+
+.employeeProfileSummary span,
+.employeeProfileSummary strong {
+  display: block;
+}
+
+.employeeProfileSummary span {
+  margin-bottom: 5px;
+  color: rgba(235, 244, 238, 0.34);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.employeeProfileSummary strong {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.employeeScheduleList {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 13px;
+}
+
+.employeeScheduleRow {
+  min-height: 62px;
+  padding: 10px 13px;
+
+  display: grid;
+  grid-template-columns: 105px 92px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.employeeScheduleRow:last-child {
+  border-bottom: none;
+}
+
+.employeeScheduleDay strong {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+}
+
+.employeeWorkingToggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  color: rgba(235, 244, 238, 0.5);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.employeeWorkingToggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: #00e676;
+  cursor: pointer;
+}
+
+.employeeTimeInputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.employeeTimeInputs input {
+  min-width: 0;
+  height: 38px;
+  padding: 0 9px;
+  color-scheme: dark;
+  font-size: 10px;
+}
+
+.employeeTimeInputs span {
+  color: rgba(235, 244, 238, 0.28);
+  font-size: 9px;
+}
+
+.employeeDayOff {
+  color: rgba(235, 244, 238, 0.25);
+  font-size: 10px;
+}
+
+.employeeScheduleActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.employeeDeleteButton {
+  color: #ff7272 !important;
+  border-color: rgba(255, 90, 90, 0.18) !important;
+}
+
+.employeeDeleteButton:hover {
+  background: rgba(255, 90, 90, 0.06) !important;
+  border-color: rgba(255, 90, 90, 0.32) !important;
+}
+
+.employeeMessage {
+  margin: 14px 0 0;
+  padding: 10px 13px;
+
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(0, 230, 118, 0.045);
+  border: 1px solid rgba(0, 230, 118, 0.1);
+  border-radius: 10px;
+
+  font-size: 10px;
+}
+
+@media (max-width: 900px) {
+  .employeeWorkspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 650px) {
+  .employeeCreateGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .employeeProfileSummary {
+    grid-template-columns: 1fr;
+  }
+
+  .employeeScheduleRow {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .employeeTimeInputs {
+    max-width: 300px;
+  }
+}
