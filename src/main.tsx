@@ -8,6 +8,7 @@ import Login from './pages/Login.tsx'
 import Dashboard from './pages/Dashboard.tsx'
 import Calls from './pages/Calls.tsx'
 import Appointments from './pages/Appointments.tsx'
+import Employees from './pages/Employees.tsx'
 import Agent from './pages/Agent.tsx'
 import Billing from './pages/Billing.tsx'
 import Settings from './pages/Settings.tsx'
@@ -22,10 +23,12 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
+        {/* Public */}
         <Route path="/" element={<App />} />
         <Route path="/login" element={<Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />
 
+        {/* Client Dashboard */}
         <Route
           path="/dashboard"
           element={
@@ -49,6 +52,15 @@ createRoot(document.getElementById('root')!).render(
           element={
             <ProtectedRoute>
               <Appointments />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/dashboard/employees"
+          element={
+            <ProtectedRoute>
+              <Employees />
             </ProtectedRoute>
           }
         />
@@ -80,6 +92,7 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
+        {/* Recepta Admin */}
         <Route
           path="/admin"
           element={
