@@ -21,6 +21,7 @@ type CallRecord = {
 export default function Agent() {
   const [agent, setAgent] = useState<AgentRecord | null>(null)
   const [calls, setCalls] = useState<CallRecord[]>([])
+  const [isPro, setIsPro] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -37,10 +38,13 @@ export default function Agent() {
       const [
         { data: agentData, error: agentError },
         { data: callsData, error: callsError },
+        { data: subscriptionData },
       ] = await Promise.all([
         supabase
           .from('agents')
-          .select('agent_name, phone_number, business_hours, status')
+          .select(
+            'agent_name, phone_number, business_hours, status'
+          )
           .eq('client_id', user.id)
           .maybeSingle(),
 
@@ -51,6 +55,12 @@ export default function Agent() {
           )
           .eq('client_id', user.id)
           .order('started_at', { ascending: false }),
+
+        supabase
+          .from('subscriptions')
+          .select('plan_name')
+          .eq('client_id', user.id)
+          .maybeSingle(),
       ])
 
       if (!agentError && agentData) {
@@ -60,6 +70,10 @@ export default function Agent() {
       if (!callsError && callsData) {
         setCalls(callsData)
       }
+
+      setIsPro(
+        subscriptionData?.plan_name === 'Recepta Pro'
+      )
 
       setLoading(false)
     }
@@ -117,17 +131,23 @@ export default function Agent() {
     const totalCalls = calls.length
 
     const totalSeconds = calls.reduce(
-      (total, call) => total + (call.duration_seconds || 0),
+      (total, call) =>
+        total + (call.duration_seconds || 0),
       0
     )
 
     const totalMinutes = Math.round(totalSeconds / 60)
 
     const averageSeconds =
-      totalCalls > 0 ? Math.round(totalSeconds / totalCalls) : 0
+      totalCalls > 0
+        ? Math.round(totalSeconds / totalCalls)
+        : 0
 
-    const averageMinutes = Math.floor(averageSeconds / 60)
-    const remainingSeconds = averageSeconds % 60
+    const averageMinutes =
+      Math.floor(averageSeconds / 60)
+
+    const remainingSeconds =
+      averageSeconds % 60
 
     const appointments = calls.filter(
       (call) => call.appointment_booked
@@ -137,9 +157,12 @@ export default function Agent() {
       totalCalls,
       totalMinutes,
       appointments,
+
       averageDuration:
         totalCalls > 0
-          ? `${averageMinutes}m ${String(remainingSeconds).padStart(2, '0')}s`
+          ? `${averageMinutes}m ${String(
+              remainingSeconds
+            ).padStart(2, '0')}s`
           : '—',
     }
   }, [calls])
@@ -157,22 +180,48 @@ export default function Agent() {
   return (
     <main className="dashboardPage">
       <aside className="dashboardSidebar">
-        <a href="/" className="dashboardBrand">
-          <img src="/components/logoR.png" alt="Recepta" />
+        <a
+          href="/"
+          className="dashboardBrand"
+        >
+          <img
+            src="/components/logoR.png"
+            alt="Recepta"
+          />
         </a>
 
         <nav className="dashboardNav">
-          <a href="/dashboard" className="dashboardNavItem">
+          <a
+            href="/dashboard"
+            className="dashboardNavItem"
+          >
             Overview
           </a>
 
-          <a href="/dashboard/calls" className="dashboardNavItem">
+          <a
+            href="/dashboard/calls"
+            className="dashboardNavItem"
+          >
             Calls
           </a>
 
-          <a href="/dashboard/appointments" className="dashboardNavItem">
-            Appointments
-          </a>
+          {isPro && (
+            <>
+              <a
+                href="/dashboard/appointments"
+                className="dashboardNavItem"
+              >
+                Appointments
+              </a>
+
+              <a
+                href="/dashboard/employees"
+                className="dashboardNavItem"
+              >
+                Employees
+              </a>
+            </>
+          )}
 
           <a
             href="/dashboard/agent"
@@ -181,25 +230,39 @@ export default function Agent() {
             Agent
           </a>
 
-          <a href="/dashboard/billing" className="dashboardNavItem">
+          <a
+            href="/dashboard/billing"
+            className="dashboardNavItem"
+          >
             Billing
           </a>
 
-          <a href="/dashboard/settings" className="dashboardNavItem">
+          <a
+            href="/dashboard/settings"
+            className="dashboardNavItem"
+          >
             Settings
           </a>
         </nav>
       </aside>
 
       <section className="dashboardMain">
+
+        {/* HEADER */}
+
         <div className="dashboardHeader">
           <div>
-            <p className="dashboardEyebrow">YOUR AI RECEPTIONIST</p>
+            <p className="dashboardEyebrow">
+              YOUR AI RECEPTIONIST
+            </p>
 
-            <h1>{agent?.agent_name || 'AI Receptionist'}</h1>
+            <h1>
+              {agent?.agent_name || 'AI Receptionist'}
+            </h1>
 
             <p>
-              Monitor your receptionist, configuration and performance.
+              See how your receptionist is configured
+              and performing.
             </p>
           </div>
 
@@ -214,7 +277,8 @@ export default function Agent() {
             <span
               style={{
                 background: status.color,
-                boxShadow: `0 0 12px ${status.shadow}`,
+                boxShadow:
+                  `0 0 12px ${status.shadow}`,
               }}
             />
 
@@ -222,7 +286,7 @@ export default function Agent() {
           </div>
         </div>
 
-        {/* AGENT OVERVIEW */}
+        {/* RECEPTIONIST */}
 
         <section className="agentControlHero">
           <div className="agentControlIdentity">
@@ -238,13 +302,18 @@ export default function Agent() {
             </div>
 
             <div>
-              <span className="agentSectionLabel">ASSIGNED AGENT</span>
+              <span className="agentSectionLabel">
+                YOUR RECEPTIONIST
+              </span>
 
-              <h2>{agent?.agent_name || 'Not assigned yet'}</h2>
+              <h2>
+                {agent?.agent_name ||
+                  'Not assigned yet'}
+              </h2>
 
               <p>
                 {agent?.phone_number ||
-                  'A dedicated phone number has not been assigned yet.'}
+                  'Your Recepta phone number has not been assigned yet.'}
               </p>
             </div>
           </div>
@@ -252,44 +321,74 @@ export default function Agent() {
           <div className="agentControlFacts">
             <div>
               <span>STATUS</span>
-              <strong style={{ color: status.color }}>
+
+              <strong
+                style={{
+                  color: status.color,
+                }}
+              >
                 {status.shortLabel}
               </strong>
             </div>
 
             <div>
-              <span>PHONE</span>
-              <strong>{agent?.phone_number || 'Pending'}</strong>
+              <span>PHONE NUMBER</span>
+
+              <strong>
+                {agent?.phone_number || 'Pending'}
+              </strong>
             </div>
 
             <div>
               <span>BUSINESS HOURS</span>
-              <strong>{agent?.business_hours || 'Not configured'}</strong>
+
+              <strong>
+                {agent?.business_hours ||
+                  'Not configured'}
+              </strong>
             </div>
 
             <div>
-              <span>LAST ACTIVE</span>
+              <span>LAST CALL</span>
+
               <strong>
                 {calls.length > 0
-                  ? new Date(calls[0].started_at).toLocaleString()
-                  : '—'}
+                  ? new Date(
+                      calls[0].started_at
+                    ).toLocaleString()
+                  : 'No calls yet'}
               </strong>
             </div>
           </div>
         </section>
 
-        {/* LIVE STATUS */}
+        {/* CURRENT STATUS */}
 
         <section className="agentPanel agentLivePanel">
           <div className="agentPanelHeading">
             <div>
-              <span className="agentSectionLabel">LIVE STATUS</span>
-              <h2>Receptionist activity</h2>
+              <span className="agentSectionLabel">
+                CURRENT STATUS
+              </span>
+
+              <h2>
+                Your receptionist
+              </h2>
             </div>
 
-            <span className="agentIdleStatus">
-              <span />
-              Idle
+            <span
+              className="agentIdleStatus"
+              style={{
+                color: status.color,
+              }}
+            >
+              <span
+                style={{
+                  background: status.color,
+                }}
+              />
+
+              {status.shortLabel}
             </span>
           </div>
 
@@ -299,185 +398,152 @@ export default function Agent() {
             </div>
 
             <div>
-              <strong>Ready for calls</strong>
+              <strong>
+                {agent?.status === 'live'
+                  ? 'Ready for customer calls'
+                  : agent?.status === 'paused'
+                    ? 'Receptionist paused'
+                    : agent?.status === 'testing'
+                      ? 'Receptionist being tested'
+                      : 'Receptionist being prepared'}
+              </strong>
 
               <p>
                 {agent?.status === 'live'
-                  ? 'Your receptionist is online and ready to answer customers.'
-                  : 'Live call monitoring will become available once your receptionist is activated.'}
+                  ? 'Your AI receptionist is online and ready to answer incoming customer calls.'
+                  : agent?.status === 'paused'
+                    ? 'Your receptionist is currently paused and is not handling customer calls.'
+                    : agent?.status === 'testing'
+                      ? 'The Recepta team is currently testing your receptionist before activation.'
+                      : 'The Recepta team is preparing your receptionist before it goes live.'}
               </p>
             </div>
-          </div>
-
-          <div className="agentLiveNotice">
-            Live caller information and elapsed call time will appear here once
-            Retell live-call events are connected.
           </div>
         </section>
 
-        {/* HEALTH + CONFIGURATION */}
+        {/* CONFIGURATION */}
 
-        <div className="agentTwoColumn">
-          <section className="agentPanel">
-            <div className="agentPanelHeading">
-              <div>
-                <span className="agentSectionLabel">SYSTEM HEALTH</span>
-                <h2>Agent health</h2>
-              </div>
+        <section className="agentPanel">
+          <div className="agentPanelHeading">
+            <div>
+              <span className="agentSectionLabel">
+                CONFIGURATION
+              </span>
+
+              <h2>
+                Receptionist setup
+              </h2>
+            </div>
+          </div>
+
+          <div className="agentConfigurationGrid">
+            <div>
+              <span>Agent name</span>
+
+              <strong>
+                {agent?.agent_name || 'Pending'}
+              </strong>
             </div>
 
-            <div className="agentHealthList">
-              <div className="agentHealthRow">
-                <div>
-                  <strong>AI configuration</strong>
-                  <span>Core receptionist configuration</span>
-                </div>
+            <div>
+              <span>Phone number</span>
 
-                <span
-                  className={
-                    agent
-                      ? 'agentHealthBadge agentHealthBadge--good'
-                      : 'agentHealthBadge agentHealthBadge--pending'
-                  }
-                >
-                  {agent ? 'Ready' : 'Pending'}
-                </span>
-              </div>
-
-              <div className="agentHealthRow">
-                <div>
-                  <strong>Phone line</strong>
-                  <span>Dedicated customer-facing number</span>
-                </div>
-
-                <span
-                  className={
-                    agent?.phone_number
-                      ? 'agentHealthBadge agentHealthBadge--good'
-                      : 'agentHealthBadge agentHealthBadge--pending'
-                  }
-                >
-                  {agent?.phone_number ? 'Connected' : 'Pending'}
-                </span>
-              </div>
-
-              <div className="agentHealthRow">
-                <div>
-                  <strong>Agent testing</strong>
-                  <span>Call-flow and response testing</span>
-                </div>
-
-                <span
-                  className={
-                    agent?.status === 'testing' ||
-                    agent?.status === 'live'
-                      ? 'agentHealthBadge agentHealthBadge--good'
-                      : 'agentHealthBadge agentHealthBadge--pending'
-                  }
-                >
-                  {agent?.status === 'live'
-                    ? 'Passed'
-                    : agent?.status === 'testing'
-                      ? 'Testing'
-                      : 'Pending'}
-                </span>
-              </div>
-
-              <div className="agentHealthRow">
-                <div>
-                  <strong>Live activation</strong>
-                  <span>Ready to handle real customers</span>
-                </div>
-
-                <span
-                  className={
-                    agent?.status === 'live'
-                      ? 'agentHealthBadge agentHealthBadge--good'
-                      : 'agentHealthBadge agentHealthBadge--pending'
-                  }
-                >
-                  {agent?.status === 'live' ? 'Active' : 'Pending'}
-                </span>
-              </div>
-            </div>
-          </section>
-
-          <section className="agentPanel">
-            <div className="agentPanelHeading">
-              <div>
-                <span className="agentSectionLabel">CONFIGURATION</span>
-                <h2>Configuration summary</h2>
-              </div>
+              <strong>
+                {agent?.phone_number || 'Pending'}
+              </strong>
             </div>
 
-            <div className="agentConfigurationGrid">
-              <div>
-                <span>Agent name</span>
-                <strong>{agent?.agent_name || 'Pending'}</strong>
-              </div>
+            <div>
+              <span>Operating hours</span>
 
-              <div>
-                <span>Phone number</span>
-                <strong>{agent?.phone_number || 'Pending'}</strong>
-              </div>
-
-              <div>
-                <span>Operating hours</span>
-                <strong>{agent?.business_hours || 'Pending'}</strong>
-              </div>
-
-              <div>
-                <span>Agent status</span>
-                <strong style={{ color: status.color }}>
-                  {status.shortLabel}
-                </strong>
-              </div>
+              <strong>
+                {agent?.business_hours || 'Pending'}
+              </strong>
             </div>
 
-            <div className="agentConfigurationNotice">
-              <strong>Need something changed?</strong>
+            <div>
+              <span>Current status</span>
 
-              <p>
-                Business rules, voice, appointment handling and transfer
-                preferences will be managed by the Recepta team.
-              </p>
-
-              <button className="btn btnOutline" type="button">
-                Request changes
-              </button>
+              <strong
+                style={{
+                  color: status.color,
+                }}
+              >
+                {status.shortLabel}
+              </strong>
             </div>
-          </section>
-        </div>
+          </div>
+
+          <div className="agentConfigurationNotice">
+            <strong>
+              Want something changed?
+            </strong>
+
+            <p>
+              Need to change your greeting,
+              business hours, call instructions,
+              transfer preferences or receptionist
+              behaviour? Send a request to the
+              Recepta team.
+            </p>
+
+            <a
+              href="mailto:support@recepta.ca?subject=Recepta%20Agent%20Change%20Request"
+              className="btn btnOutline"
+            >
+              Request a change
+            </a>
+          </div>
+        </section>
 
         {/* PERFORMANCE */}
 
         <section className="agentPanel">
           <div className="agentPanelHeading">
             <div>
-              <span className="agentSectionLabel">PERFORMANCE</span>
-              <h2>Agent performance</h2>
+              <span className="agentSectionLabel">
+                PERFORMANCE
+              </span>
+
+              <h2>
+                Receptionist performance
+              </h2>
             </div>
           </div>
 
           <div className="agentPerformanceGrid">
             <div>
               <span>Calls Handled</span>
-              <strong>{performance.totalCalls}</strong>
+
+              <strong>
+                {performance.totalCalls}
+              </strong>
             </div>
 
             <div>
               <span>Minutes Talked</span>
-              <strong>{performance.totalMinutes}</strong>
+
+              <strong>
+                {performance.totalMinutes}
+              </strong>
             </div>
 
-            <div>
-              <span>Appointments</span>
-              <strong>{performance.appointments}</strong>
-            </div>
+            {isPro && (
+              <div>
+                <span>Appointments Booked</span>
+
+                <strong>
+                  {performance.appointments}
+                </strong>
+              </div>
+            )}
 
             <div>
-              <span>Avg. Duration</span>
-              <strong>{performance.averageDuration}</strong>
+              <span>Avg. Call Duration</span>
+
+              <strong>
+                {performance.averageDuration}
+              </strong>
             </div>
           </div>
         </section>
@@ -487,42 +553,66 @@ export default function Agent() {
         <section className="agentPanel">
           <div className="agentPanelHeading">
             <div>
-              <span className="agentSectionLabel">RECENT ACTIVITY</span>
-              <h2>Agent activity</h2>
+              <span className="agentSectionLabel">
+                RECENT ACTIVITY
+              </span>
+
+              <h2>
+                Recent calls
+              </h2>
             </div>
+
+            {calls.length > 0 && (
+              <a
+                href="/dashboard/calls"
+                className="btn btnOutline"
+              >
+                View all calls
+              </a>
+            )}
           </div>
 
           {calls.length === 0 ? (
             <div className="agentActivityEmpty">
-              <strong>No activity yet</strong>
+              <strong>
+                No calls yet
+              </strong>
 
               <p>
-                Calls, bookings and other receptionist activity will appear
-                here once your agent starts handling customers.
+                Your recent receptionist activity
+                will appear here once customer
+                calls start coming in.
               </p>
             </div>
           ) : (
             <div className="agentActivityList">
               {calls.slice(0, 5).map((call) => (
-                <div className="agentActivityRow" key={call.id}>
+                <div
+                  className="agentActivityRow"
+                  key={call.id}
+                >
                   <div className="agentActivityIcon">
                     ↗
                   </div>
 
                   <div className="agentActivityText">
                     <strong>
-                      {call.appointment_booked
+                      {isPro &&
+                      call.appointment_booked
                         ? 'Call handled · Appointment booked'
                         : 'Customer call handled'}
                     </strong>
 
                     <span>
-                      {call.outcome || 'Call completed'}
+                      {call.outcome ||
+                        'Call completed'}
                     </span>
                   </div>
 
                   <time>
-                    {new Date(call.started_at).toLocaleString()}
+                    {new Date(
+                      call.started_at
+                    ).toLocaleString()}
                   </time>
                 </div>
               ))}
