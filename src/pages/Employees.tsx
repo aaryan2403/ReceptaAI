@@ -19,6 +19,15 @@ type Schedule = {
   end_time: string | null
 }
 
+type ScheduleOverride = {
+  id?: string
+  employee_id: string
+  schedule_date: string
+  is_working: boolean
+  start_time: string | null
+  end_time: string | null
+}
+
 const DAYS = [
   { value: 0, label: 'Sunday' },
   { value: 1, label: 'Monday' },
@@ -29,11 +38,34 @@ const DAYS = [
   { value: 6, label: 'Saturday' },
 ]
 
+const getDateString = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
+
+const getStartOfWeek = (date: Date) => {
+  const copy = new Date(date)
+  const day = copy.getDay()
+
+  copy.setDate(copy.getDate() - day)
+  copy.setHours(0, 0, 0, 0)
+
+  return copy
+}
+
 export default function Employees() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [schedules, setSchedules] = useState<Schedule[]>([])
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(
-    null
+  const [overrides, setOverrides] = useState<ScheduleOverride[]>([])
+
+  const [selectedEmployeeId, setSelectedEmployeeId] =
+    useState<string | null>(null)
+
+  const [selectedWeek, setSelectedWeek] = useState(() =>
+    getStartOfWeek(new Date())
   )
 
   const [name, setName] = useState('')
@@ -44,6 +76,8 @@ export default function Employees() {
   const [loading, setLoading] = useState(true)
   const [savingEmployee, setSavingEmployee] = useState(false)
   const [savingSchedule, setSavingSchedule] = useState(false)
+  const [savingOverrides, setSavingOverrides] = useState(false)
+
   const [message, setMessage] = useState('')
 
   useEffect(() => {
@@ -51,12 +85,15 @@ export default function Employees() {
   }, [])
 
   useEffect(() => {
-    if (selectedEmployeeId) {
-      loadSchedule(selectedEmployeeId)
-    } else {
+    if (!selectedEmployeeId) {
       setSchedules([])
+      setOverrides([])
+      return
     }
-  }, [selectedEmployeeId])
+
+    loadSchedule(selectedEmployeeId)
+    loadOverrides(selectedEmployeeId)
+  }, [selectedEmployeeId, selectedWeek])
 
   const loadEmployees = async () => {
     setLoading(true)
@@ -80,7 +117,9 @@ export default function Employees() {
       setEmployees(data)
 
       if (data.length > 0) {
-        setSelectedEmployeeId((current) => current || data[0].id)
+        setSelectedEmployeeId(
+          (current) => current || data[0].id
+        )
       }
     }
 
@@ -105,7 +144,8 @@ export default function Employees() {
 
     const fullWeek = DAYS.map((day) => {
       const found = existing.find(
-        (schedule) => schedule.day_of_week === day.value
+        (schedule) =>
+          schedule.day_of_week === day.value
       )
 
       if (found) {
@@ -122,6 +162,35 @@ export default function Employees() {
     })
 
     setSchedules(fullWeek)
+  }
+
+  const loadOverrides = async (employeeId: string) => {
+    const weekStart = new Date(selectedWeek)
+
+    const weekEnd = new Date(selectedWeek)
+    weekEnd.setDate(weekEnd.getDate() + 6)
+
+    const { data, error } = await supabase
+      .from('employee_schedule_overrides')
+      .select(
+        'id, employee_id, schedule_date, is_working, start_time, end_time'
+      )
+      .eq('employee_id', employeeId)
+      .gte(
+        'schedule_date',
+        getDateString(weekStart)
+      )
+      .lte(
+        'schedule_date',
+        getDateString(weekEnd)
+      )
+
+    if (error) {
+      console.error(error)
+      return
+    }
+
+    setOverrides(data || [])
   }
 
   const handleAddEmployee = async () => {
@@ -152,17 +221,22 @@ export default function Employees() {
         role: role.trim() || null,
         is_active: true,
       })
-      .select('id, name, email, phone, role, is_active')
+      .select(
+        'id, name, email, phone, role, is_active'
+      )
       .single()
 
     if (error) {
-      console.error(error)
       setMessage('Could not add employee.')
       setSavingEmployee(false)
       return
     }
 
-    setEmployees((current) => [...current, data])
+    setEmployees((current) => [
+      ...current,
+      data,
+    ])
+
     setSelectedEmployeeId(data.id)
 
     setName('')
@@ -174,7 +248,9 @@ export default function Employees() {
     setSavingEmployee(false)
   }
 
-  const handleToggleActive = async (employee: Employee) => {
+  const handleToggleActive = async (
+    employee: Employee
+  ) => {
     const { error } = await supabase
       .from('employees')
       .update({
@@ -184,20 +260,24 @@ export default function Employees() {
       .eq('id', employee.id)
 
     if (error) {
-      console.error(error)
       return
     }
 
     setEmployees((current) =>
       current.map((item) =>
         item.id === employee.id
-          ? { ...item, is_active: !item.is_active }
+          ? {
+              ...item,
+              is_active: !item.is_active,
+            }
           : item
       )
     )
   }
 
-  const handleDeleteEmployee = async (employeeId: string) => {
+  const handleDeleteEmployee = async (
+    employeeId: string
+  ) => {
     const confirmed = window.confirm(
       'Delete this employee and their schedule?'
     )
@@ -209,19 +289,21 @@ export default function Employees() {
       .delete()
       .eq('id', employeeId)
 
-    if (error) {
-      console.error(error)
-      return
-    }
+    if (error) return
 
     const remaining = employees.filter(
-      (employee) => employee.id !== employeeId
+      (employee) =>
+        employee.id !== employeeId
     )
 
     setEmployees(remaining)
 
-    if (selectedEmployeeId === employeeId) {
-      setSelectedEmployeeId(remaining[0]?.id || null)
+    if (
+      selectedEmployeeId === employeeId
+    ) {
+      setSelectedEmployeeId(
+        remaining[0]?.id || null
+      )
     }
   }
 
@@ -248,41 +330,296 @@ export default function Employees() {
     setSavingSchedule(true)
     setMessage('')
 
-    const rows = schedules.map((schedule) => ({
-      employee_id: selectedEmployeeId,
-      day_of_week: schedule.day_of_week,
-      is_working: schedule.is_working,
-      start_time: schedule.is_working
-        ? schedule.start_time
-        : null,
-      end_time: schedule.is_working
-        ? schedule.end_time
-        : null,
-      updated_at: new Date().toISOString(),
-    }))
+    const rows = schedules.map(
+      (schedule) => ({
+        employee_id:
+          selectedEmployeeId,
+
+        day_of_week:
+          schedule.day_of_week,
+
+        is_working:
+          schedule.is_working,
+
+        start_time:
+          schedule.is_working
+            ? schedule.start_time
+            : null,
+
+        end_time:
+          schedule.is_working
+            ? schedule.end_time
+            : null,
+
+        updated_at:
+          new Date().toISOString(),
+      })
+    )
 
     const { error } = await supabase
       .from('employee_schedules')
       .upsert(rows, {
-        onConflict: 'employee_id,day_of_week',
+        onConflict:
+          'employee_id,day_of_week',
       })
 
     if (error) {
-      console.error(error)
-      setMessage('Could not save schedule.')
+      setMessage(
+        'Could not save normal schedule.'
+      )
     } else {
-      setMessage('Schedule saved.')
-      await loadSchedule(selectedEmployeeId)
+      setMessage(
+        'Normal weekly schedule saved.'
+      )
+
+      await loadSchedule(
+        selectedEmployeeId
+      )
     }
 
     setSavingSchedule(false)
   }
 
-  const selectedEmployee = useMemo(() => {
-    return employees.find(
-      (employee) => employee.id === selectedEmployeeId
+  const weekDates = useMemo(() => {
+    return DAYS.map((day, index) => {
+      const date = new Date(selectedWeek)
+      date.setDate(
+        selectedWeek.getDate() + index
+      )
+
+      return {
+        ...day,
+        date,
+        dateString:
+          getDateString(date),
+      }
+    })
+  }, [selectedWeek])
+
+  const getDefaultForDate = (
+    dayOfWeek: number
+  ) => {
+    return schedules.find(
+      (schedule) =>
+        schedule.day_of_week === dayOfWeek
     )
-  }, [employees, selectedEmployeeId])
+  }
+
+  const getOverrideForDate = (
+    dateString: string
+  ) => {
+    return overrides.find(
+      (override) =>
+        override.schedule_date ===
+        dateString
+    )
+  }
+
+  const updateOverride = (
+    dateString: string,
+    dayOfWeek: number,
+    field:
+      | 'is_working'
+      | 'start_time'
+      | 'end_time',
+    value:
+      | boolean
+      | string
+      | null
+  ) => {
+    setOverrides((current) => {
+      const existing =
+        current.find(
+          (override) =>
+            override.schedule_date ===
+            dateString
+        )
+
+      if (existing) {
+        return current.map(
+          (override) =>
+            override.schedule_date ===
+            dateString
+              ? {
+                  ...override,
+                  [field]: value,
+                }
+              : override
+        )
+      }
+
+      const defaultSchedule =
+        getDefaultForDate(dayOfWeek)
+
+      return [
+        ...current,
+        {
+          employee_id:
+            selectedEmployeeId || '',
+
+          schedule_date:
+            dateString,
+
+          is_working:
+            field === 'is_working'
+              ? Boolean(value)
+              : defaultSchedule?.is_working ??
+                true,
+
+          start_time:
+            field === 'start_time'
+              ? String(value)
+              : defaultSchedule?.start_time ||
+                '09:00',
+
+          end_time:
+            field === 'end_time'
+              ? String(value)
+              : defaultSchedule?.end_time ||
+                '17:00',
+        },
+      ]
+    })
+  }
+
+  const resetOverride = (
+    dateString: string
+  ) => {
+    setOverrides((current) =>
+      current.filter(
+        (override) =>
+          override.schedule_date !==
+          dateString
+      )
+    )
+  }
+
+  const handleSaveOverrides = async () => {
+    if (!selectedEmployeeId) return
+
+    setSavingOverrides(true)
+    setMessage('')
+
+    const weekStart =
+      getDateString(selectedWeek)
+
+    const weekEndDate =
+      new Date(selectedWeek)
+
+    weekEndDate.setDate(
+      weekEndDate.getDate() + 6
+    )
+
+    const weekEnd =
+      getDateString(weekEndDate)
+
+    const { error: deleteError } =
+      await supabase
+        .from(
+          'employee_schedule_overrides'
+        )
+        .delete()
+        .eq(
+          'employee_id',
+          selectedEmployeeId
+        )
+        .gte(
+          'schedule_date',
+          weekStart
+        )
+        .lte(
+          'schedule_date',
+          weekEnd
+        )
+
+    if (deleteError) {
+      setMessage(
+        'Could not save weekly changes.'
+      )
+      setSavingOverrides(false)
+      return
+    }
+
+    if (overrides.length > 0) {
+      const rows = overrides.map(
+        (override) => ({
+          employee_id:
+            selectedEmployeeId,
+
+          schedule_date:
+            override.schedule_date,
+
+          is_working:
+            override.is_working,
+
+          start_time:
+            override.is_working
+              ? override.start_time
+              : null,
+
+          end_time:
+            override.is_working
+              ? override.end_time
+              : null,
+
+          updated_at:
+            new Date().toISOString(),
+        })
+      )
+
+      const { error: insertError } =
+        await supabase
+          .from(
+            'employee_schedule_overrides'
+          )
+          .upsert(rows, {
+            onConflict:
+              'employee_id,schedule_date',
+          })
+
+      if (insertError) {
+        setMessage(
+          'Could not save weekly changes.'
+        )
+        setSavingOverrides(false)
+        return
+      }
+    }
+
+    setMessage(
+      'Weekly schedule changes saved.'
+    )
+
+    await loadOverrides(
+      selectedEmployeeId
+    )
+
+    setSavingOverrides(false)
+  }
+
+  const changeWeek = (
+    amount: number
+  ) => {
+    const next = new Date(selectedWeek)
+
+    next.setDate(
+      next.getDate() + amount * 7
+    )
+
+    setSelectedWeek(next)
+  }
+
+  const selectedEmployee =
+    useMemo(() => {
+      return employees.find(
+        (employee) =>
+          employee.id ===
+          selectedEmployeeId
+      )
+    }, [
+      employees,
+      selectedEmployeeId,
+    ])
 
   if (loading) {
     return (
@@ -296,17 +633,30 @@ export default function Employees() {
 
   return (
     <main className="dashboardPage">
+
       <aside className="dashboardSidebar">
-        <a href="/" className="dashboardBrand">
-          <img src="/components/logoR.png" alt="Recepta" />
+        <a
+          href="/"
+          className="dashboardBrand"
+        >
+          <img
+            src="/components/logoR.png"
+            alt="Recepta"
+          />
         </a>
 
         <nav className="dashboardNav">
-          <a href="/dashboard" className="dashboardNavItem">
+          <a
+            href="/dashboard"
+            className="dashboardNavItem"
+          >
             Overview
           </a>
 
-          <a href="/dashboard/calls" className="dashboardNavItem">
+          <a
+            href="/dashboard/calls"
+            className="dashboardNavItem"
+          >
             Calls
           </a>
 
@@ -324,32 +674,49 @@ export default function Employees() {
             Employees
           </a>
 
-          <a href="/dashboard/agent" className="dashboardNavItem">
+          <a
+            href="/dashboard/agent"
+            className="dashboardNavItem"
+          >
             Agent
           </a>
 
-          <a href="/dashboard/billing" className="dashboardNavItem">
+          <a
+            href="/dashboard/billing"
+            className="dashboardNavItem"
+          >
             Billing
           </a>
 
-          <a href="/dashboard/settings" className="dashboardNavItem">
+          <a
+            href="/dashboard/settings"
+            className="dashboardNavItem"
+          >
             Settings
           </a>
         </nav>
       </aside>
 
       <section className="dashboardMain">
+
         <div className="dashboardHeader">
           <div>
-            <p className="dashboardEyebrow">EMPLOYEES</p>
+            <p className="dashboardEyebrow">
+              EMPLOYEES
+            </p>
 
-            <h1>Team & Availability</h1>
+            <h1>
+              Team & Availability
+            </h1>
 
             <p>
-              Add employees and control when each person is available.
+              Add employees, set their normal hours
+              and make week-specific changes.
             </p>
           </div>
         </div>
+
+        {/* ADD EMPLOYEE */}
 
         <section className="employeePanel">
           <div className="employeePanelHeading">
@@ -358,7 +725,9 @@ export default function Employees() {
                 ADD EMPLOYEE
               </span>
 
-              <h2>Add someone to your team</h2>
+              <h2>
+                Add someone to your team
+              </h2>
             </div>
           </div>
 
@@ -368,7 +737,11 @@ export default function Employees() {
 
               <input
                 value={name}
-                onChange={(event) => setName(event.target.value)}
+                onChange={(event) =>
+                  setName(
+                    event.target.value
+                  )
+                }
                 placeholder="John Smith"
               />
             </label>
@@ -378,7 +751,11 @@ export default function Employees() {
 
               <input
                 value={role}
-                onChange={(event) => setRole(event.target.value)}
+                onChange={(event) =>
+                  setRole(
+                    event.target.value
+                  )
+                }
                 placeholder="Technician"
               />
             </label>
@@ -388,7 +765,11 @@ export default function Employees() {
 
               <input
                 value={phone}
-                onChange={(event) => setPhone(event.target.value)}
+                onChange={(event) =>
+                  setPhone(
+                    event.target.value
+                  )
+                }
                 placeholder="+1 416..."
               />
             </label>
@@ -398,7 +779,11 @@ export default function Employees() {
 
               <input
                 value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                onChange={(event) =>
+                  setEmail(
+                    event.target.value
+                  )
+                }
                 placeholder="john@company.com"
               />
             </label>
@@ -417,6 +802,9 @@ export default function Employees() {
         </section>
 
         <div className="employeeWorkspace">
+
+          {/* EMPLOYEE LIST */}
+
           <section className="employeePanel">
             <div className="employeePanelHeading">
               <div>
@@ -424,7 +812,9 @@ export default function Employees() {
                   TEAM
                 </span>
 
-                <h2>Employees</h2>
+                <h2>
+                  Employees
+                </h2>
               </div>
 
               <span className="employeeCount">
@@ -434,7 +824,9 @@ export default function Employees() {
 
             {employees.length === 0 ? (
               <div className="employeeEmpty">
-                <strong>No employees yet</strong>
+                <strong>
+                  No employees yet
+                </strong>
 
                 <p>
                   Add your first employee above.
@@ -442,58 +834,71 @@ export default function Employees() {
               </div>
             ) : (
               <div className="employeeList">
-                {employees.map((employee) => (
-                  <button
-                    key={employee.id}
-                    type="button"
-                    onClick={() =>
-                      setSelectedEmployeeId(employee.id)
-                    }
-                    className={
-                      selectedEmployeeId === employee.id
-                        ? 'employeeCard employeeCard--active'
-                        : 'employeeCard'
-                    }
-                  >
-                    <div className="employeeAvatar">
-                      {employee.name
-                        .split(' ')
-                        .map((part) => part[0])
-                        .join('')
-                        .slice(0, 2)
-                        .toUpperCase()}
-                    </div>
-
-                    <div className="employeeCardInfo">
-                      <strong>{employee.name}</strong>
-
-                      <span>
-                        {employee.role || 'Employee'}
-                      </span>
-                    </div>
-
-                    <span
+                {employees.map(
+                  (employee) => (
+                    <button
+                      key={employee.id}
+                      type="button"
+                      onClick={() =>
+                        setSelectedEmployeeId(
+                          employee.id
+                        )
+                      }
                       className={
-                        employee.is_active
-                          ? 'employeeStatus employeeStatus--active'
-                          : 'employeeStatus employeeStatus--inactive'
+                        selectedEmployeeId ===
+                        employee.id
+                          ? 'employeeCard employeeCard--active'
+                          : 'employeeCard'
                       }
                     >
-                      {employee.is_active
-                        ? 'Active'
-                        : 'Inactive'}
-                    </span>
-                  </button>
-                ))}
+                      <div className="employeeAvatar">
+                        {employee.name
+                          .split(' ')
+                          .map(
+                            (part) =>
+                              part[0]
+                          )
+                          .join('')
+                          .slice(0, 2)
+                          .toUpperCase()}
+                      </div>
+
+                      <div className="employeeCardInfo">
+                        <strong>
+                          {employee.name}
+                        </strong>
+
+                        <span>
+                          {employee.role ||
+                            'Employee'}
+                        </span>
+                      </div>
+
+                      <span
+                        className={
+                          employee.is_active
+                            ? 'employeeStatus employeeStatus--active'
+                            : 'employeeStatus employeeStatus--inactive'
+                        }
+                      >
+                        {employee.is_active
+                          ? 'Active'
+                          : 'Inactive'}
+                      </span>
+                    </button>
+                  )
+                )}
               </div>
             )}
           </section>
+
+          {/* NORMAL SCHEDULE */}
 
           <section className="employeePanel">
             <div className="employeePanelHeading">
               <div>
                 <span className="employeeSectionLabel">
-                  WEEKLY SCHEDULE
+                  NORMAL SCHEDULE
                 </span>
 
                 <h2>
@@ -506,45 +911,64 @@ export default function Employees() {
 
             {!selectedEmployee ? (
               <div className="employeeEmpty">
-                <strong>Select an employee</strong>
+                <strong>
+                  Select an employee
+                </strong>
 
                 <p>
-                  Choose an employee to edit their weekly hours.
+                  Choose an employee to edit
+                  their normal weekly hours.
                 </p>
               </div>
             ) : (
               <>
                 <div className="employeeProfileSummary">
                   <div>
-                    <span>Role</span>
+                    <span>
+                      Role
+                    </span>
+
                     <strong>
-                      {selectedEmployee.role || 'Not specified'}
+                      {selectedEmployee.role ||
+                        'Not specified'}
                     </strong>
                   </div>
 
                   <div>
-                    <span>Phone</span>
+                    <span>
+                      Phone
+                    </span>
+
                     <strong>
-                      {selectedEmployee.phone || 'Not provided'}
+                      {selectedEmployee.phone ||
+                        'Not provided'}
                     </strong>
                   </div>
 
                   <div>
-                    <span>Email</span>
+                    <span>
+                      Email
+                    </span>
+
                     <strong>
-                      {selectedEmployee.email || 'Not provided'}
+                      {selectedEmployee.email ||
+                        'Not provided'}
                     </strong>
                   </div>
                 </div>
 
                 <div className="employeeScheduleList">
                   {DAYS.map((day) => {
-                    const schedule = schedules.find(
-                      (item) =>
-                        item.day_of_week === day.value
-                    )
+                    const schedule =
+                      schedules.find(
+                        (item) =>
+                          item.day_of_week ===
+                          day.value
+                      )
 
-                    if (!schedule) return null
+                    if (!schedule) {
+                      return null
+                    }
 
                     return (
                       <div
@@ -552,18 +976,23 @@ export default function Employees() {
                         key={day.value}
                       >
                         <div className="employeeScheduleDay">
-                          <strong>{day.label}</strong>
+                          <strong>
+                            {day.label}
+                          </strong>
                         </div>
 
                         <label className="employeeWorkingToggle">
                           <input
                             type="checkbox"
-                            checked={schedule.is_working}
+                            checked={
+                              schedule.is_working
+                            }
                             onChange={(event) =>
                               updateSchedule(
                                 day.value,
                                 'is_working',
-                                event.target.checked
+                                event.target
+                                  .checked
                               )
                             }
                           />
@@ -580,31 +1009,41 @@ export default function Employees() {
                             <input
                               type="time"
                               value={
-                                schedule.start_time?.slice(0, 5) ||
+                                schedule.start_time?.slice(
+                                  0,
+                                  5
+                                ) ||
                                 '09:00'
                               }
                               onChange={(event) =>
                                 updateSchedule(
                                   day.value,
                                   'start_time',
-                                  event.target.value
+                                  event.target
+                                    .value
                                 )
                               }
                             />
 
-                            <span>to</span>
+                            <span>
+                              to
+                            </span>
 
                             <input
                               type="time"
                               value={
-                                schedule.end_time?.slice(0, 5) ||
+                                schedule.end_time?.slice(
+                                  0,
+                                  5
+                                ) ||
                                 '17:00'
                               }
                               onChange={(event) =>
                                 updateSchedule(
                                   day.value,
                                   'end_time',
-                                  event.target.value
+                                  event.target
+                                    .value
                                 )
                               }
                             />
@@ -623,19 +1062,23 @@ export default function Employees() {
                   <button
                     type="button"
                     className="btn btnPrimary"
-                    onClick={handleSaveSchedule}
+                    onClick={
+                      handleSaveSchedule
+                    }
                     disabled={savingSchedule}
                   >
                     {savingSchedule
                       ? 'Saving...'
-                      : 'Save Schedule'}
+                      : 'Save Normal Schedule'}
                   </button>
 
                   <button
                     type="button"
                     className="btn btnOutline"
                     onClick={() =>
-                      handleToggleActive(selectedEmployee)
+                      handleToggleActive(
+                        selectedEmployee
+                      )
                     }
                   >
                     {selectedEmployee.is_active
@@ -647,7 +1090,9 @@ export default function Employees() {
                     type="button"
                     className="btn btnOutline employeeDeleteButton"
                     onClick={() =>
-                      handleDeleteEmployee(selectedEmployee.id)
+                      handleDeleteEmployee(
+                        selectedEmployee.id
+                      )
                     }
                   >
                     Delete
@@ -657,6 +1102,252 @@ export default function Employees() {
             )}
           </section>
         </div>
+
+        {/* SPECIFIC WEEK */}
+
+        {selectedEmployee && (
+          <section className="employeePanel">
+            <div className="employeePanelHeading">
+              <div>
+                <span className="employeeSectionLabel">
+                  THIS WEEK / OVERRIDES
+                </span>
+
+                <h2>
+                  Specific week schedule
+                </h2>
+
+                <p>
+                  Change individual days without
+                  changing the employee's normal schedule.
+                </p>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '8px',
+                  alignItems: 'center',
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn btnOutline"
+                  onClick={() =>
+                    changeWeek(-1)
+                  }
+                >
+                  ←
+                </button>
+
+                <span
+                  style={{
+                    fontSize: '10px',
+                    color:
+                      'rgba(235,244,238,0.55)',
+                  }}
+                >
+                  {selectedWeek.toLocaleDateString(
+                    [],
+                    {
+                      month: 'short',
+                      day: 'numeric',
+                    }
+                  )}
+                  {' — '}
+                  {new Date(
+                    selectedWeek.getFullYear(),
+                    selectedWeek.getMonth(),
+                    selectedWeek.getDate() + 6
+                  ).toLocaleDateString(
+                    [],
+                    {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    }
+                  )}
+                </span>
+
+                <button
+                  type="button"
+                  className="btn btnOutline"
+                  onClick={() =>
+                    changeWeek(1)
+                  }
+                >
+                  →
+                </button>
+              </div>
+            </div>
+
+            <div className="employeeScheduleList">
+              {weekDates.map((day) => {
+                const defaultSchedule =
+                  getDefaultForDate(
+                    day.value
+                  )
+
+                const override =
+                  getOverrideForDate(
+                    day.dateString
+                  )
+
+                const effectiveWorking =
+                  override
+                    ? override.is_working
+                    : defaultSchedule?.is_working ??
+                      false
+
+                const effectiveStart =
+                  override?.start_time ||
+                  defaultSchedule?.start_time ||
+                  '09:00'
+
+                const effectiveEnd =
+                  override?.end_time ||
+                  defaultSchedule?.end_time ||
+                  '17:00'
+
+                const isOverridden =
+                  Boolean(override)
+
+                return (
+                  <div
+                    className="employeeScheduleRow"
+                    key={day.dateString}
+                  >
+                    <div className="employeeScheduleDay">
+                      <strong>
+                        {day.label}
+                      </strong>
+
+                      <span
+                        style={{
+                          display: 'block',
+                          marginTop: '3px',
+                          color:
+                            'rgba(235,244,238,0.3)',
+                          fontSize: '9px',
+                        }}
+                      >
+                        {day.date.toLocaleDateString(
+                          [],
+                          {
+                            month: 'short',
+                            day: 'numeric',
+                          }
+                        )}
+                      </span>
+                    </div>
+
+                    <label className="employeeWorkingToggle">
+                      <input
+                        type="checkbox"
+                        checked={
+                          effectiveWorking
+                        }
+                        onChange={(event) =>
+                          updateOverride(
+                            day.dateString,
+                            day.value,
+                            'is_working',
+                            event.target.checked
+                          )
+                        }
+                      />
+
+                      <span>
+                        {effectiveWorking
+                          ? 'Working'
+                          : 'Off'}
+                      </span>
+                    </label>
+
+                    {effectiveWorking ? (
+                      <div className="employeeTimeInputs">
+                        <input
+                          type="time"
+                          value={
+                            effectiveStart.slice(
+                              0,
+                              5
+                            )
+                          }
+                          onChange={(event) =>
+                            updateOverride(
+                              day.dateString,
+                              day.value,
+                              'start_time',
+                              event.target.value
+                            )
+                          }
+                        />
+
+                        <span>
+                          to
+                        </span>
+
+                        <input
+                          type="time"
+                          value={
+                            effectiveEnd.slice(
+                              0,
+                              5
+                            )
+                          }
+                          onChange={(event) =>
+                            updateOverride(
+                              day.dateString,
+                              day.value,
+                              'end_time',
+                              event.target.value
+                            )
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <span className="employeeDayOff">
+                        Day off
+                      </span>
+                    )}
+
+                    {isOverridden && (
+                      <button
+                        type="button"
+                        className="btn btnOutline"
+                        onClick={() =>
+                          resetOverride(
+                            day.dateString
+                          )
+                        }
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="employeeScheduleActions">
+              <button
+                type="button"
+                className="btn btnPrimary"
+                onClick={
+                  handleSaveOverrides
+                }
+                disabled={
+                  savingOverrides
+                }
+              >
+                {savingOverrides
+                  ? 'Saving...'
+                  : 'Save Weekly Changes'}
+              </button>
+            </div>
+          </section>
+        )}
 
         {message && (
           <p className="employeeMessage">
