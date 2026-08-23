@@ -6409,3 +6409,425 @@
     max-width: none;
   }
 }
+/* =========================================================
+   RECEPTA — PREMIUM BILLING
+   ========================================================= */
+
+.billingPremiumHero {
+  position: relative;
+  overflow: hidden;
+  margin-top: 18px;
+  padding: 28px;
+
+  border-radius: 22px;
+
+  background:
+    radial-gradient(
+      circle at 85% 5%,
+      rgba(0, 230, 118, 0.13),
+      transparent 32%
+    ),
+    linear-gradient(
+      145deg,
+      rgba(12, 29, 19, 0.98),
+      rgba(5, 12, 8, 0.99)
+    );
+
+  border: 1px solid rgba(0, 230, 118, 0.13);
+
+  box-shadow:
+    0 25px 70px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.billingPremiumHero--pro {
+  background:
+    radial-gradient(
+      circle at 85% 5%,
+      rgba(247, 185, 62, 0.14),
+      transparent 33%
+    ),
+    radial-gradient(
+      circle at 8% 90%,
+      rgba(0, 230, 118, 0.07),
+      transparent 35%
+    ),
+    linear-gradient(
+      145deg,
+      rgba(18, 25, 17, 0.99),
+      rgba(7, 12, 8, 0.99)
+    );
+
+  border-color: rgba(247, 185, 62, 0.18);
+}
+
+.billingPremiumTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+
+  gap: 20px;
+}
+
+.billingPremiumEyebrow {
+  display: block;
+
+  color: #00e676;
+
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+}
+
+.billingPremiumHero--pro .billingPremiumEyebrow {
+  color: #f7b93e;
+}
+
+.billingPremiumTop h2 {
+  margin: 7px 0 0;
+
+  color: #ffffff;
+
+  font-size: 28px;
+  letter-spacing: -0.035em;
+}
+
+.billingPremiumTop p {
+  max-width: 560px;
+
+  margin: 7px 0 0;
+
+  color: rgba(235, 244, 238, 0.45);
+
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.billingPremiumPrice {
+  margin-top: 26px;
+
+  display: flex;
+  align-items: flex-end;
+
+  gap: 8px;
+}
+
+.billingPremiumPrice strong {
+  color: #ffffff;
+
+  font-size: clamp(38px, 5vw, 56px);
+  line-height: 0.95;
+  letter-spacing: -0.055em;
+}
+
+.billingPremiumPrice span {
+  margin-bottom: 5px;
+
+  color: rgba(235, 244, 238, 0.38);
+
+  font-size: 12px;
+}
+
+.billingPremiumFeatures {
+  margin-top: 26px;
+
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+
+  gap: 9px;
+}
+
+.billingPremiumFeatures > div {
+  display: flex;
+  align-items: center;
+
+  gap: 9px;
+
+  padding: 11px 13px;
+
+  border-radius: 11px;
+
+  background: rgba(255, 255, 255, 0.024);
+
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.billingPremiumFeatures > div > span {
+  color: #00e676;
+
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.billingPremiumHero--pro
+.billingPremiumFeatures > div > span {
+  color: #f7b93e;
+}
+
+.billingPremiumFeatures p {
+  margin: 0;
+
+  color: rgba(255, 255, 255, 0.78);
+
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.billingUpgradeStrip {
+  margin-top: 24px;
+
+  padding: 18px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 24px;
+
+  border-radius: 14px;
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(247, 185, 62, 0.08),
+      rgba(247, 185, 62, 0.025)
+    );
+
+  border: 1px solid rgba(247, 185, 62, 0.15);
+}
+
+.billingUpgradeStrip .billingPremiumEyebrow {
+  color: #f7b93e;
+}
+
+.billingUpgradeStrip strong {
+  display: block;
+
+  margin-top: 5px;
+
+  color: #ffffff;
+
+  font-size: 15px;
+}
+
+.billingUpgradeStrip p {
+  max-width: 520px;
+
+  margin: 5px 0 0;
+
+  color: rgba(235, 244, 238, 0.4);
+
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.billingDashboardGrid {
+  margin-top: 18px;
+
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+
+  gap: 18px;
+}
+
+.billingModernCard,
+.billingManagementCard {
+  position: relative;
+
+  padding: 22px;
+
+  border-radius: 18px;
+
+  background:
+    linear-gradient(
+      145deg,
+      rgba(12, 27, 18, 0.97),
+      rgba(6, 13, 9, 0.98)
+    );
+
+  border: 1px solid rgba(255, 255, 255, 0.07);
+
+  box-shadow:
+    0 18px 50px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.billingModernHeading h2,
+.billingManagementCard h2 {
+  margin: 6px 0 0;
+
+  color: #ffffff;
+
+  font-size: 18px;
+}
+
+.billingUsageNumber {
+  margin-top: 23px;
+
+  display: flex;
+  align-items: baseline;
+
+  gap: 8px;
+}
+
+.billingUsageNumber strong {
+  color: #ffffff;
+
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.billingUsageNumber span {
+  color: rgba(235, 244, 238, 0.4);
+
+  font-size: 11px;
+}
+
+.billingUsageNote {
+  margin: 16px 0 0;
+
+  color: rgba(235, 244, 238, 0.35);
+
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.billingModernRows {
+  margin-top: 15px;
+
+  display: grid;
+
+  gap: 8px;
+}
+
+.billingModernRows > div {
+  padding: 11px 12px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 20px;
+
+  border-radius: 10px;
+
+  background: rgba(255, 255, 255, 0.025);
+
+  border: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.billingModernRows span {
+  color: rgba(235, 244, 238, 0.36);
+
+  font-size: 9px;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.07em;
+}
+
+.billingModernRows strong {
+  color: rgba(255, 255, 255, 0.82);
+
+  font-size: 10px;
+
+  text-align: right;
+}
+
+.billingManagementCard {
+  margin-top: 18px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 24px;
+}
+
+.billingManagementCard p {
+  max-width: 600px;
+
+  margin: 7px 0 0;
+
+  color: rgba(235, 244, 238, 0.4);
+
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.billingStatus {
+  display: inline-flex;
+  align-items: center;
+
+  padding: 7px 11px;
+
+  border-radius: 999px;
+
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.billingStatus--active {
+  color: #00e676;
+
+  background: rgba(0, 230, 118, 0.08);
+
+  border: 1px solid rgba(0, 230, 118, 0.14);
+}
+
+.billingStatus--pending {
+  color: #f7b93e;
+
+  background: rgba(247, 185, 62, 0.08);
+
+  border: 1px solid rgba(247, 185, 62, 0.15);
+}
+
+.billingStatus--past_due {
+  color: #ff9b68;
+
+  background: rgba(255, 155, 104, 0.08);
+
+  border: 1px solid rgba(255, 155, 104, 0.15);
+}
+
+.billingStatus--cancelled {
+  color: #ff7272;
+
+  background: rgba(255, 114, 114, 0.08);
+
+  border: 1px solid rgba(255, 114, 114, 0.15);
+}
+
+@media (max-width: 760px) {
+  .billingDashboardGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .billingPremiumFeatures {
+    grid-template-columns: 1fr;
+  }
+
+  .billingUpgradeStrip,
+  .billingManagementCard {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 560px) {
+  .billingPremiumHero {
+    padding: 20px;
+    border-radius: 18px;
+  }
+
+  .billingPremiumTop {
+    flex-direction: column;
+  }
+
+  .billingUpgradeStrip .btn,
+  .billingManagementCard .btn {
+    width: 100%;
+  }
+}
