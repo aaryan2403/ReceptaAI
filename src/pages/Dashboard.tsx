@@ -9,6 +9,12 @@ type Client = {
   status: ClientStatus
 }
 
+type Subscription = {
+  plan_name: string | null
+  monthly_price: number | null
+  status: string | null
+}
+
 type Call = {
   duration_seconds: number
   appointment_booked: boolean
@@ -16,11 +22,13 @@ type Call = {
 
 type Appointment = {
   id: string
+  appointment_time: string | null
   status: 'booked' | 'cancelled' | 'completed'
 }
 
 export default function Dashboard() {
   const [client, setClient] = useState<Client | null>(null)
+  const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [calls, setCalls] = useState<Call[]>([])
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [loading, setLoading] = useState(true)
@@ -38,8 +46,8 @@ export default function Dashboard() {
 
       const [
         { data: clientData },
+        { data: subscriptionData },
         { data: callsData },
-        { data: appointmentsData },
       ] = await Promise.all([
         supabase
           .from('clients')
@@ -48,25 +56,43 @@ export default function Dashboard() {
           .single(),
 
         supabase
-          .from('calls')
-          .select('duration_seconds, appointment_booked')
-          .eq('client_id', user.id),
+          .from('subscriptions')
+          .select('plan_name, monthly_price, status')
+          .eq('client_id', user.id)
+          .maybeSingle(),
 
         supabase
-          .from('appointments')
-          .select('id, status')
+          .from('calls')
+          .select('duration_seconds, appointment_booked')
           .eq('client_id', user.id),
       ])
 
       if (clientData) setClient(clientData)
+      if (subscriptionData) setSubscription(subscriptionData)
       if (callsData) setCalls(callsData)
-      if (appointmentsData) setAppointments(appointmentsData)
+
+      const isPro = subscriptionData?.plan_name === 'Recepta Pro'
+
+      if (isPro) {
+        const { data: appointmentsData } = await supabase
+          .from('appointments')
+          .select('id, appointment_time, status')
+          .eq('client_id', user.id)
+
+        if (appointmentsData) {
+          setAppointments(appointmentsData)
+        }
+      } else {
+        setAppointments([])
+      }
 
       setLoading(false)
     }
 
     loadDashboard()
   }, [])
+
+  const isPro = subscription?.plan_name === 'Recepta Pro'
 
   const stats = useMemo(() => {
     const callsAnswered = calls.length
@@ -79,22 +105,41 @@ export default function Dashboard() {
     const minutesTalked = Math.round(totalSeconds / 60)
 
     const averageSeconds =
-      callsAnswered > 0 ? Math.round(totalSeconds / callsAnswered) : 0
+      callsAnswered > 0
+        ? Math.round(totalSeconds / callsAnswered)
+        : 0
 
     const averageMinutes = Math.floor(averageSeconds / 60)
     const averageRemainingSeconds = averageSeconds % 60
 
-    const appointmentsBooked = appointments.filter(
-      (appointment) => appointment.status === 'booked'
-    ).length
+    const today = new Date()
+
+    const appointmentsToday = appointments.filter((appointment) => {
+      if (
+        !appointment.appointment_time ||
+        appointment.status === 'cancelled'
+      ) {
+        return false
+      }
+
+      const appointmentDate = new Date(appointment.appointment_time)
+
+      return (
+        appointmentDate.getFullYear() === today.getFullYear() &&
+        appointmentDate.getMonth() === today.getMonth() &&
+        appointmentDate.getDate() === today.getDate()
+      )
+    }).length
 
     return {
       callsAnswered,
-      appointmentsBooked,
       minutesTalked,
+      appointmentsToday,
       averageDuration:
         callsAnswered > 0
-          ? `${averageMinutes}m ${String(averageRemainingSeconds).padStart(2, '0')}s`
+          ? `${averageMinutes}m ${String(
+              averageRemainingSeconds
+            ).padStart(2, '0')}s`
           : '—',
     }
   }, [calls, appointments])
@@ -145,10 +190,10 @@ export default function Dashboard() {
     client?.status === 'live'
       ? 4
       : client?.status === 'testing'
-      ? 3
-      : client?.status === 'paused'
-      ? 3
-      : 2
+        ? 3
+        : client?.status === 'paused'
+          ? 3
+          : 2
 
   if (loading) {
     return (
@@ -168,27 +213,56 @@ export default function Dashboard() {
         </a>
 
         <nav className="dashboardNav">
-          <a href="/dashboard" className="dashboardNavItem dashboardNavItemActive">
+          <a
+            href="/dashboard"
+            className="dashboardNavItem dashboardNavItemActive"
+          >
             Overview
           </a>
 
-          <a href="/dashboard/calls" className="dashboardNavItem">
+          <a
+            href="/dashboard/calls"
+            className="dashboardNavItem"
+          >
             Calls
           </a>
 
-          <a href="/dashboard/appointments" className="dashboardNavItem">
-            Appointments
-          </a>
+          {isPro && (
+            <a
+              href="/dashboard/appointments"
+              className="dashboardNavItem"
+            >
+              Appointments
+            </a>
+          )}
 
-          <a href="/dashboard/agent" className="dashboardNavItem">
+          {isPro && (
+            <a
+              href="/dashboard/employees"
+              className="dashboardNavItem"
+            >
+              Employees
+            </a>
+          )}
+
+          <a
+            href="/dashboard/agent"
+            className="dashboardNavItem"
+          >
             Agent
           </a>
 
-          <a href="/dashboard/billing" className="dashboardNavItem">
+          <a
+            href="/dashboard/billing"
+            className="dashboardNavItem"
+          >
             Billing
           </a>
 
-          <a href="/dashboard/settings" className="dashboardNavItem">
+          <a
+            href="/dashboard/settings"
+            className="dashboardNavItem"
+          >
             Settings
           </a>
         </nav>
@@ -197,11 +271,17 @@ export default function Dashboard() {
       <section className="dashboardMain">
         <div className="dashboardHeader">
           <div>
-            <p className="dashboardEyebrow">OVERVIEW</p>
+            <p className="dashboardEyebrow">
+              {isPro ? 'RECEPTA PRO' : 'RECEPTA STANDARD'}
+            </p>
 
-            <h1>{client?.company_name || 'Your AI receptionist'}</h1>
+            <h1>
+              {client?.company_name || 'Your AI receptionist'}
+            </h1>
 
-            <p>Track how Recepta is handling your customer calls.</p>
+            <p>
+              Track how Recepta is handling your customer calls.
+            </p>
           </div>
 
           <div
@@ -226,33 +306,86 @@ export default function Dashboard() {
         <div className="dashboardStats">
           <div className="dashboardStatCard">
             <span>Calls Answered</span>
+
             <strong>{stats.callsAnswered}</strong>
           </div>
 
-          <div className="dashboardStatCard">
-            <span>Appointments Booked</span>
-            <strong>{stats.appointmentsBooked}</strong>
-          </div>
+          {isPro && (
+            <a
+              href="/dashboard/appointments"
+              className="dashboardStatCard dashboardStatCardLink"
+            >
+              <span>Appointments Today</span>
+
+              <strong>{stats.appointmentsToday}</strong>
+
+              <small>
+                {stats.appointmentsToday === 1
+                  ? '1 appointment scheduled today'
+                  : `${stats.appointmentsToday} appointments scheduled today`}
+              </small>
+            </a>
+          )}
 
           <div className="dashboardStatCard">
             <span>Minutes Talked</span>
+
             <strong>{stats.minutesTalked} min</strong>
           </div>
 
           <div className="dashboardStatCard">
             <span>Avg. Call Duration</span>
+
             <strong>{stats.averageDuration}</strong>
           </div>
         </div>
+
+        {isPro && (
+          <div className="dashboardTodayCard">
+            <div>
+              <p className="dashboardEyebrow">
+                TODAY
+              </p>
+
+              <h2>
+                {stats.appointmentsToday === 0
+                  ? 'No appointments today'
+                  : `${stats.appointmentsToday} ${
+                      stats.appointmentsToday === 1
+                        ? 'appointment'
+                        : 'appointments'
+                    } today`}
+              </h2>
+
+              <p>
+                {stats.appointmentsToday === 0
+                  ? 'Your receptionist has no customer appointments scheduled for today.'
+                  : 'View today’s booked customers and appointment times.'}
+              </p>
+            </div>
+
+            <a
+              href="/dashboard/appointments"
+              className="btn btnOutline"
+            >
+              View Appointments
+            </a>
+          </div>
+        )}
 
         {client?.status !== 'live' && (
           <div className="onboardingProgressCard">
             <div className="onboardingProgressHead">
               <div>
-                <p className="dashboardEyebrow">ONBOARDING</p>
+                <p className="dashboardEyebrow">
+                  ONBOARDING
+                </p>
+
                 <h2>Your Recepta is being prepared</h2>
+
                 <p>
-                  Our team is configuring and testing your receptionist before it goes live.
+                  Our team is configuring and testing your
+                  receptionist before it goes live.
                 </p>
               </div>
 
@@ -265,7 +398,10 @@ export default function Dashboard() {
               <div
                 className="onboardingProgressFill"
                 style={{
-                  width: onboardingStep === 2 ? '50%' : '75%',
+                  width:
+                    onboardingStep === 2
+                      ? '50%'
+                      : '75%',
                 }}
               />
             </div>
@@ -273,37 +409,59 @@ export default function Dashboard() {
             <div className="onboardingSteps">
               <div className="onboardingStep onboardingStep--done">
                 <span>✓</span>
+
                 <div>
                   <strong>Account created</strong>
-                  <small>Your Recepta workspace is ready.</small>
+
+                  <small>
+                    Your Recepta workspace is ready.
+                  </small>
                 </div>
               </div>
 
               <div className="onboardingStep onboardingStep--done">
                 <span>✓</span>
+
                 <div>
                   <strong>Business configuration</strong>
-                  <small>Your call rules and business details are being prepared.</small>
+
+                  <small>
+                    Your call rules and business details are
+                    being prepared.
+                  </small>
                 </div>
               </div>
 
               <div
                 className={`onboardingStep ${
-                  onboardingStep >= 3 ? 'onboardingStep--done' : 'onboardingStep--active'
+                  onboardingStep >= 3
+                    ? 'onboardingStep--done'
+                    : 'onboardingStep--active'
                 }`}
               >
-                <span>{onboardingStep >= 3 ? '✓' : '3'}</span>
+                <span>
+                  {onboardingStep >= 3 ? '✓' : '3'}
+                </span>
+
                 <div>
                   <strong>Agent testing</strong>
-                  <small>We test calls, bookings, transfers, and edge cases.</small>
+
+                  <small>
+                    We test calls, transfers and edge cases.
+                  </small>
                 </div>
               </div>
 
               <div className="onboardingStep">
                 <span>4</span>
+
                 <div>
                   <strong>Go live</strong>
-                  <small>Your receptionist starts handling real customer calls.</small>
+
+                  <small>
+                    Your receptionist starts handling real
+                    customer calls.
+                  </small>
                 </div>
               </div>
             </div>
