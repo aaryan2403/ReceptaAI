@@ -18,6 +18,7 @@ import AdminClient from './pages/AdminClient.tsx'
 
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import AdminRoute from './components/AdminRoute.tsx'
+import ProRoute from './components/ProRoute.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -51,7 +52,9 @@ createRoot(document.getElementById('root')!).render(
           path="/dashboard/appointments"
           element={
             <ProtectedRoute>
-              <Appointments />
+              <ProRoute>
+                <Appointments />
+              </ProRoute>
             </ProtectedRoute>
           }
         />
@@ -60,7 +63,9 @@ createRoot(document.getElementById('root')!).render(
           path="/dashboard/employees"
           element={
             <ProtectedRoute>
-              <Employees />
+              <ProRoute>
+                <Employees />
+              </ProRoute>
             </ProtectedRoute>
           }
         />
