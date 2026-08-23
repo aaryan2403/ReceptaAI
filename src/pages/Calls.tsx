@@ -12,9 +12,18 @@ type CallRecord = {
   appointment_booked: boolean
 }
 
+type Subscription = {
+  plan_name: string | null
+}
+
 export default function Calls() {
   const [calls, setCalls] = useState<CallRecord[]>([])
-  const [selectedCall, setSelectedCall] = useState<CallRecord | null>(null)
+  const [selectedCall, setSelectedCall] =
+    useState<CallRecord | null>(null)
+
+  const [subscription, setSubscription] =
+    useState<Subscription | null>(null)
+
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
 
@@ -29,20 +38,46 @@ export default function Calls() {
         return
       }
 
-      const { data, error } = await supabase
-        .from('calls')
-        .select(
-          'id, caller_name, caller_number, started_at, duration_seconds, outcome, summary, appointment_booked'
-        )
-        .eq('client_id', user.id)
-        .order('started_at', { ascending: false })
+      const [
+        { data: callsData, error: callsError },
+        { data: subscriptionData },
+      ] = await Promise.all([
+        supabase
+          .from('calls')
+          .select(
+            `
+            id,
+            caller_name,
+            caller_number,
+            started_at,
+            duration_seconds,
+            outcome,
+            summary,
+            appointment_booked
+            `
+          )
+          .eq('client_id', user.id)
+          .order('started_at', {
+            ascending: false,
+          }),
 
-      if (!error && data) {
-        setCalls(data)
+        supabase
+          .from('subscriptions')
+          .select('plan_name')
+          .eq('client_id', user.id)
+          .maybeSingle(),
+      ])
 
-        if (data.length > 0) {
-          setSelectedCall(data[0])
+      if (!callsError && callsData) {
+        setCalls(callsData)
+
+        if (callsData.length > 0) {
+          setSelectedCall(callsData[0])
         }
+      }
+
+      if (subscriptionData) {
+        setSubscription(subscriptionData)
       }
 
       setLoading(false)
@@ -51,23 +86,44 @@ export default function Calls() {
     loadCalls()
   }, [])
 
-  const formatDuration = (seconds: number) => {
-    const minutes = Math.floor(seconds / 60)
-    const remainingSeconds = seconds % 60
+  const isPro =
+    subscription?.plan_name === 'Recepta Pro'
 
-    return `${minutes}m ${String(remainingSeconds).padStart(2, '0')}s`
+  const formatDuration = (seconds: number) => {
+    const safeSeconds = seconds || 0
+
+    const minutes = Math.floor(
+      safeSeconds / 60
+    )
+
+    const remainingSeconds =
+      safeSeconds % 60
+
+    return `${minutes}m ${String(
+      remainingSeconds
+    ).padStart(2, '0')}s`
   }
 
   const filteredCalls = useMemo(() => {
-    const query = search.toLowerCase().trim()
+    const query = search
+      .toLowerCase()
+      .trim()
 
-    if (!query) return calls
+    if (!query) {
+      return calls
+    }
 
     return calls.filter((call) => {
       return (
-        call.caller_name?.toLowerCase().includes(query) ||
-        call.caller_number?.toLowerCase().includes(query) ||
-        call.outcome?.toLowerCase().includes(query)
+        call.caller_name
+          ?.toLowerCase()
+          .includes(query) ||
+        call.caller_number
+          ?.toLowerCase()
+          .includes(query) ||
+        call.outcome
+          ?.toLowerCase()
+          .includes(query)
       )
     })
   }, [calls, search])
@@ -76,27 +132,50 @@ export default function Calls() {
     const totalCalls = calls.length
 
     const totalSeconds = calls.reduce(
-      (total, call) => total + call.duration_seconds,
+      (total, call) =>
+        total +
+        (call.duration_seconds || 0),
       0
     )
 
     const averageSeconds =
-      totalCalls > 0 ? Math.round(totalSeconds / totalCalls) : 0
+      totalCalls > 0
+        ? Math.round(
+            totalSeconds / totalCalls
+          )
+        : 0
 
-    const appointments = calls.filter(
-      (call) => call.appointment_booked
-    ).length
+    const appointments =
+      calls.filter(
+        (call) =>
+          call.appointment_booked
+      ).length
 
     const bookingRate =
       totalCalls > 0
-        ? Math.round((appointments / totalCalls) * 100)
+        ? Math.round(
+            (appointments /
+              totalCalls) *
+              100
+          )
         : 0
 
     return {
       totalCalls,
-      totalMinutes: Math.round(totalSeconds / 60),
+
+      totalMinutes:
+        Math.round(
+          totalSeconds / 60
+        ),
+
       averageDuration:
-        totalCalls > 0 ? formatDuration(averageSeconds) : '—',
+        totalCalls > 0
+          ? formatDuration(
+              averageSeconds
+            )
+          : '—',
+
+      appointments,
       bookingRate,
     }
   }, [calls])
@@ -106,7 +185,9 @@ export default function Calls() {
       <main className="dashboardPage">
         <section className="dashboardMain">
           <div className="dashboardEmptyState">
-            <p>Loading call history...</p>
+            <p>
+              Loading call history...
+            </p>
           </div>
         </section>
       </main>
@@ -115,13 +196,25 @@ export default function Calls() {
 
   return (
     <main className="dashboardPage">
+
+      {/* SIDEBAR */}
+
       <aside className="dashboardSidebar">
-        <a href="/" className="dashboardBrand">
-          <img src="/components/logoR.png" alt="Recepta" />
+        <a
+          href="/"
+          className="dashboardBrand"
+        >
+          <img
+            src="/components/logoR.png"
+            alt="Recepta"
+          />
         </a>
 
         <nav className="dashboardNav">
-          <a href="/dashboard" className="dashboardNavItem">
+          <a
+            href="/dashboard"
+            className="dashboardNavItem"
+          >
             Overview
           </a>
 
@@ -132,42 +225,83 @@ export default function Calls() {
             Calls
           </a>
 
-          <a href="/dashboard/appointments" className="dashboardNavItem">
-            Appointments
-          </a>
+          {isPro && (
+            <>
+              <a
+                href="/dashboard/appointments"
+                className="dashboardNavItem"
+              >
+                Appointments
+              </a>
 
-          <a href="/dashboard/agent" className="dashboardNavItem">
+              <a
+                href="/dashboard/employees"
+                className="dashboardNavItem"
+              >
+                Employees
+              </a>
+            </>
+          )}
+
+          <a
+            href="/dashboard/agent"
+            className="dashboardNavItem"
+          >
             Agent
           </a>
 
-          <a href="/dashboard/billing" className="dashboardNavItem">
+          <a
+            href="/dashboard/billing"
+            className="dashboardNavItem"
+          >
             Billing
           </a>
 
-          <a href="/dashboard/settings" className="dashboardNavItem">
+          <a
+            href="/dashboard/settings"
+            className="dashboardNavItem"
+          >
             Settings
           </a>
         </nav>
       </aside>
 
+      {/* MAIN */}
+
       <section className="dashboardMain">
+
+        {/* HEADER */}
+
         <div className="dashboardHeader">
           <div>
-            <p className="dashboardEyebrow">CALLS</p>
-            <h1>Call Center</h1>
+            <p className="dashboardEyebrow">
+              CALLS
+            </p>
+
+            <h1>
+              Call Center
+            </h1>
+
             <p>
-              Monitor conversations, inspect call details and track performance.
+              Monitor conversations,
+              inspect call details and
+              track performance.
             </p>
           </div>
         </div>
 
-        {/* LIVE CALL MONITOR */}
+        {/* LIVE MONITOR */}
 
         <section className="callsLiveCard">
           <div className="callsSectionHeading">
             <div>
-              <span className="callsSectionLabel">LIVE MONITOR</span>
-              <h2>Current call</h2>
+              <span className="callsSectionLabel">
+                LIVE MONITOR
+              </span>
+
+              <h2>
+                Current call
+              </h2>
             </div>
 
             <span className="callsIdleBadge">
@@ -182,23 +316,36 @@ export default function Calls() {
             </div>
 
             <div>
-              <strong>No active call</strong>
+              <strong>
+                No active call
+              </strong>
+
               <p>
-                When your receptionist is speaking with a customer, the live
-                call will appear here.
+                When your receptionist is
+                speaking with a customer,
+                the live call will appear
+                here.
               </p>
             </div>
           </div>
         </section>
 
-        {/* CALL HISTORY + DETAILS */}
+        {/* HISTORY + DETAILS */}
 
         <div className="callsWorkspace">
+
+          {/* HISTORY */}
+
           <section className="callsHistoryPanel">
             <div className="callsSectionHeading">
               <div>
-                <span className="callsSectionLabel">HISTORY</span>
-                <h2>Call history</h2>
+                <span className="callsSectionLabel">
+                  HISTORY
+                </span>
+
+                <h2>
+                  Call history
+                </h2>
               </div>
 
               <span className="callsCount">
@@ -211,79 +358,114 @@ export default function Calls() {
                 type="search"
                 placeholder="Search caller, number or outcome..."
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) =>
+                  setSearch(
+                    event.target.value
+                  )
+                }
               />
             </div>
 
             {filteredCalls.length === 0 ? (
               <div className="callsInnerEmpty">
-                <strong>No calls yet</strong>
+                <strong>
+                  No calls yet
+                </strong>
+
                 <p>
-                  Your completed conversations will appear here automatically.
+                  Your completed conversations
+                  will appear here automatically.
                 </p>
               </div>
             ) : (
               <div className="callsHistoryList">
-                {filteredCalls.map((call) => (
-                  <button
-                    key={call.id}
-                    type="button"
-                    className={
-                      selectedCall?.id === call.id
-                        ? 'callsHistoryItem callsHistoryItem--active'
-                        : 'callsHistoryItem'
-                    }
-                    onClick={() => setSelectedCall(call)}
-                  >
-                    <div className="callsHistoryMain">
-                      <strong>
-                        {call.caller_name ||
-                          call.caller_number ||
-                          'Unknown caller'}
-                      </strong>
+                {filteredCalls.map(
+                  (call) => (
+                    <button
+                      key={call.id}
+                      type="button"
+                      className={
+                        selectedCall?.id ===
+                        call.id
+                          ? 'callsHistoryItem callsHistoryItem--active'
+                          : 'callsHistoryItem'
+                      }
+                      onClick={() =>
+                        setSelectedCall(
+                          call
+                        )
+                      }
+                    >
+                      <div className="callsHistoryMain">
+                        <strong>
+                          {call.caller_name ||
+                            call.caller_number ||
+                            'Unknown caller'}
+                        </strong>
 
-                      <span>
-                        {new Date(call.started_at).toLocaleString()}
-                      </span>
-                    </div>
-
-                    <div className="callsHistorySide">
-                      <strong>
-                        {formatDuration(call.duration_seconds)}
-                      </strong>
-
-                      {call.appointment_booked && (
-                        <span className="callsBookedBadge">
-                          Booked
+                        <span>
+                          {new Date(
+                            call.started_at
+                          ).toLocaleString()}
                         </span>
-                      )}
-                    </div>
-                  </button>
-                ))}
+                      </div>
+
+                      <div className="callsHistorySide">
+                        <strong>
+                          {formatDuration(
+                            call.duration_seconds
+                          )}
+                        </strong>
+
+                        {isPro &&
+                          call.appointment_booked && (
+                            <span className="callsBookedBadge">
+                              Booked
+                            </span>
+                          )}
+                      </div>
+                    </button>
+                  )
+                )}
               </div>
             )}
           </section>
 
+          {/* DETAILS */}
+
           <section className="callsDetailPanel">
             <div className="callsSectionHeading">
               <div>
-                <span className="callsSectionLabel">DETAILS</span>
-                <h2>Call details</h2>
+                <span className="callsSectionLabel">
+                  DETAILS
+                </span>
+
+                <h2>
+                  Call details
+                </h2>
               </div>
             </div>
 
             {!selectedCall ? (
               <div className="callsInnerEmpty">
-                <strong>Select a call</strong>
+                <strong>
+                  Select a call
+                </strong>
+
                 <p>
-                  Choose a conversation from Call History to inspect it.
+                  Choose a conversation
+                  from Call History to
+                  inspect it.
                 </p>
               </div>
             ) : (
               <div className="callsDetailContent">
+
                 <div className="callsDetailHero">
                   <div>
-                    <span>CALLER</span>
+                    <span>
+                      CALLER
+                    </span>
 
                     <strong>
                       {selectedCall.caller_name ||
@@ -294,19 +476,25 @@ export default function Calls() {
                     {selectedCall.caller_name &&
                       selectedCall.caller_number && (
                         <small>
-                          {selectedCall.caller_number}
+                          {
+                            selectedCall.caller_number
+                          }
                         </small>
                       )}
                   </div>
 
                   <span className="callsOutcomeBadge">
-                    {selectedCall.outcome || 'Completed'}
+                    {selectedCall.outcome ||
+                      'Completed'}
                   </span>
                 </div>
 
                 <div className="callsDetailGrid">
                   <div>
-                    <span>Date & time</span>
+                    <span>
+                      Date & time
+                    </span>
+
                     <strong>
                       {new Date(
                         selectedCall.started_at
@@ -315,7 +503,10 @@ export default function Calls() {
                   </div>
 
                   <div>
-                    <span>Duration</span>
+                    <span>
+                      Duration
+                    </span>
+
                     <strong>
                       {formatDuration(
                         selectedCall.duration_seconds
@@ -323,17 +514,25 @@ export default function Calls() {
                     </strong>
                   </div>
 
-                  <div>
-                    <span>Appointment</span>
-                    <strong>
-                      {selectedCall.appointment_booked
-                        ? 'Booked'
-                        : 'Not booked'}
-                    </strong>
-                  </div>
+                  {isPro && (
+                    <div>
+                      <span>
+                        Appointment
+                      </span>
+
+                      <strong>
+                        {selectedCall.appointment_booked
+                          ? 'Booked'
+                          : 'Not booked'}
+                      </strong>
+                    </div>
+                  )}
 
                   <div>
-                    <span>Outcome</span>
+                    <span>
+                      Outcome
+                    </span>
+
                     <strong>
                       {selectedCall.outcome ||
                         'Not classified'}
@@ -342,7 +541,9 @@ export default function Calls() {
                 </div>
 
                 <div className="callsSummaryBox">
-                  <span>AI CALL SUMMARY</span>
+                  <span>
+                    AI CALL SUMMARY
+                  </span>
 
                   <p>
                     {selectedCall.summary ||
@@ -352,13 +553,25 @@ export default function Calls() {
 
                 <div className="callsFutureTools">
                   <div>
-                    <span>Transcript</span>
-                    <strong>Available after Retell integration</strong>
+                    <span>
+                      Transcript
+                    </span>
+
+                    <strong>
+                      Available after Retell
+                      integration
+                    </strong>
                   </div>
 
                   <div>
-                    <span>Recording</span>
-                    <strong>Available after Retell integration</strong>
+                    <span>
+                      Recording
+                    </span>
+
+                    <strong>
+                      Available after Retell
+                      integration
+                    </strong>
                   </div>
                 </div>
               </div>
@@ -371,31 +584,58 @@ export default function Calls() {
         <section className="callsAnalytics">
           <div className="callsSectionHeading">
             <div>
-              <span className="callsSectionLabel">PERFORMANCE</span>
-              <h2>Call analytics</h2>
+              <span className="callsSectionLabel">
+                PERFORMANCE
+              </span>
+
+              <h2>
+                Call analytics
+              </h2>
             </div>
           </div>
 
           <div className="callsAnalyticsGrid">
             <div>
-              <span>Total Calls</span>
-              <strong>{analytics.totalCalls}</strong>
+              <span>
+                Total Calls
+              </span>
+
+              <strong>
+                {analytics.totalCalls}
+              </strong>
             </div>
 
             <div>
-              <span>Minutes Talked</span>
-              <strong>{analytics.totalMinutes}</strong>
+              <span>
+                Minutes Talked
+              </span>
+
+              <strong>
+                {analytics.totalMinutes}
+              </strong>
             </div>
 
             <div>
-              <span>Avg. Duration</span>
-              <strong>{analytics.averageDuration}</strong>
+              <span>
+                Avg. Duration
+              </span>
+
+              <strong>
+                {analytics.averageDuration}
+              </strong>
             </div>
 
-            <div>
-              <span>Booking Rate</span>
-              <strong>{analytics.bookingRate}%</strong>
-            </div>
+            {isPro && (
+              <div>
+                <span>
+                  Booking Rate
+                </span>
+
+                <strong>
+                  {analytics.bookingRate}%
+                </strong>
+              </div>
+            )}
           </div>
         </section>
       </section>
