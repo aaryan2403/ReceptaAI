@@ -15,10 +15,18 @@ type AppointmentRecord = {
 
 export default function Appointments() {
   const [appointments, setAppointments] = useState<AppointmentRecord[]>([])
-  const [selectedAppointment, setSelectedAppointment] =
-    useState<AppointmentRecord | null>(null)
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const now = new Date()
+
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+
+    return `${year}-${month}-${day}`
+  })
+
+  const [updatingId, setUpdatingId] = useState<string | null>(null)
 
   useEffect(() => {
     const loadAppointments = async () => {
@@ -41,10 +49,6 @@ export default function Appointments() {
 
       if (!error && data) {
         setAppointments(data)
-
-        if (data.length > 0) {
-          setSelectedAppointment(data[0])
-        }
       }
 
       setLoading(false)
@@ -53,73 +57,154 @@ export default function Appointments() {
     loadAppointments()
   }, [])
 
-  const now = new Date()
+  const isSameDate = (dateString: string | null, targetDate: string) => {
+    if (!dateString) return false
 
-  const filteredAppointments = useMemo(() => {
-    const query = search.trim().toLowerCase()
+    const date = new Date(dateString)
 
-    if (!query) return appointments
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
 
-    return appointments.filter((appointment) => {
-      return (
-        appointment.customer_name?.toLowerCase().includes(query) ||
-        appointment.customer_phone?.toLowerCase().includes(query) ||
-        appointment.customer_email?.toLowerCase().includes(query) ||
-        appointment.service?.toLowerCase().includes(query) ||
-        appointment.status.toLowerCase().includes(query)
+    return `${year}-${month}-${day}` === targetDate
+  }
+
+  const todayString = useMemo(() => {
+    const now = new Date()
+
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+
+    return `${year}-${month}-${day}`
+  }, [])
+
+  const todaysAppointments = useMemo(() => {
+    return appointments.filter((appointment) =>
+      isSameDate(appointment.appointment_time, todayString)
+    )
+  }, [appointments, todayString])
+
+  const selectedDateAppointments = useMemo(() => {
+    return appointments.filter((appointment) =>
+      isSameDate(appointment.appointment_time, selectedDate)
+    )
+  }, [appointments, selectedDate])
+
+  const updateStatus = async (
+    appointmentId: string,
+    newStatus: AppointmentStatus
+  ) => {
+    setUpdatingId(appointmentId)
+
+    const { error } = await supabase
+      .from('appointments')
+      .update({
+        status: newStatus,
+      })
+      .eq('id', appointmentId)
+
+    if (!error) {
+      setAppointments((current) =>
+        current.map((appointment) =>
+          appointment.id === appointmentId
+            ? {
+                ...appointment,
+                status: newStatus,
+              }
+            : appointment
+        )
       )
-    })
-  }, [appointments, search])
-
-  const upcomingAppointments = useMemo(() => {
-    return filteredAppointments.filter((appointment) => {
-      if (!appointment.appointment_time) return false
-
-      const appointmentDate = new Date(appointment.appointment_time)
-
-      return (
-        appointmentDate >= now &&
-        appointment.status === 'booked'
-      )
-    })
-  }, [filteredAppointments])
-
-  const appointmentHistory = useMemo(() => {
-    return filteredAppointments.filter((appointment) => {
-      if (!appointment.appointment_time) return true
-
-      const appointmentDate = new Date(appointment.appointment_time)
-
-      return (
-        appointmentDate < now ||
-        appointment.status === 'cancelled' ||
-        appointment.status === 'completed'
-      )
-    })
-  }, [filteredAppointments])
-
-  const analytics = useMemo(() => {
-    const total = appointments.length
-
-    const booked = appointments.filter(
-      (appointment) => appointment.status === 'booked'
-    ).length
-
-    const completed = appointments.filter(
-      (appointment) => appointment.status === 'completed'
-    ).length
-
-    const cancelled = appointments.filter(
-      (appointment) => appointment.status === 'cancelled'
-    ).length
-
-    return {
-      total,
-      booked,
-      completed,
-      cancelled,
     }
-  }, [appointments])
+
+    setUpdatingId(null)
+  }
+
+  const formatAppointmentTime = (appointmentTime: string | null) => {
+    if (!appointmentTime) return 'Time not assigned'
+
+    return new Date(appointmentTime).toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  }
+
+  const formatSelectedDate = (dateValue: string) => {
+    const [year, month, day] = dateValue.split('-')
+
+    return new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day)
+    ).toLocaleDateString([], {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    })
+  }
+
+  const renderAppointment = (appointment: AppointmentRecord) => {
+    return (
+      <div className="todayAppointmentCard" key={appointment.id}>
+        <div className="todayAppointmentTime">
+          <span>TIME</span>
+
+          <strong>
+            {formatAppointmentTime(appointment.appointment_time)}
+          </strong>
+        </div>
+
+        <div className="todayAppointmentCustomer">
+          <strong>
+            {appointment.customer_name || 'Customer'}
+          </strong>
+
+          <span>
+            {appointment.service || 'Service not specified'}
+          </span>
+
+          <div className="todayAppointmentContact">
+            {appointment.customer_phone && (
+              <span>{appointment.customer_phone}</span>
+            )}
+
+            {appointment.customer_email && (
+              <span>{appointment.customer_email}</span>
+            )}
+          </div>
+        </div>
+
+        <div className="todayAppointmentStatus">
+          <span>STATUS</span>
+
+          <select
+            value={appointment.status}
+            disabled={updatingId === appointment.id}
+            onChange={(event) =>
+              updateStatus(
+                appointment.id,
+                event.target.value as AppointmentStatus
+              )
+            }
+            className={`appointmentStatusSelect appointmentStatusSelect--${appointment.status}`}
+          >
+            <option value="booked">
+              Booked
+            </option>
+
+            <option value="completed">
+              Completed
+            </option>
+
+            <option value="cancelled">
+              Cancelled
+            </option>
+          </select>
+        </div>
+      </div>
+    )
+  }
 
   if (loading) {
     return (
@@ -141,11 +226,17 @@ export default function Appointments() {
         </a>
 
         <nav className="dashboardNav">
-          <a href="/dashboard" className="dashboardNavItem">
+          <a
+            href="/dashboard"
+            className="dashboardNavItem"
+          >
             Overview
           </a>
 
-          <a href="/dashboard/calls" className="dashboardNavItem">
+          <a
+            href="/dashboard/calls"
+            className="dashboardNavItem"
+          >
             Calls
           </a>
 
@@ -156,15 +247,31 @@ export default function Appointments() {
             Appointments
           </a>
 
-          <a href="/dashboard/agent" className="dashboardNavItem">
+          <a
+            href="/dashboard/employees"
+            className="dashboardNavItem"
+          >
+            Employees
+          </a>
+
+          <a
+            href="/dashboard/agent"
+            className="dashboardNavItem"
+          >
             Agent
           </a>
 
-          <a href="/dashboard/billing" className="dashboardNavItem">
+          <a
+            href="/dashboard/billing"
+            className="dashboardNavItem"
+          >
             Billing
           </a>
 
-          <a href="/dashboard/settings" className="dashboardNavItem">
+          <a
+            href="/dashboard/settings"
+            className="dashboardNavItem"
+          >
             Settings
           </a>
         </nav>
@@ -173,291 +280,131 @@ export default function Appointments() {
       <section className="dashboardMain">
         <div className="dashboardHeader">
           <div>
-            <p className="dashboardEyebrow">APPOINTMENTS</p>
+            <p className="dashboardEyebrow">
+              APPOINTMENTS
+            </p>
 
-            <h1>Booking Center</h1>
+            <h1>Appointments</h1>
 
             <p>
-              View upcoming appointments, customer details and booking
-              performance.
+              See who is scheduled today and check appointments for any date.
             </p>
           </div>
         </div>
 
-        <section className="appointmentAnalytics">
-          <div className="appointmentAnalyticsGrid">
+        {/* TODAY */}
+
+        <section className="todayAppointmentsPanel">
+          <div className="todayAppointmentsHeader">
             <div>
-              <span>Total Appointments</span>
-              <strong>{analytics.total}</strong>
+              <span className="appointmentSectionLabel">
+                TODAY
+              </span>
+
+              <h2>
+                Today's Appointments
+              </h2>
+
+              <p>
+                {new Date().toLocaleDateString([], {
+                  weekday: 'long',
+                  month: 'long',
+                  day: 'numeric',
+                  year: 'numeric',
+                })}
+              </p>
             </div>
 
-            <div>
-              <span>Upcoming</span>
-              <strong>{analytics.booked}</strong>
-            </div>
+            <div className="todayAppointmentsCount">
+              <strong>
+                {todaysAppointments.length}
+              </strong>
 
-            <div>
-              <span>Completed</span>
-              <strong>{analytics.completed}</strong>
-            </div>
-
-            <div>
-              <span>Cancelled</span>
-              <strong>{analytics.cancelled}</strong>
+              <span>
+                {todaysAppointments.length === 1
+                  ? 'appointment'
+                  : 'appointments'}
+              </span>
             </div>
           </div>
+
+          {todaysAppointments.length === 0 ? (
+            <div className="appointmentInnerEmpty">
+              <strong>
+                No appointments today
+              </strong>
+
+              <p>
+                Your receptionist has no customer appointments scheduled for today.
+              </p>
+            </div>
+          ) : (
+            <div className="todayAppointmentsList">
+              {todaysAppointments.map(renderAppointment)}
+            </div>
+          )}
         </section>
 
-        <div className="appointmentSearch">
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search customer, phone, email, service..."
-          />
-        </div>
+        {/* DATE LOOKUP */}
 
-        <div className="appointmentWorkspace">
-          <section className="appointmentListPanel">
-            <div className="appointmentSectionHeading">
-              <div>
-                <span className="appointmentSectionLabel">
-                  UPCOMING
-                </span>
-
-                <h2>Upcoming appointments</h2>
-              </div>
-
-              <span className="appointmentCount">
-                {upcomingAppointments.length}
+        <section className="appointmentDatePanel">
+          <div className="appointmentDateHeader">
+            <div>
+              <span className="appointmentSectionLabel">
+                OTHER DATES
               </span>
+
+              <h2>
+                Check another day
+              </h2>
+
+              <p>
+                Choose a date to see appointments scheduled for that day.
+              </p>
             </div>
 
-            {upcomingAppointments.length === 0 ? (
-              <div className="appointmentInnerEmpty">
-                <strong>No upcoming appointments</strong>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(event) =>
+                setSelectedDate(event.target.value)
+              }
+              className="appointmentDatePicker"
+            />
+          </div>
 
-                <p>
-                  New bookings made by your receptionist will appear here.
-                </p>
-              </div>
-            ) : (
-              <div className="appointmentHistoryList">
-                {upcomingAppointments.map((appointment) => (
-                  <button
-                    key={appointment.id}
-                    type="button"
-                    onClick={() =>
-                      setSelectedAppointment(appointment)
-                    }
-                    className={
-                      selectedAppointment?.id === appointment.id
-                        ? 'appointmentHistoryItem appointmentHistoryItem--active'
-                        : 'appointmentHistoryItem'
-                    }
-                  >
-                    <div className="appointmentHistoryMain">
-                      <strong>
-                        {appointment.customer_name || 'Customer'}
-                      </strong>
-
-                      <span>
-                        {appointment.service || 'Service not specified'}
-                      </span>
-                    </div>
-
-                    <div className="appointmentHistorySide">
-                      <strong>
-                        {appointment.appointment_time
-                          ? new Date(
-                              appointment.appointment_time
-                            ).toLocaleString()
-                          : 'Time pending'}
-                      </strong>
-
-                      <span className="appointmentStatus appointmentStatus--booked">
-                        booked
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="appointmentHistoryDivider" />
-
-            <div className="appointmentSectionHeading">
-              <div>
-                <span className="appointmentSectionLabel">
-                  HISTORY
-                </span>
-
-                <h2>Appointment history</h2>
-              </div>
-
-              <span className="appointmentCount">
-                {appointmentHistory.length}
+          <div className="appointmentSelectedDateHeading">
+            <div>
+              <span>
+                SELECTED DATE
               </span>
+
+              <strong>
+                {formatSelectedDate(selectedDate)}
+              </strong>
             </div>
 
-            {appointmentHistory.length === 0 ? (
-              <div className="appointmentInnerEmpty">
-                <strong>No appointment history</strong>
-              </div>
-            ) : (
-              <div className="appointmentHistoryList">
-                {appointmentHistory.map((appointment) => (
-                  <button
-                    key={appointment.id}
-                    type="button"
-                    onClick={() =>
-                      setSelectedAppointment(appointment)
-                    }
-                    className={
-                      selectedAppointment?.id === appointment.id
-                        ? 'appointmentHistoryItem appointmentHistoryItem--active'
-                        : 'appointmentHistoryItem'
-                    }
-                  >
-                    <div className="appointmentHistoryMain">
-                      <strong>
-                        {appointment.customer_name || 'Customer'}
-                      </strong>
+            <span className="appointmentCount">
+              {selectedDateAppointments.length}
+            </span>
+          </div>
 
-                      <span>
-                        {appointment.service || 'Service not specified'}
-                      </span>
-                    </div>
+          {selectedDateAppointments.length === 0 ? (
+            <div className="appointmentInnerEmpty">
+              <strong>
+                No appointments on this date
+              </strong>
 
-                    <div className="appointmentHistorySide">
-                      <strong>
-                        {appointment.appointment_time
-                          ? new Date(
-                              appointment.appointment_time
-                            ).toLocaleString()
-                          : 'Time unavailable'}
-                      </strong>
-
-                      <span
-                        className={`appointmentStatus appointmentStatus--${appointment.status}`}
-                      >
-                        {appointment.status}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="appointmentDetailPanel">
-            <div className="appointmentSectionHeading">
-              <div>
-                <span className="appointmentSectionLabel">
-                  DETAILS
-                </span>
-
-                <h2>Appointment details</h2>
-              </div>
+              <p>
+                Choose another date to check scheduled appointments.
+              </p>
             </div>
-
-            {!selectedAppointment ? (
-              <div className="appointmentInnerEmpty">
-                <strong>Select an appointment</strong>
-
-                <p>
-                  Choose an appointment to view the customer and booking
-                  information.
-                </p>
-              </div>
-            ) : (
-              <div className="appointmentDetailContent">
-                <div className="appointmentDetailHero">
-                  <div>
-                    <span>CUSTOMER</span>
-
-                    <strong>
-                      {selectedAppointment.customer_name || 'Customer'}
-                    </strong>
-
-                    <small>
-                      {selectedAppointment.service ||
-                        'Service not specified'}
-                    </small>
-                  </div>
-
-                  <span
-                    className={`appointmentStatus appointmentStatus--${selectedAppointment.status}`}
-                  >
-                    {selectedAppointment.status}
-                  </span>
-                </div>
-
-                <div className="appointmentDetailGrid">
-                  <div>
-                    <span>Date & time</span>
-
-                    <strong>
-                      {selectedAppointment.appointment_time
-                        ? new Date(
-                            selectedAppointment.appointment_time
-                          ).toLocaleString()
-                        : 'Not scheduled'}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>Service</span>
-
-                    <strong>
-                      {selectedAppointment.service ||
-                        'Not specified'}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>Customer phone</span>
-
-                    <strong>
-                      {selectedAppointment.customer_phone ||
-                        'Not provided'}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>Customer email</span>
-
-                    <strong>
-                      {selectedAppointment.customer_email ||
-                        'Not provided'}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>Status</span>
-
-                    <strong>{selectedAppointment.status}</strong>
-                  </div>
-
-                  <div>
-                    <span>Booking source</span>
-
-                    <strong>Recepta AI</strong>
-                  </div>
-                </div>
-
-                <div className="appointmentDetailNotice">
-                  <span>BOOKING INFORMATION</span>
-
-                  <p>
-                    Calendar integrations and rescheduling controls will
-                    appear here once your scheduling provider is connected.
-                  </p>
-                </div>
-              </div>
-            )}
-          </section>
-        </div>
+          ) : (
+            <div className="todayAppointmentsList">
+              {selectedDateAppointments.map(renderAppointment)}
+            </div>
+          )}
+        </section>
       </section>
     </main>
   )
