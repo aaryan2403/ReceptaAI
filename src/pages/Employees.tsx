@@ -19,14 +19,6 @@ type Schedule = {
   end_time: string | null
 }
 
-type ScheduleOverride = {
-  id?: string
-  employee_id: string
-  schedule_date: string
-  is_working: boolean
-  start_time: string | null
-  end_time: string | null
-}
 
 const DAYS = [
   { value: 0, label: 'Sunday' },
@@ -38,35 +30,15 @@ const DAYS = [
   { value: 6, label: 'Saturday' },
 ]
 
-const getDateString = (date: Date) => {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
 
-  return `${year}-${month}-${day}`
-}
-
-const getStartOfWeek = (date: Date) => {
-  const copy = new Date(date)
-  const day = copy.getDay()
-
-  copy.setDate(copy.getDate() - day)
-  copy.setHours(0, 0, 0, 0)
-
-  return copy
-}
 
 export default function Employees() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [schedules, setSchedules] = useState<Schedule[]>([])
-  const [overrides, setOverrides] = useState<ScheduleOverride[]>([])
 
   const [selectedEmployeeId, setSelectedEmployeeId] =
     useState<string | null>(null)
 
-  const [selectedWeek, setSelectedWeek] = useState(() =>
-    getStartOfWeek(new Date())
-  )
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -77,7 +49,6 @@ export default function Employees() {
   const [hasProAccess, setHasProAccess] = useState(false)
   const [savingEmployee, setSavingEmployee] = useState(false)
   const [savingSchedule, setSavingSchedule] = useState(false)
-  const [savingOverrides, setSavingOverrides] = useState(false)
 
   const [message, setMessage] = useState('')
 
@@ -88,7 +59,6 @@ export default function Employees() {
   useEffect(() => {
     if (!selectedEmployeeId) {
       setSchedules([])
-      setOverrides([])
       return
     }
 
@@ -188,34 +158,6 @@ export default function Employees() {
     setSchedules(fullWeek)
   }
 
-  const loadOverrides = async (employeeId: string) => {
-    const weekStart = new Date(selectedWeek)
-
-    const weekEnd = new Date(selectedWeek)
-    weekEnd.setDate(weekEnd.getDate() + 6)
-
-    const { data, error } = await supabase
-      .from('employee_schedule_overrides')
-      .select(
-        'id, employee_id, schedule_date, is_working, start_time, end_time'
-      )
-      .eq('employee_id', employeeId)
-      .gte(
-        'schedule_date',
-        getDateString(weekStart)
-      )
-      .lte(
-        'schedule_date',
-        getDateString(weekEnd)
-      )
-
-    if (error) {
-      console.error(error)
-      return
-    }
-
-    setOverrides(data || [])
-  }
 
   const handleAddEmployee = async () => {
     if (!name.trim()) {
@@ -404,234 +346,12 @@ export default function Employees() {
     setSavingSchedule(false)
   }
 
-  const weekDates = useMemo(() => {
-    return DAYS.map((day, index) => {
-      const date = new Date(selectedWeek)
-      date.setDate(
-        selectedWeek.getDate() + index
-      )
 
-      return {
-        ...day,
-        date,
-        dateString:
-          getDateString(date),
-      }
-    })
-  }, [selectedWeek])
 
-  const getDefaultForDate = (
-    dayOfWeek: number
-  ) => {
-    return schedules.find(
-      (schedule) =>
-        schedule.day_of_week === dayOfWeek
-    )
-  }
 
-  const getOverrideForDate = (
-    dateString: string
-  ) => {
-    return overrides.find(
-      (override) =>
-        override.schedule_date ===
-        dateString
-    )
-  }
 
-  const updateOverride = (
-    dateString: string,
-    dayOfWeek: number,
-    field:
-      | 'is_working'
-      | 'start_time'
-      | 'end_time',
-    value:
-      | boolean
-      | string
-      | null
-  ) => {
-    setOverrides((current) => {
-      const existing =
-        current.find(
-          (override) =>
-            override.schedule_date ===
-            dateString
-        )
 
-      if (existing) {
-        return current.map(
-          (override) =>
-            override.schedule_date ===
-            dateString
-              ? {
-                  ...override,
-                  [field]: value,
-                }
-              : override
-        )
-      }
 
-      const defaultSchedule =
-        getDefaultForDate(dayOfWeek)
-
-      return [
-        ...current,
-        {
-          employee_id:
-            selectedEmployeeId || '',
-
-          schedule_date:
-            dateString,
-
-          is_working:
-            field === 'is_working'
-              ? Boolean(value)
-              : defaultSchedule?.is_working ??
-                true,
-
-          start_time:
-            field === 'start_time'
-              ? String(value)
-              : defaultSchedule?.start_time ||
-                '09:00',
-
-          end_time:
-            field === 'end_time'
-              ? String(value)
-              : defaultSchedule?.end_time ||
-                '17:00',
-        },
-      ]
-    })
-  }
-
-  const resetOverride = (
-    dateString: string
-  ) => {
-    setOverrides((current) =>
-      current.filter(
-        (override) =>
-          override.schedule_date !==
-          dateString
-      )
-    )
-  }
-
-  const handleSaveOverrides = async () => {
-    if (!selectedEmployeeId) return
-
-    setSavingOverrides(true)
-    setMessage('')
-
-    const weekStart =
-      getDateString(selectedWeek)
-
-    const weekEndDate =
-      new Date(selectedWeek)
-
-    weekEndDate.setDate(
-      weekEndDate.getDate() + 6
-    )
-
-    const weekEnd =
-      getDateString(weekEndDate)
-
-    const { error: deleteError } =
-      await supabase
-        .from(
-          'employee_schedule_overrides'
-        )
-        .delete()
-        .eq(
-          'employee_id',
-          selectedEmployeeId
-        )
-        .gte(
-          'schedule_date',
-          weekStart
-        )
-        .lte(
-          'schedule_date',
-          weekEnd
-        )
-
-    if (deleteError) {
-      setMessage(
-        'Could not save weekly changes.'
-      )
-      setSavingOverrides(false)
-      return
-    }
-
-    if (overrides.length > 0) {
-      const rows = overrides.map(
-        (override) => ({
-          employee_id:
-            selectedEmployeeId,
-
-          schedule_date:
-            override.schedule_date,
-
-          is_working:
-            override.is_working,
-
-          start_time:
-            override.is_working
-              ? override.start_time
-              : null,
-
-          end_time:
-            override.is_working
-              ? override.end_time
-              : null,
-
-          updated_at:
-            new Date().toISOString(),
-        })
-      )
-
-      const { error: insertError } =
-        await supabase
-          .from(
-            'employee_schedule_overrides'
-          )
-          .upsert(rows, {
-            onConflict:
-              'employee_id,schedule_date',
-          })
-
-      if (insertError) {
-        setMessage(
-          'Could not save weekly changes.'
-        )
-        setSavingOverrides(false)
-        return
-      }
-    }
-
-    setMessage(
-      'Weekly schedule changes saved.'
-    )
-
-    await loadOverrides(
-      selectedEmployeeId
-    )
-
-    setSavingOverrides(false)
-  }
-
-  const changeWeek = (
-    amount: number
-  ) => {
-    const next = new Date(selectedWeek)
-
-    next.setDate(
-      next.getDate() + amount * 7
-    )
-
-    setSelectedWeek(next)
-  }
 
   const selectedEmployee =
     useMemo(() => {
