@@ -372,24 +372,21 @@ export default function Billing() {
       normalized.includes('anthropic') ||
       normalized.includes('claude')
     ) {
-      return '/providers/claude.png'
+     return '/claude.png'
     }
 
     if (
       normalized.includes('google') ||
       normalized.includes('gemini')
     ) {
-      return '/providers/gemini.png'
     }
 
     if (
       normalized.includes('openai') ||
       normalized.includes('gpt')
     ) {
-      return '/providers/openai.png'
+      return '/openai.png'
     }
-
-    return '/providers/ai.png'
   }
 
   const selectPresetMinutes = (
