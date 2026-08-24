@@ -10,6 +10,13 @@ type AgentRecord = {
   status: AgentStatus
 }
 
+type OperatingDay = {
+  day: string
+  open: boolean
+  start: string
+  end: string
+}
+
 type CallRecord = {
   id: string
   started_at: string
@@ -23,6 +30,18 @@ export default function Agent() {
   const [calls, setCalls] = useState<CallRecord[]>([])
   const [isPro, setIsPro] = useState(false)
   const [loading, setLoading] = useState(true)
+
+  const [operatingHours, setOperatingHours] = useState<OperatingDay[]>([
+    { day: 'Monday', open: true, start: '09:00', end: '17:00' },
+    { day: 'Tuesday', open: true, start: '09:00', end: '17:00' },
+    { day: 'Wednesday', open: true, start: '09:00', end: '17:00' },
+    { day: 'Thursday', open: true, start: '09:00', end: '17:00' },
+    { day: 'Friday', open: true, start: '09:00', end: '17:00' },
+    { day: 'Saturday', open: false, start: '09:00', end: '17:00' },
+    { day: 'Sunday', open: false, start: '09:00', end: '17:00' },
+  ])
+  const [savingHours, setSavingHours] = useState(false)
+  const [hoursMessage, setHoursMessage] = useState('')
 
   useEffect(() => {
     const loadAgent = async () => {
@@ -58,13 +77,26 @@ export default function Agent() {
 
         supabase
           .from('subscriptions')
-          .select('plan_name')
+          .select('plan_name, status')
           .eq('client_id', user.id)
           .maybeSingle(),
       ])
 
       if (!agentError && agentData) {
         setAgent(agentData)
+
+        if (agentData.business_hours) {
+          try {
+            const parsed = JSON.parse(agentData.business_hours)
+
+            if (Array.isArray(parsed) && parsed.length === 7) {
+              setOperatingHours(parsed)
+            }
+          } catch {
+            // Existing plain-text business hours are left as-is
+            // until the customer saves the new structured schedule.
+          }
+        }
       }
 
       if (!callsError && callsData) {
@@ -72,6 +104,7 @@ export default function Agent() {
       }
 
       setIsPro(
+        subscriptionData?.status === 'active' &&
         subscriptionData?.plan_name === 'Recepta Pro'
       )
 
@@ -80,6 +113,85 @@ export default function Agent() {
 
     loadAgent()
   }, [])
+
+  const updateOperatingDay = (
+    index: number,
+    updates: Partial<OperatingDay>
+  ) => {
+    setOperatingHours((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index
+          ? { ...item, ...updates }
+          : item
+      )
+    )
+  }
+
+  const saveOperatingHours = async () => {
+    setSavingHours(true)
+    setHoursMessage('')
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) {
+        setHoursMessage('Please sign in again.')
+        return
+      }
+
+      const serialized = JSON.stringify(operatingHours)
+
+      const { error } = await supabase
+        .from('agents')
+        .update({
+          business_hours: serialized,
+        })
+        .eq('client_id', user.id)
+
+      if (error) {
+        setHoursMessage(error.message)
+        return
+      }
+
+      setAgent((current) =>
+        current
+          ? {
+              ...current,
+              business_hours: serialized,
+            }
+          : current
+      )
+
+      setHoursMessage('Operating hours saved.')
+    } catch {
+      setHoursMessage('Could not save operating hours.')
+    } finally {
+      setSavingHours(false)
+    }
+  }
+
+  const operatingHoursSummary = useMemo(() => {
+    const openDays = operatingHours.filter((item) => item.open)
+
+    if (openDays.length === 0) {
+      return 'Closed all week'
+    }
+
+    const first = openDays[0]
+    const sameHours = openDays.every(
+      (item) =>
+        item.start === first.start &&
+        item.end === first.end
+    )
+
+    if (sameHours) {
+      return `${openDays.length} days · ${first.start}–${first.end}`
+    }
+
+    return `${openDays.length} days configured`
+  }, [operatingHours])
 
   const getStatusInfo = () => {
     switch (agent?.status) {
@@ -343,8 +455,7 @@ export default function Agent() {
               <span>BUSINESS HOURS</span>
 
               <strong>
-                {agent?.business_hours ||
-                  'Not configured'}
+                {operatingHoursSummary}
               </strong>
             </div>
 
@@ -457,7 +568,7 @@ export default function Agent() {
               <span>Operating hours</span>
 
               <strong>
-                {agent?.business_hours || 'Pending'}
+                {operatingHoursSummary}
               </strong>
             </div>
 
@@ -480,11 +591,10 @@ export default function Agent() {
             </strong>
 
             <p>
-              Need to change your greeting,
-              business hours, call instructions,
-              transfer preferences or receptionist
-              behaviour? Send a request to the
-              Recepta team.
+              You can change operating hours above.
+              For greeting, call instructions, transfer
+              preferences or receptionist behaviour,
+              send a request to the Recepta team.
             </p>
 
             <a
@@ -493,6 +603,117 @@ export default function Agent() {
             >
               Request a change
             </a>
+          </div>
+        </section>
+
+        {/* OPERATING HOURS */}
+
+        <section className="agentPanel">
+          <div className="agentPanelHeading">
+            <div>
+              <span className="agentSectionLabel">
+                OPERATING HOURS
+              </span>
+
+              <h2>
+                When should your receptionist operate?
+              </h2>
+
+              <p>
+                Set the normal operating hours for each day.
+              </p>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gap: '12px',
+              marginTop: '20px',
+            }}
+          >
+            {operatingHours.map((item, index) => (
+              <div
+                key={item.day}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'minmax(110px, 1fr) auto minmax(110px, 150px) auto minmax(110px, 150px)',
+                  gap: '12px',
+                  alignItems: 'center',
+                }}
+              >
+                <strong>{item.day}</strong>
+
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={item.open}
+                    onChange={(event) =>
+                      updateOperatingDay(index, {
+                        open: event.target.checked,
+                      })
+                    }
+                  />
+                  {item.open ? 'Open' : 'Closed'}
+                </label>
+
+                <input
+                  type="time"
+                  value={item.start}
+                  disabled={!item.open}
+                  onChange={(event) =>
+                    updateOperatingDay(index, {
+                      start: event.target.value,
+                    })
+                  }
+                />
+
+                <span>to</span>
+
+                <input
+                  type="time"
+                  value={item.end}
+                  disabled={!item.open}
+                  onChange={(event) =>
+                    updateOperatingDay(index, {
+                      end: event.target.value,
+                    })
+                  }
+                />
+              </div>
+            ))}
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '14px',
+              marginTop: '22px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <button
+              type="button"
+              className="btn btnPrimary"
+              onClick={saveOperatingHours}
+              disabled={savingHours}
+            >
+              {savingHours
+                ? 'Saving...'
+                : 'Save Operating Hours'}
+            </button>
+
+            {hoursMessage && (
+              <span>{hoursMessage}</span>
+            )}
           </div>
         </section>
 
