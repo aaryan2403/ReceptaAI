@@ -98,12 +98,12 @@ export default async (request: Request) => {
       'Recepta Pro',
     ]
 
-    const allowedModels = [
-      'gpt-4.1-mini',
-      'gpt-4.1',
-      'claude-sonnet-4',
-      'gemini-2.5-flash',
-    ]
+ const allowedModels = [
+  'claude-5-sonnet',
+  'gpt-4-1',
+  'gpt-5-6-luna',
+  'gpt-5-6-terra',
+]
 
     const allowedMinutes = [
       100,
