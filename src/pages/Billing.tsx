@@ -244,8 +244,12 @@ export default function Billing() {
   }, [])
 
   const currentIsPro =
+    subscription?.status === 'active' &&
     subscription?.plan_name ===
-    'Recepta Pro'
+      'Recepta Pro'
+
+  const subscriptionIsActive =
+    subscription?.status === 'active'
 
   const statusInfo = useMemo(() => {
     switch (subscription?.status) {
@@ -365,15 +369,27 @@ export default function Billing() {
       provider.toLowerCase()
 
     if (
-      normalized.includes(
-        'anthropic'
-      ) ||
+      normalized.includes('anthropic') ||
       normalized.includes('claude')
     ) {
       return '/providers/claude.png'
     }
 
-    return '/providers/openai.png'
+    if (
+      normalized.includes('google') ||
+      normalized.includes('gemini')
+    ) {
+      return '/providers/gemini.png'
+    }
+
+    if (
+      normalized.includes('openai') ||
+      normalized.includes('gpt')
+    ) {
+      return '/providers/openai.png'
+    }
+
+    return '/providers/ai.png'
   }
 
   const selectPresetMinutes = (
@@ -442,9 +458,9 @@ export default function Billing() {
               Authorization: `Bearer ${session.access_token}`,
             },
             body: JSON.stringify({
-              plan: selectedPlan,
-              modelId: selectedModelId,
-              monthlyMinutes: selectedMinutes,
+              planName: selectedPlan,
+              aiModel: selectedModelId,
+              includedMinutes: selectedMinutes,
             }),
           }
         )
@@ -481,6 +497,72 @@ export default function Billing() {
           error instanceof Error
             ? error.message
             : 'Unable to update your subscription.'
+        )
+      } finally {
+        setUpdating(false)
+      }
+    }
+
+  const handleCancelSubscription =
+    async () => {
+      if (
+        !window.confirm(
+          'Cancel your current Recepta subscription? Your paid dashboard features will be locked until you activate a new plan.'
+        )
+      ) {
+        return
+      }
+
+      setUpdating(true)
+      setBillingError('')
+
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+
+        if (!session?.access_token) {
+          throw new Error(
+            'Your session has expired. Please sign in again.'
+          )
+        }
+
+        const response = await fetch(
+          '/.netlify/functions/update-subscription',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              action: 'cancel',
+            }),
+          }
+        )
+
+        const result = await response.json().catch(
+          () => ({})
+        )
+
+        if (!response.ok) {
+          throw new Error(
+            result?.error ||
+              'Unable to cancel your subscription.'
+          )
+        }
+
+        window.location.reload()
+      } catch (error) {
+        console.error(
+          'Cancel subscription error:',
+          error
+        )
+
+        setBillingError(
+          error instanceof Error
+            ? error.message
+            : 'Unable to cancel your subscription.'
         )
       } finally {
         setUpdating(false)
@@ -589,21 +671,10 @@ export default function Billing() {
           </div>
         </div>
 
-        {!subscription ? (
-          <div className="dashboardEmptyState">
-            <h2>
-              Billing setup pending
-            </h2>
-
-            <p>
-              Your first subscription
-              is created during Recepta
-              onboarding.
-            </p>
-          </div>
-        ) : (
-          <>
+        <>
             {/* CURRENT SUBSCRIPTION */}
+
+            {subscription && (
 
             <section className="billingConfigCurrent">
               <div className="billingConfigCurrentTop">
@@ -711,6 +782,7 @@ export default function Billing() {
                 </small>
               </div>
             </section>
+            )}
 
             {/* CONFIGURATOR */}
 
@@ -721,7 +793,9 @@ export default function Billing() {
                 </span>
 
                 <h2>
-                  Build your monthly plan
+                  {subscriptionIsActive
+                    ? 'Build your monthly plan'
+                    : 'Choose your new monthly plan'}
                 </h2>
 
                 <p>
@@ -1221,15 +1295,39 @@ export default function Billing() {
                     updating ||
                     !selectedModel ||
                     selectedMinutes < 1 ||
-                    !configurationChanged
+                    (subscriptionIsActive &&
+                      !configurationChanged)
                   }
                 >
                   {updating
                     ? 'Updating...'
-                    : configurationChanged
-                      ? 'Update Subscription'
-                      : 'Current Configuration'}
+                    : !subscriptionIsActive
+                      ? 'Activate Subscription'
+                      : configurationChanged
+                        ? 'Update Subscription'
+                        : 'Current Configuration'}
                 </button>
+
+                {subscriptionIsActive && (
+                  <button
+                    type="button"
+                    className="btn btnOutline billingUpdateSubscription"
+                    onClick={handleCancelSubscription}
+                    disabled={updating}
+                    style={{ marginTop: '12px' }}
+                  >
+                    Cancel Subscription
+                  </button>
+                )}
+
+                {subscription?.status === 'cancelled' && (
+                  <p className="billingCheckoutDisclaimer">
+                    Your previous subscription is cancelled.
+                    Choose any plan, AI model and minute
+                    package above, then activate a new
+                    subscription.
+                  </p>
+                )}
 
                 {billingError && (
                   <p
@@ -1249,7 +1347,6 @@ export default function Billing() {
               </div>
             </section>
           </>
-        )}
       </section>
     </main>
   )
