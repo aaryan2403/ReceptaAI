@@ -74,6 +74,7 @@ export default function Employees() {
   const [role, setRole] = useState('')
 
   const [loading, setLoading] = useState(true)
+  const [hasProAccess, setHasProAccess] = useState(false)
   const [savingEmployee, setSavingEmployee] = useState(false)
   const [savingSchedule, setSavingSchedule] = useState(false)
   const [savingOverrides, setSavingOverrides] = useState(false)
@@ -92,8 +93,7 @@ export default function Employees() {
     }
 
     loadSchedule(selectedEmployeeId)
-    loadOverrides(selectedEmployeeId)
-  }, [selectedEmployeeId, selectedWeek])
+  }, [selectedEmployeeId, hasProAccess])
 
   const loadEmployees = async () => {
     setLoading(true)
@@ -106,6 +106,28 @@ export default function Employees() {
       setLoading(false)
       return
     }
+
+    const {
+      data: subscription,
+      error: subscriptionError,
+    } = await supabase
+      .from('subscriptions')
+      .select('plan_name, status')
+      .eq('client_id', user.id)
+      .maybeSingle()
+
+    const allowed =
+      !subscriptionError &&
+      subscription?.status === 'active' &&
+      subscription?.plan_name === 'Recepta Pro'
+
+    if (!allowed) {
+      setHasProAccess(false)
+      setLoading(false)
+      return
+    }
+
+    setHasProAccess(true)
 
     const { data, error } = await supabase
       .from('employees')
@@ -127,6 +149,8 @@ export default function Employees() {
   }
 
   const loadSchedule = async (employeeId: string) => {
+    if (!hasProAccess) return
+
     const { data, error } = await supabase
       .from('employee_schedules')
       .select(
@@ -631,6 +655,61 @@ export default function Employees() {
     )
   }
 
+  if (!hasProAccess) {
+    return (
+      <main className="dashboardPage">
+        <aside className="dashboardSidebar">
+          <a href="/" className="dashboardBrand">
+            <img
+              src="/components/logoR.png"
+              alt="Recepta"
+            />
+          </a>
+
+          <nav className="dashboardNav">
+            <a href="/dashboard" className="dashboardNavItem">
+              Overview
+            </a>
+
+            <a
+              href="/dashboard/billing"
+              className="dashboardNavItem dashboardNavItemActive"
+            >
+              Billing
+            </a>
+
+            <a
+              href="/dashboard/settings"
+              className="dashboardNavItem"
+            >
+              Settings
+            </a>
+          </nav>
+        </aside>
+
+        <section className="dashboardMain">
+          <div className="dashboardEmptyState">
+            <p className="dashboardEyebrow">RECEPTA PRO</p>
+
+            <h2>Employees requires Recepta Pro</h2>
+
+            <p>
+              Upgrade to the C$300 Pro plan to unlock
+              employee management and availability.
+            </p>
+
+            <a
+              href="/dashboard/billing"
+              className="btn btnPrimary"
+            >
+              View Pro Plan
+            </a>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="dashboardPage">
 
@@ -710,8 +789,8 @@ export default function Employees() {
             </h1>
 
             <p>
-              Add employees, set their normal hours
-              and make week-specific changes.
+              Add employees and manage their normal
+              weekly availability.
             </p>
           </div>
         </div>
@@ -1102,252 +1181,6 @@ export default function Employees() {
             )}
           </section>
         </div>
-
-        {/* SPECIFIC WEEK */}
-
-        {selectedEmployee && (
-          <section className="employeePanel">
-            <div className="employeePanelHeading">
-              <div>
-                <span className="employeeSectionLabel">
-                  THIS WEEK / OVERRIDES
-                </span>
-
-                <h2>
-                  Specific week schedule
-                </h2>
-
-                <p>
-                  Change individual days without
-                  changing the employee's normal schedule.
-                </p>
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  gap: '8px',
-                  alignItems: 'center',
-                }}
-              >
-                <button
-                  type="button"
-                  className="btn btnOutline"
-                  onClick={() =>
-                    changeWeek(-1)
-                  }
-                >
-                  ←
-                </button>
-
-                <span
-                  style={{
-                    fontSize: '10px',
-                    color:
-                      'rgba(235,244,238,0.55)',
-                  }}
-                >
-                  {selectedWeek.toLocaleDateString(
-                    [],
-                    {
-                      month: 'short',
-                      day: 'numeric',
-                    }
-                  )}
-                  {' — '}
-                  {new Date(
-                    selectedWeek.getFullYear(),
-                    selectedWeek.getMonth(),
-                    selectedWeek.getDate() + 6
-                  ).toLocaleDateString(
-                    [],
-                    {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    }
-                  )}
-                </span>
-
-                <button
-                  type="button"
-                  className="btn btnOutline"
-                  onClick={() =>
-                    changeWeek(1)
-                  }
-                >
-                  →
-                </button>
-              </div>
-            </div>
-
-            <div className="employeeScheduleList">
-              {weekDates.map((day) => {
-                const defaultSchedule =
-                  getDefaultForDate(
-                    day.value
-                  )
-
-                const override =
-                  getOverrideForDate(
-                    day.dateString
-                  )
-
-                const effectiveWorking =
-                  override
-                    ? override.is_working
-                    : defaultSchedule?.is_working ??
-                      false
-
-                const effectiveStart =
-                  override?.start_time ||
-                  defaultSchedule?.start_time ||
-                  '09:00'
-
-                const effectiveEnd =
-                  override?.end_time ||
-                  defaultSchedule?.end_time ||
-                  '17:00'
-
-                const isOverridden =
-                  Boolean(override)
-
-                return (
-                  <div
-                    className="employeeScheduleRow"
-                    key={day.dateString}
-                  >
-                    <div className="employeeScheduleDay">
-                      <strong>
-                        {day.label}
-                      </strong>
-
-                      <span
-                        style={{
-                          display: 'block',
-                          marginTop: '3px',
-                          color:
-                            'rgba(235,244,238,0.3)',
-                          fontSize: '9px',
-                        }}
-                      >
-                        {day.date.toLocaleDateString(
-                          [],
-                          {
-                            month: 'short',
-                            day: 'numeric',
-                          }
-                        )}
-                      </span>
-                    </div>
-
-                    <label className="employeeWorkingToggle">
-                      <input
-                        type="checkbox"
-                        checked={
-                          effectiveWorking
-                        }
-                        onChange={(event) =>
-                          updateOverride(
-                            day.dateString,
-                            day.value,
-                            'is_working',
-                            event.target.checked
-                          )
-                        }
-                      />
-
-                      <span>
-                        {effectiveWorking
-                          ? 'Working'
-                          : 'Off'}
-                      </span>
-                    </label>
-
-                    {effectiveWorking ? (
-                      <div className="employeeTimeInputs">
-                        <input
-                          type="time"
-                          value={
-                            effectiveStart.slice(
-                              0,
-                              5
-                            )
-                          }
-                          onChange={(event) =>
-                            updateOverride(
-                              day.dateString,
-                              day.value,
-                              'start_time',
-                              event.target.value
-                            )
-                          }
-                        />
-
-                        <span>
-                          to
-                        </span>
-
-                        <input
-                          type="time"
-                          value={
-                            effectiveEnd.slice(
-                              0,
-                              5
-                            )
-                          }
-                          onChange={(event) =>
-                            updateOverride(
-                              day.dateString,
-                              day.value,
-                              'end_time',
-                              event.target.value
-                            )
-                          }
-                        />
-                      </div>
-                    ) : (
-                      <span className="employeeDayOff">
-                        Day off
-                      </span>
-                    )}
-
-                    {isOverridden && (
-                      <button
-                        type="button"
-                        className="btn btnOutline"
-                        onClick={() =>
-                          resetOverride(
-                            day.dateString
-                          )
-                        }
-                      >
-                        Reset
-                      </button>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-
-            <div className="employeeScheduleActions">
-              <button
-                type="button"
-                className="btn btnPrimary"
-                onClick={
-                  handleSaveOverrides
-                }
-                disabled={
-                  savingOverrides
-                }
-              >
-                {savingOverrides
-                  ? 'Saving...'
-                  : 'Save Weekly Changes'}
-              </button>
-            </div>
-          </section>
-        )}
 
         {message && (
           <p className="employeeMessage">
