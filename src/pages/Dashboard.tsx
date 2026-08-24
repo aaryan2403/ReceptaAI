@@ -85,6 +85,7 @@ export default function Dashboard() {
       }
 
       const isPro =
+        subscriptionData?.status === 'active' &&
         subscriptionData?.plan_name === 'Recepta Pro'
 
       if (isPro) {
@@ -106,8 +107,16 @@ export default function Dashboard() {
     loadDashboard()
   }, [])
 
+  const isSubscriptionActive =
+    subscription?.status === 'active'
+
   const isPro =
+    isSubscriptionActive &&
     subscription?.plan_name === 'Recepta Pro'
+
+  const isStandard =
+    isSubscriptionActive &&
+    subscription?.plan_name === 'Recepta Standard'
 
   const stats = useMemo(() => {
     const callsAnswered = calls.length
@@ -250,6 +259,75 @@ export default function Dashboard() {
     )
   }
 
+  if (!isSubscriptionActive) {
+    return (
+      <main className="dashboardPage">
+        <aside className="dashboardSidebar">
+          <a href="/" className="dashboardBrand">
+            <img
+              src="/components/logoR.png"
+              alt="Recepta"
+            />
+          </a>
+
+          <nav className="dashboardNav">
+            <a
+              href="/dashboard/billing"
+              className="dashboardNavItem"
+            >
+              Billing
+            </a>
+
+            <a
+              href="/dashboard/settings"
+              className="dashboardNavItem"
+            >
+              Settings
+            </a>
+          </nav>
+        </aside>
+
+        <section className="dashboardMain">
+          <div className="dashboardHeader">
+            <div>
+              <p className="dashboardEyebrow">
+                SUBSCRIPTION REQUIRED
+              </p>
+
+              <h1>
+                {client?.company_name ||
+                  'Your Recepta dashboard'}
+              </h1>
+
+              <p>
+                Your subscription is not active. Choose a
+                plan to unlock your Recepta dashboard.
+              </p>
+            </div>
+          </div>
+
+          <div className="dashboardEmptyState">
+            <h2>
+              Choose your Recepta plan
+            </h2>
+
+            <p>
+              Activate Standard or Pro from Billing to
+              continue using your AI receptionist dashboard.
+            </p>
+
+            <a
+              href="/dashboard/billing"
+              className="btn btnPrimary"
+            >
+              Go to Billing
+            </a>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="dashboardPage">
       <aside className="dashboardSidebar">
@@ -322,7 +400,9 @@ export default function Dashboard() {
             <p className="dashboardEyebrow">
               {isPro
                 ? 'RECEPTA PRO'
-                : 'RECEPTA STANDARD'}
+                : isStandard
+                  ? 'RECEPTA STANDARD'
+                  : 'RECEPTA'}
             </p>
 
             <h1>
