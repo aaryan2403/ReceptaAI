@@ -53,6 +53,10 @@ export default function Admin() {
   const [createError, setCreateError] = useState('')
   const [createSuccess, setCreateSuccess] = useState('')
 
+  const [clientActionId, setClientActionId] = useState<string | null>(null)
+  const [clientActionError, setClientActionError] = useState('')
+  const [clientActionSuccess, setClientActionSuccess] = useState('')
+
   const loadClients = async () => {
     setLoading(true)
 
@@ -345,6 +349,152 @@ export default function Admin() {
     }
 
     setCreating(false)
+  }
+
+  const getAdminSession = async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session) {
+      throw new Error(
+        'Your admin session has expired. Please sign in again.'
+      )
+    }
+
+    return session
+  }
+
+  const handleClientPlanAction = async (
+    client: ClientWithSubscription,
+    action: 'standard' | 'pro' | 'cancel'
+  ) => {
+    const label =
+      action === 'standard'
+        ? 'activate the C$200 Standard plan for'
+        : action === 'pro'
+          ? 'activate the C$300 Pro plan for'
+          : 'cancel the subscription for'
+
+    if (
+      !window.confirm(
+        `Are you sure you want to ${label} ${
+          client.company_name || client.contact_email || 'this client'
+        }?`
+      )
+    ) {
+      return
+    }
+
+    setClientActionId(client.id)
+    setClientActionError('')
+    setClientActionSuccess('')
+
+    try {
+      const session = await getAdminSession()
+
+      const response = await fetch(
+        '/.netlify/functions/update-client-plan',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            clientId: client.id,
+            action,
+          }),
+        }
+      )
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          result.error || 'Could not update subscription.'
+        )
+      }
+
+      setClientActionSuccess(
+        action === 'cancel'
+          ? 'Subscription cancelled.'
+          : action === 'pro'
+            ? 'C$300 Pro activated.'
+            : 'C$200 Standard activated.'
+      )
+
+      await loadClients()
+    } catch (error) {
+      setClientActionError(
+        error instanceof Error
+          ? error.message
+          : 'Could not update subscription.'
+      )
+    } finally {
+      setClientActionId(null)
+    }
+  }
+
+  const handleDeleteClient = async (
+    client: ClientWithSubscription
+  ) => {
+    const clientName =
+      client.company_name ||
+      client.contact_email ||
+      'this client'
+
+    if (
+      !window.confirm(
+        `Remove ${clientName}? This action may permanently delete the client's Recepta account and data.`
+      )
+    ) {
+      return
+    }
+
+    setClientActionId(client.id)
+    setClientActionError('')
+    setClientActionSuccess('')
+
+    try {
+      const session = await getAdminSession()
+
+      const response = await fetch(
+        '/.netlify/functions/delete-client',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            clientId: client.id,
+          }),
+        }
+      )
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          result.error || 'Could not remove client.'
+        )
+      }
+
+      setClientActionSuccess(
+        `${clientName} was removed.`
+      )
+
+      await loadClients()
+    } catch (error) {
+      setClientActionError(
+        error instanceof Error
+          ? error.message
+          : 'Could not remove client.'
+      )
+    } finally {
+      setClientActionId(null)
+    }
   }
 
   if (checkingAdmin) {
@@ -736,6 +886,18 @@ export default function Admin() {
           )}
         </section>
 
+        {clientActionError && (
+          <p className="adminFormMessage adminFormMessage--error">
+            {clientActionError}
+          </p>
+        )}
+
+        {clientActionSuccess && (
+          <p className="adminFormMessage adminFormMessage--success">
+            {clientActionSuccess}
+          </p>
+        )}
+
         {/* CLIENTS */}
 
         <section className="adminPanel">
@@ -901,13 +1063,79 @@ export default function Admin() {
                       ).toLocaleDateString()}
                     </div>
 
-                    <div className="adminClientAction">
+                    <div
+                      className="adminClientAction"
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '8px',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="btn btnOutline"
+                        disabled={clientActionId === client.id}
+                        onClick={() =>
+                          handleClientPlanAction(
+                            client,
+                            'standard'
+                          )
+                        }
+                      >
+                        C$200 Standard
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btnPrimary"
+                        disabled={clientActionId === client.id}
+                        onClick={() =>
+                          handleClientPlanAction(
+                            client,
+                            'pro'
+                          )
+                        }
+                      >
+                        C$300 Pro
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btnOutline"
+                        disabled={
+                          clientActionId === client.id ||
+                          client.subscription?.status ===
+                            'cancelled'
+                        }
+                        onClick={() =>
+                          handleClientPlanAction(
+                            client,
+                            'cancel'
+                          )
+                        }
+                      >
+                        Cancel
+                      </button>
+
                       <a
                         href={`/admin/client/${client.id}`}
                         className="btn btnOutline"
                       >
                         Manage
                       </a>
+
+                      <button
+                        type="button"
+                        className="btn btnOutline"
+                        disabled={clientActionId === client.id}
+                        onClick={() =>
+                          handleDeleteClient(client)
+                        }
+                      >
+                        {clientActionId === client.id
+                          ? 'Working...'
+                          : 'Remove Client'}
+                      </button>
                     </div>
                   </div>
                 )
