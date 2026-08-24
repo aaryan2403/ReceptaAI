@@ -16,6 +16,7 @@ type AppointmentRecord = {
 export default function Appointments() {
   const [appointments, setAppointments] = useState<AppointmentRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [hasProAccess, setHasProAccess] = useState(false)
   const [selectedDate, setSelectedDate] = useState(() => {
     const now = new Date()
 
@@ -38,6 +39,28 @@ export default function Appointments() {
         setLoading(false)
         return
       }
+
+      const {
+        data: subscription,
+        error: subscriptionError,
+      } = await supabase
+        .from('subscriptions')
+        .select('plan_name, status')
+        .eq('client_id', user.id)
+        .maybeSingle()
+
+      const allowed =
+        !subscriptionError &&
+        subscription?.status === 'active' &&
+        subscription?.plan_name === 'Recepta Pro'
+
+      if (!allowed) {
+        setHasProAccess(false)
+        setLoading(false)
+        return
+      }
+
+      setHasProAccess(true)
 
       const { data, error } = await supabase
         .from('appointments')
@@ -95,6 +118,8 @@ export default function Appointments() {
     appointmentId: string,
     newStatus: AppointmentStatus
   ) => {
+    if (!hasProAccess) return
+
     setUpdatingId(appointmentId)
 
     const { error } = await supabase
@@ -212,6 +237,55 @@ export default function Appointments() {
         <section className="dashboardMain">
           <div className="dashboardEmptyState">
             <p>Loading appointments...</p>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
+  if (!hasProAccess) {
+    return (
+      <main className="dashboardPage">
+        <aside className="dashboardSidebar">
+          <a href="/" className="dashboardBrand">
+            <img src="/components/logoR.png" alt="Recepta" />
+          </a>
+
+          <nav className="dashboardNav">
+            <a href="/dashboard" className="dashboardNavItem">
+              Overview
+            </a>
+
+            <a
+              href="/dashboard/billing"
+              className="dashboardNavItem dashboardNavItemActive"
+            >
+              Billing
+            </a>
+
+            <a
+              href="/dashboard/settings"
+              className="dashboardNavItem"
+            >
+              Settings
+            </a>
+          </nav>
+        </aside>
+
+        <section className="dashboardMain">
+          <div className="dashboardEmptyState">
+            <p className="dashboardEyebrow">RECEPTA PRO</p>
+            <h2>Appointments requires Recepta Pro</h2>
+            <p>
+              Upgrade to the C$300 Pro plan to unlock
+              appointments and employee scheduling.
+            </p>
+            <a
+              href="/dashboard/billing"
+              className="btn btnPrimary"
+            >
+              View Pro Plan
+            </a>
           </div>
         </section>
       </main>
