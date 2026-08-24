@@ -62,6 +62,12 @@ export default function Billing() {
   const [loading, setLoading] =
     useState(true)
 
+  const [updating, setUpdating] =
+    useState(false)
+
+  const [billingError, setBillingError] =
+    useState('')
+
   const [selectedPlan, setSelectedPlan] =
     useState<PlanName>('Recepta Standard')
 
@@ -408,35 +414,77 @@ export default function Billing() {
   }
 
   const handleUpdateSubscription =
-    () => {
-      /*
-        NEXT STEP:
-        This will call our secure
-        Netlify Stripe function.
+    async () => {
+      if (!selectedModel || selectedMinutes < 1) {
+        return
+      }
 
-        Do not update the paid
-        subscription directly from
-        the browser.
-      */
+      setUpdating(true)
+      setBillingError('')
 
-      console.log({
-        plan: selectedPlan,
-        planPrice,
-        modelId:
-          selectedModelId,
-        model:
-          selectedModel
-            ?.display_name,
-        minutePrice,
-        monthlyMinutes:
-          selectedMinutes,
-        minutesCost,
-        monthlyTotal,
-      })
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
 
-      alert(
-        'Your subscription selection is ready. We will connect this button to Stripe next.'
-      )
+        if (!session?.access_token) {
+          throw new Error(
+            'Your session has expired. Please sign in again.'
+          )
+        }
+
+        const response = await fetch(
+          '/.netlify/functions/update-subscription',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              plan: selectedPlan,
+              modelId: selectedModelId,
+              monthlyMinutes: selectedMinutes,
+            }),
+          }
+        )
+
+        const result = await response.json().catch(
+          () => ({})
+        )
+
+        if (!response.ok) {
+          throw new Error(
+            result?.error ||
+              'Unable to update your subscription.'
+          )
+        }
+
+        if (result?.checkoutUrl) {
+          window.location.assign(result.checkoutUrl)
+          return
+        }
+
+        if (result?.url) {
+          window.location.assign(result.url)
+          return
+        }
+
+        window.location.reload()
+      } catch (error) {
+        console.error(
+          'Update subscription error:',
+          error
+        )
+
+        setBillingError(
+          error instanceof Error
+            ? error.message
+            : 'Unable to update your subscription.'
+        )
+      } finally {
+        setUpdating(false)
+      }
     }
 
   if (loading) {
@@ -1170,15 +1218,27 @@ export default function Billing() {
                     handleUpdateSubscription
                   }
                   disabled={
+                    updating ||
                     !selectedModel ||
                     selectedMinutes < 1 ||
                     !configurationChanged
                   }
                 >
-                  {configurationChanged
-                    ? 'Update Subscription'
-                    : 'Current Configuration'}
+                  {updating
+                    ? 'Updating...'
+                    : configurationChanged
+                      ? 'Update Subscription'
+                      : 'Current Configuration'}
                 </button>
+
+                {billingError && (
+                  <p
+                    className="billingCheckoutDisclaimer"
+                    role="alert"
+                  >
+                    {billingError}
+                  </p>
+                )}
 
                 <p className="billingCheckoutDisclaimer">
                   Your new monthly price
