@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 
+const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
+
 type ClientStatus = 'setup' | 'testing' | 'live' | 'paused'
 
 type ClientRecord = {
@@ -26,6 +28,14 @@ type ClientWithSubscription = ClientRecord & {
 export default function Admin() {
   const [clients, setClients] = useState<ClientWithSubscription[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Admin authentication
+  const [checkingAdmin, setCheckingAdmin] = useState(true)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [adminEmail, setAdminEmail] = useState('')
+  const [adminPassword, setAdminPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [loggingIn, setLoggingIn] = useState(false)
 
   const [search, setSearch] = useState('')
 
@@ -95,8 +105,102 @@ export default function Admin() {
   }
 
   useEffect(() => {
-    loadClients()
+    let mounted = true
+
+    const checkAdmin = async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+
+        if (!mounted) return
+
+        if (
+          user?.email?.toLowerCase() ===
+          ADMIN_EMAIL.toLowerCase()
+        ) {
+          setIsAdmin(true)
+          await loadClients()
+        } else {
+          setIsAdmin(false)
+
+          if (user) {
+            await supabase.auth.signOut()
+          }
+        }
+      } catch {
+        if (mounted) {
+          setIsAdmin(false)
+        }
+      } finally {
+        if (mounted) {
+          setCheckingAdmin(false)
+        }
+      }
+    }
+
+    checkAdmin()
+
+    return () => {
+      mounted = false
+    }
   }, [])
+
+  const handleAdminLogin = async (
+    event: FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault()
+
+    setLoggingIn(true)
+    setLoginError('')
+
+    try {
+      const { data, error } =
+        await supabase.auth.signInWithPassword({
+          email: adminEmail.trim(),
+          password: adminPassword,
+        })
+
+      if (error || !data.user) {
+        setLoginError('Invalid email or password.')
+        return
+      }
+
+      if (
+        data.user.email?.toLowerCase() !==
+        ADMIN_EMAIL.toLowerCase()
+      ) {
+        await supabase.auth.signOut()
+
+        setLoginError(
+          'This account does not have admin access.'
+        )
+
+        return
+      }
+
+      setIsAdmin(true)
+      setAdminPassword('')
+      setCheckingAdmin(false)
+
+      await loadClients()
+    } catch {
+      setLoginError(
+        'Could not connect to the server. Please try again.'
+      )
+    } finally {
+      setLoggingIn(false)
+    }
+  }
+
+  const handleAdminLogout = async () => {
+    await supabase.auth.signOut()
+
+    setIsAdmin(false)
+    setAdminEmail('')
+    setAdminPassword('')
+    setClients([])
+  }
 
   const filteredClients = useMemo(() => {
     const query = search
@@ -243,6 +347,108 @@ export default function Admin() {
     setCreating(false)
   }
 
+  if (checkingAdmin) {
+    return (
+      <main className="adminPage">
+        <section className="adminMain">
+          <div className="adminPanel">
+            <div className="adminEmpty">
+              Checking admin access...
+            </div>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
+  if (!isAdmin) {
+    return (
+      <main className="adminPage">
+        <section className="adminMain">
+          <div className="adminPanel">
+            <div className="adminPanelHeading">
+              <div>
+                <span className="adminEyebrow">
+                  RECEPTA ADMIN
+                </span>
+
+                <h2>
+                  Admin login
+                </h2>
+
+                <p>
+                  Sign in with the Recepta administrator
+                  account to continue.
+                </p>
+              </div>
+            </div>
+
+            <form
+              className="adminNewClientForm"
+              onSubmit={handleAdminLogin}
+            >
+              <label>
+                <span>
+                  Email
+                </span>
+
+                <input
+                  type="email"
+                  value={adminEmail}
+                  onChange={(event) =>
+                    setAdminEmail(
+                      event.target.value
+                    )
+                  }
+                  autoComplete="email"
+                  placeholder="Admin email"
+                  required
+                />
+              </label>
+
+              <label>
+                <span>
+                  Password
+                </span>
+
+                <input
+                  type="password"
+                  value={adminPassword}
+                  onChange={(event) =>
+                    setAdminPassword(
+                      event.target.value
+                    )
+                  }
+                  autoComplete="current-password"
+                  placeholder="Admin password"
+                  required
+                />
+              </label>
+
+              <div className="adminCreateAction">
+                <button
+                  className="btn btnPrimary"
+                  type="submit"
+                  disabled={loggingIn}
+                >
+                  {loggingIn
+                    ? 'Signing in...'
+                    : 'Sign in'}
+                </button>
+              </div>
+            </form>
+
+            {loginError && (
+              <p className="adminFormMessage adminFormMessage--error">
+                {loginError}
+              </p>
+            )}
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="adminPage">
 
@@ -315,12 +521,22 @@ export default function Admin() {
             </p>
           </div>
 
-          <a
-            href="/"
-            className="btn btnOutline"
-          >
-            View Recepta Website
-          </a>
+          <div className="adminHeaderActions">
+            <a
+              href="/"
+              className="btn btnOutline"
+            >
+              View Recepta Website
+            </a>
+
+            <button
+              type="button"
+              className="btn btnOutline"
+              onClick={handleAdminLogout}
+            >
+              Sign out
+            </button>
+          </div>
         </header>
 
         {/* STATS */}
