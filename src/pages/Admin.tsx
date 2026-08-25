@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+
 import type { FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 
@@ -1136,7 +1136,9 @@ const handleSaveActivate = async (
 
                           <small>
                             {active
-                              ? 'Active'
+                              ? client.agent?.retell_agent_id
+                                ? 'Active'
+                                : 'Active · AI config pending'
                               : client.subscription
                                   ?.status ||
                                 'Pending'}
