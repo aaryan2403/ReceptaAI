@@ -38,14 +38,21 @@ type AIModel = {
   sort_order: number
 }
 
+type AgentRecord = {
+  client_id: string
+  retell_agent_id: string | null
+}
+
 type ClientWithSubscription = ClientRecord & {
   subscription: SubscriptionRecord | null
+  agent: AgentRecord | null
 }
 
 type ClientDraft = {
   plan_name: 'Recepta Standard' | 'Recepta Pro'
   monthly_minutes: string
   ai_model_id: string
+  retell_agent_id: string
 }
 
 export default function Admin() {
@@ -123,6 +130,7 @@ export default function Admin() {
       clientsResult,
       subscriptionsResult,
       modelsResult,
+      agentsResult,
     ] = await Promise.all([
       supabase
         .from('clients')
@@ -162,17 +170,25 @@ export default function Admin() {
         .order('sort_order', {
           ascending: true,
         }),
+
+      supabase
+        .from('agents')
+        .select(
+          'client_id, retell_agent_id'
+        ),
     ])
 
     if (
       clientsResult.error ||
       subscriptionsResult.error ||
-      modelsResult.error
+      modelsResult.error ||
+      agentsResult.error
     ) {
       console.error(
         clientsResult.error ||
           subscriptionsResult.error ||
-          modelsResult.error
+          modelsResult.error ||
+          agentsResult.error
       )
 
       setLoading(false)
@@ -187,6 +203,10 @@ export default function Admin() {
       (modelsResult.data ||
         []) as AIModel[]
 
+    const agents =
+      (agentsResult.data ||
+        []) as AgentRecord[]
+
     const combined =
       (clientsResult.data ||
         []).map((client) => ({
@@ -196,6 +216,13 @@ export default function Admin() {
           subscriptions.find(
             (subscription) =>
               subscription.client_id ===
+              client.id
+          ) || null,
+
+        agent:
+          agents.find(
+            (agent) =>
+              agent.client_id ===
               client.id
           ) || null,
       })) as ClientWithSubscription[]
@@ -227,6 +254,11 @@ export default function Admin() {
           client.subscription
             ?.ai_model_id ||
           aiModels[0]?.id ||
+          '',
+
+        retell_agent_id:
+          client.agent
+            ?.retell_agent_id ||
           '',
       }
     })
@@ -400,6 +432,7 @@ export default function Admin() {
           monthly_minutes: '300',
           ai_model_id:
             models[0]?.id || '',
+          retell_agent_id: '',
         }),
 
         [field]: value,
@@ -427,17 +460,6 @@ export default function Admin() {
           'Admin session expired.'
         )
       }
-
-      /*
-        TEMPORARILY KEEPING THESE
-        VALUES so your existing
-        create-client function does
-        not break.
-
-        STEP 2 will make newly
-        created clients fully blank
-        and pending.
-      */
 
       const response = await fetch(
         '/.netlify/functions/create-client',
@@ -593,6 +615,35 @@ const handleSaveActivate = async (
       throw new Error(
         result.error ||
           'Could not update client.'
+      )
+    }
+
+    const retellResponse = await fetch(
+      '/.netlify/functions/update-client-agent',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type':
+            'application/json',
+          Authorization:
+            `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          clientId: client.id,
+          retellAgentId:
+            draft.retell_agent_id.trim() ||
+            null,
+        }),
+      }
+    )
+
+    const retellResult =
+      await retellResponse.json()
+
+    if (!retellResponse.ok) {
+      throw new Error(
+        retellResult.error ||
+          'Subscription saved, but Retell Agent ID could not be saved.'
       )
     }
 
@@ -828,8 +879,8 @@ const handleSaveActivate = async (
             </h1>
 
             <p>
-              Create clients and control
-              their Recepta subscriptions.
+              Create clients, configure subscriptions
+              and link their Retell agents.
             </p>
           </div>
 
@@ -1192,6 +1243,33 @@ const handleSaveActivate = async (
                               )
                             )}
                           </select>
+                        </label>
+
+                        <label>
+                          <span>
+                            Retell Agent ID
+                          </span>
+
+                          <input
+                            type="text"
+                            value={
+                              draft
+                                ?.retell_agent_id ||
+                              ''
+                            }
+                            onChange={(
+                              event
+                            ) =>
+                              updateDraft(
+                                client.id,
+                                'retell_agent_id',
+                                event.target
+                                  .value
+                              )
+                            }
+                            placeholder="agent_xxxxxxxxx"
+                            autoComplete="off"
+                          />
                         </label>
 
                         <button
