@@ -452,16 +452,11 @@ export default function Admin() {
               `Bearer ${session.access_token}`,
           },
 
-          body: JSON.stringify({
-            companyName,
-            email,
-            password,
-
-            planName:
-              'Recepta Standard',
-
-            monthlyPrice: 200,
-          }),
+         body: JSON.stringify({
+  companyName,
+  email,
+  password,
+}),
         }
       )
 
