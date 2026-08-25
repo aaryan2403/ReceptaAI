@@ -110,12 +110,17 @@ export default function Dashboard() {
   const isSubscriptionActive =
     subscription?.status === 'active'
 
+  const isSubscriptionCancelled =
+    subscription?.status === 'cancelled'
+
+  const isSubscriptionPending =
+    !subscription ||
+    subscription.status === 'pending'
+
   const isPro =
-    isSubscriptionActive &&
     subscription?.plan_name === 'Recepta Pro'
 
   const isStandard =
-    isSubscriptionActive &&
     subscription?.plan_name === 'Recepta Standard'
 
   const stats = useMemo(() => {
@@ -259,109 +264,76 @@ export default function Dashboard() {
     )
   }
 
-if (!isSubscriptionActive) {
-  const isCancelled =
-    subscription?.status === 'cancelled'
-
-  return (
-    <main className="dashboardPage">
-      <aside className="dashboardSidebar">
-        <a href="/" className="dashboardBrand">
-          <img
-            src="/components/logoR.png"
-            alt="Recepta"
-          />
-        </a>
-
-        <nav className="dashboardNav">
-          <a
-            href="/dashboard"
-            className="dashboardNavItem dashboardNavItemActive"
-          >
-            Overview
+  if (isSubscriptionPending) {
+    return (
+      <main className="dashboardPage">
+        <aside className="dashboardSidebar">
+          <a href="/" className="dashboardBrand">
+            <img
+              src="/components/logoR.png"
+              alt="Recepta"
+            />
           </a>
 
-          {isCancelled && (
+          <nav className="dashboardNav">
+            <a
+              href="/dashboard"
+              className="dashboardNavItem dashboardNavItemActive"
+            >
+              Overview
+            </a>
+
             <a
               href="/dashboard/billing"
               className="dashboardNavItem"
             >
               Billing
             </a>
-          )}
 
-          <a
-            href="/dashboard/settings"
-            className="dashboardNavItem"
-          >
-            Settings
-          </a>
-        </nav>
-      </aside>
+            <a
+              href="/dashboard/settings"
+              className="dashboardNavItem"
+            >
+              Settings
+            </a>
+          </nav>
+        </aside>
 
-      <section className="dashboardMain">
-        <div className="dashboardHeader">
-          <div>
-            <p className="dashboardEyebrow">
-              {isCancelled
-                ? 'SUBSCRIPTION CANCELLED'
-                : 'ACCOUNT SETUP'}
-            </p>
+        <section className="dashboardMain">
+          <div className="dashboardHeader">
+            <div>
+              <p className="dashboardEyebrow">
+                SETUP PENDING
+              </p>
 
-            <h1>
-              {client?.company_name ||
-                'Your Recepta account'}
-            </h1>
+              <h1>
+                {client?.company_name ||
+                  'Your Recepta dashboard'}
+              </h1>
+
+              <p>
+                Your account has been created. Recepta
+                will activate your first subscription
+                after onboarding is complete.
+              </p>
+            </div>
+          </div>
+
+          <div className="dashboardEmptyState">
+            <h2>
+              Your workspace is being prepared
+            </h2>
 
             <p>
-              {isCancelled
-                ? 'Your Recepta subscription is no longer active.'
-                : 'Your Recepta account is being prepared.'}
+              Your first plan, AI model and monthly
+              minutes are assigned by the Recepta team.
             </p>
           </div>
-        </div>
+        </section>
+      </main>
+    )
+  }
 
-        <div className="dashboardEmptyState">
-          {isCancelled ? (
-            <>
-              <h2>
-                Your dashboard is locked
-              </h2>
-
-              <p>
-                Your subscription has been cancelled.
-                Your previous account information has
-                been preserved, but paid Recepta
-                features are currently unavailable.
-              </p>
-
-              <a
-                href="/dashboard/billing"
-                className="btn btnOutline"
-              >
-                View Billing
-              </a>
-            </>
-          ) : (
-            <>
-              <h2>
-                Setup in progress
-              </h2>
-
-              <p>
-                We're preparing your Recepta AI
-                receptionist. Your dashboard will
-                automatically become available once
-                your account has been activated by
-                Recepta.
-              </p>
-            </>
-          )}
-        </div>
-      </section>
-    </main>
-  )
-}
   return (
     <main className="dashboardPage">
       <aside className="dashboardSidebar">
@@ -468,6 +440,29 @@ if (!isSubscriptionActive) {
             {status.label}
           </div>
         </div>
+
+        {isSubscriptionCancelled ? (
+          <div className="dashboardEmptyState">
+            <h2>
+              Your subscription is cancelled
+            </h2>
+
+            <p>
+              Your previous plan is preserved while
+              you choose a new subscription. Go to
+              Billing to select Standard or Pro, your
+              AI model and your monthly minutes.
+            </p>
+
+            <a
+              href="/dashboard/billing"
+              className="btn btnPrimary"
+            >
+              Choose New Subscription
+            </a>
+          </div>
+        ) : (
+        <>
 
         <div className="dashboardStats">
           <div className="dashboardStatCard">
@@ -702,6 +697,8 @@ if (!isSubscriptionActive) {
                 : 'Your dashboard is now showing real activity from your Recepta receptionist.'}
             </p>
           </div>
+        )}
+        </>
         )}
       </section>
     </main>
