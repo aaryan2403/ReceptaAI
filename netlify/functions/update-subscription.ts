@@ -1,77 +1,73 @@
 import { createClient } from '@supabase/supabase-js'
+import Stripe from 'stripe'
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
     return new Response(
-      JSON.stringify({
-        error: 'Method not allowed',
-      }),
+      JSON.stringify({ error: 'Method not allowed' }),
       {
         status: 405,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
+      }
+    )
+  }
+
+  const supabaseUrl =
+    process.env.SUPABASE_URL
+  const supabaseSecretKey =
+    process.env.SUPABASE_SECRET_KEY
+  const stripeSecretKey =
+    process.env.STRIPE_SECRET_KEY
+  const webhookSecret =
+    process.env.STRIPE_WEBHOOK_SECRET
+
+  if (
+    !supabaseUrl ||
+    !supabaseSecretKey ||
+    !stripeSecretKey ||
+    !webhookSecret
+  ) {
+    return new Response(
+      JSON.stringify({
+        error: 'Server configuration is missing.',
+      }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    )
+  }
+
+  const signature =
+    request.headers.get('stripe-signature')
+
+  if (!signature) {
+    return new Response(
+      JSON.stringify({
+        error: 'Missing Stripe signature.',
+      }),
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
       }
     )
   }
 
   try {
-    const supabaseUrl =
-      process.env.SUPABASE_URL
+    const stripe =
+      new Stripe(stripeSecretKey)
 
-    const supabaseSecretKey =
-      process.env.SUPABASE_SECRET_KEY
+    const rawBody =
+      await request.text()
 
-    if (
-      !supabaseUrl ||
-      !supabaseSecretKey
-    ) {
-      return new Response(
-        JSON.stringify({
-          error:
-            'Server configuration is missing.',
-        }),
-        {
-          status: 500,
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
-        }
-      )
-    }
-
-    const authHeader =
-      request.headers.get(
-        'authorization'
+    const event =
+      stripe.webhooks.constructEvent(
+        rawBody,
+        signature,
+        webhookSecret
       )
 
-    if (
-      !authHeader?.startsWith(
-        'Bearer '
-      )
-    ) {
-      return new Response(
-        JSON.stringify({
-          error: 'Unauthorized',
-        }),
-        {
-          status: 401,
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
-        }
-      )
-    }
-
-    const accessToken =
-      authHeader.replace(
-        'Bearer ',
-        ''
-      )
-
-    const adminSupabase =
+    const supabaseAdmin =
       createClient(
         supabaseUrl,
         supabaseSecretKey,
@@ -83,255 +79,165 @@ export default async (request: Request) => {
         }
       )
 
-    const {
-      data: { user },
-      error: userError,
-    } =
-      await adminSupabase.auth.getUser(
-        accessToken
-      )
-
     if (
-      userError ||
-      !user
+      event.type ===
+      'checkout.session.completed'
     ) {
-      return new Response(
-        JSON.stringify({
-          error: 'Unauthorized',
-        }),
-        {
-          status: 401,
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
+      const session =
+        event.data.object as
+          Stripe.Checkout.Session
+
+      if (session.mode === 'subscription') {
+        const clientId =
+          session.metadata?.client_id
+        const planName =
+          session.metadata?.plan_name
+        const aiModelId =
+          session.metadata?.ai_model_id
+        const monthlyMinutes =
+          Number(
+            session.metadata
+              ?.monthly_minutes
+          )
+        const basePrice =
+          Number(
+            session.metadata
+              ?.base_price_cad
+          )
+
+        const subscriptionId =
+          typeof session.subscription ===
+          'string'
+            ? session.subscription
+            : session.subscription?.id
+
+        const customerId =
+          typeof session.customer ===
+          'string'
+            ? session.customer
+            : session.customer?.id
+
+        if (
+          clientId &&
+          planName &&
+          aiModelId &&
+          Number.isFinite(monthlyMinutes) &&
+          monthlyMinutes > 0 &&
+          Number.isFinite(basePrice)
+        ) {
+          const {
+            error: updateError,
+          } = await supabaseAdmin
+            .from('subscriptions')
+            .update({
+              plan_name: planName,
+              monthly_price: basePrice,
+              monthly_minutes:
+                Math.floor(
+                  monthlyMinutes
+                ),
+              ai_model_id: aiModelId,
+              status: 'active',
+              stripe_subscription_id:
+                subscriptionId || null,
+              stripe_customer_id:
+                customerId || null,
+            })
+            .eq(
+              'client_id',
+              clientId
+            )
+
+          if (updateError) {
+            throw updateError
+          }
         }
-      )
-    }
-
-    const body =
-      await request.json()
-
-    const { action } = body
-
-    /*
-     * CUSTOMER MAY ONLY CANCEL
-     *
-     * Plan changes, AI-model changes,
-     * minute changes and activation
-     * are NOT allowed through this
-     * endpoint anymore.
-     */
-
-    if (
-      action !== 'cancel'
-    ) {
-      return new Response(
-        JSON.stringify({
-          error:
-            'Subscription changes must be completed through Recepta billing.',
-        }),
-        {
-          status: 403,
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
-        }
-      )
-    }
-
-    /*
-     * Find current subscription first.
-     */
-
-    const {
-      data: subscription,
-      error: subscriptionError,
-    } =
-      await adminSupabase
-        .from('subscriptions')
-        .select(
-          `
-          client_id,
-          status,
-          stripe_subscription_id
-          `
-        )
-        .eq(
-          'client_id',
-          user.id
-        )
-        .maybeSingle()
-
-    if (
-      subscriptionError
-    ) {
-      return new Response(
-        JSON.stringify({
-          error:
-            subscriptionError.message,
-        }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
-        }
-      )
-    }
-
-    if (!subscription) {
-      return new Response(
-        JSON.stringify({
-          error:
-            'No subscription found.',
-        }),
-        {
-          status: 404,
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
-        }
-      )
+      }
     }
 
     if (
-      subscription.status ===
-      'cancelled'
+      event.type ===
+      'customer.subscription.deleted'
     ) {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          status: 'cancelled',
-          message:
-            'Subscription is already cancelled.',
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
+      const subscription =
+        event.data.object as
+          Stripe.Subscription
+
+      const { error } =
+        await supabaseAdmin
+          .from('subscriptions')
+          .update({
+            status: 'cancelled',
+          })
+          .eq(
+            'stripe_subscription_id',
+            subscription.id
+          )
+
+      if (error) {
+        throw error
+      }
+    }
+
+    if (
+      event.type ===
+      'invoice.payment_failed'
+    ) {
+      const invoice =
+        event.data.object as unknown as {
+          subscription?:
+            | string
+            | { id?: string }
+            | null
         }
-      )
-    }
 
-    /*
-     * IMPORTANT:
-     *
-     * Until Stripe is connected,
-     * cancellation is stored directly
-     * in Supabase.
-     *
-     * Once Stripe is live, we will
-     * cancel the Stripe subscription
-     * first and let the Stripe webhook
-     * update this database status.
-     */
+      const subscriptionId =
+        typeof invoice.subscription ===
+        'string'
+          ? invoice.subscription
+          : invoice.subscription?.id
 
-    const { error: cancelError } =
-      await adminSupabase
-        .from('subscriptions')
-        .update({
-          status: 'cancelled',
-        })
-        .eq(
-          'client_id',
-          user.id
-        )
+      if (subscriptionId) {
+        const { error } =
+          await supabaseAdmin
+            .from('subscriptions')
+            .update({
+              status: 'past_due',
+            })
+            .eq(
+              'stripe_subscription_id',
+              subscriptionId
+            )
 
-    if (cancelError) {
-      return new Response(
-        JSON.stringify({
-          error:
-            cancelError.message,
-        }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
+        if (error) {
+          throw error
         }
-      )
-    }
-
-    /*
-     * Also pause the client's
-     * receptionist so a cancelled
-     * customer is not left with a
-     * live agent.
-     */
-
-    const { error: agentError } =
-      await adminSupabase
-        .from('agents')
-        .update({
-          status: 'paused',
-        })
-        .eq(
-          'client_id',
-          user.id
-        )
-
-    if (agentError) {
-      console.error(
-        'Could not pause agent:',
-        agentError
-      )
-    }
-
-    const { error: clientError } =
-      await adminSupabase
-        .from('clients')
-        .update({
-          status: 'paused',
-        })
-        .eq(
-          'id',
-          user.id
-        )
-
-    if (clientError) {
-      console.error(
-        'Could not pause client:',
-        clientError
-      )
+      }
     }
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        status: 'cancelled',
-      }),
+      JSON.stringify({ received: true }),
       {
         status: 200,
-        headers: {
-          'Content-Type':
-            'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       }
     )
   } catch (error) {
     console.error(
-      'Update subscription error:',
+      'Stripe webhook error:',
       error
     )
 
     return new Response(
       JSON.stringify({
         error:
-          'Unexpected server error.',
+          error instanceof Error
+            ? error.message
+            : 'Webhook processing failed.',
       }),
       {
-        status: 500,
-        headers: {
-          'Content-Type':
-            'application/json',
-        },
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
       }
     )
   }
