@@ -107,7 +107,6 @@ export default function Dashboard() {
     loadDashboard()
   }, [])
 
-
   const isSubscriptionCancelled =
     subscription?.status === 'cancelled'
 
@@ -197,7 +196,7 @@ export default function Dashboard() {
           ? `${averageMinutes}m ${String(
               averageRemainingSeconds
             ).padStart(2, '0')}s`
-          : '—',
+          : '0m 00s',
     }
   }, [calls, appointments, subscription])
 
@@ -232,7 +231,7 @@ export default function Dashboard() {
 
       default:
         return {
-          label: 'Setup in progress',
+          label: 'AI Configuration Pending',
           color: '#f5b942',
           background: 'rgba(245, 185, 66, 0.08)',
           border: 'rgba(245, 185, 66, 0.25)',
@@ -311,8 +310,8 @@ export default function Dashboard() {
 
               <p>
                 Your account has been created. Recepta
-                will activate your first subscription
-                after onboarding is complete.
+                is assigning your plan, AI model and
+                monthly minutes.
               </p>
             </div>
           </div>
@@ -323,8 +322,9 @@ export default function Dashboard() {
             </h2>
 
             <p>
-              Your first plan, AI model and monthly
-              minutes are assigned by the Recepta team.
+              You do not need to choose or purchase a
+              subscription yourself. Recepta will finish
+              the account configuration for you.
             </p>
           </div>
         </section>
@@ -415,8 +415,8 @@ export default function Dashboard() {
             </h1>
 
             <p>
-              Track how Recepta is handling your
-              customer calls.
+              Your workspace is ready and will populate
+              automatically as your AI receptionist handles calls.
             </p>
           </div>
 
@@ -446,17 +446,16 @@ export default function Dashboard() {
             </h2>
 
             <p>
-              Your previous plan is preserved while
-              you choose a new subscription. Go to
-              Billing to select Standard or Pro, your
-              AI model and your monthly minutes.
+              Your previous plan information is preserved.
+              Recepta controls plan, AI model and monthly
+              minute changes for your account.
             </p>
 
             <a
               href="/dashboard/billing"
               className="btn btnPrimary"
             >
-              Choose New Subscription
+              View Billing
             </a>
           </div>
         ) : (
@@ -576,107 +575,24 @@ export default function Dashboard() {
             <div className="onboardingProgressHead">
               <div>
                 <p className="dashboardEyebrow">
-                  ONBOARDING
+                  AI CONFIGURATION
                 </p>
 
                 <h2>
-                  Your Recepta is being prepared
+                  AI configuration pending
                 </h2>
 
                 <p>
-                  Our team is configuring and testing
-                  your receptionist before it goes live.
+                  Your Recepta dashboard is ready. Your plan,
+                  AI model and monthly minutes have already
+                  been assigned. The only remaining setup is
+                  connecting and configuring your AI receptionist.
                 </p>
               </div>
 
               <span className="onboardingProgressPercent">
-                {onboardingStep === 2
-                  ? '50%'
-                  : '75%'}
+                Pending
               </span>
-            </div>
-
-            <div className="onboardingProgressBar">
-              <div
-                className="onboardingProgressFill"
-                style={{
-                  width:
-                    onboardingStep === 2
-                      ? '50%'
-                      : '75%',
-                }}
-              />
-            </div>
-
-            <div className="onboardingSteps">
-              <div className="onboardingStep onboardingStep--done">
-                <span>✓</span>
-
-                <div>
-                  <strong>
-                    Account created
-                  </strong>
-
-                  <small>
-                    Your Recepta workspace is ready.
-                  </small>
-                </div>
-              </div>
-
-              <div className="onboardingStep onboardingStep--done">
-                <span>✓</span>
-
-                <div>
-                  <strong>
-                    Business configuration
-                  </strong>
-
-                  <small>
-                    Your call rules and business details
-                    are being prepared.
-                  </small>
-                </div>
-              </div>
-
-              <div
-                className={`onboardingStep ${
-                  onboardingStep >= 3
-                    ? 'onboardingStep--done'
-                    : 'onboardingStep--active'
-                }`}
-              >
-                <span>
-                  {onboardingStep >= 3
-                    ? '✓'
-                    : '3'}
-                </span>
-
-                <div>
-                  <strong>
-                    Agent testing
-                  </strong>
-
-                  <small>
-                    We test calls, transfers and edge
-                    cases.
-                  </small>
-                </div>
-              </div>
-
-              <div className="onboardingStep">
-                <span>4</span>
-
-                <div>
-                  <strong>
-                    Go live
-                  </strong>
-
-                  <small>
-                    Your receptionist starts handling
-                    real customer calls.
-                  </small>
-                </div>
-              </div>
             </div>
           </div>
         )}
