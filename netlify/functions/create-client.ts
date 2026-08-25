@@ -13,7 +13,8 @@ export default async (request: Request) => {
 
   try {
     const supabaseUrl = process.env.SUPABASE_URL
-    const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY
+    const supabaseSecretKey =
+      process.env.SUPABASE_SECRET_KEY
 
     if (!supabaseUrl || !supabaseSecretKey) {
       return new Response(
@@ -27,7 +28,8 @@ export default async (request: Request) => {
       )
     }
 
-    const authHeader = request.headers.get('authorization')
+    const authHeader =
+      request.headers.get('authorization')
 
     if (!authHeader?.startsWith('Bearer ')) {
       return new Response(
@@ -39,7 +41,8 @@ export default async (request: Request) => {
       )
     }
 
-    const accessToken = authHeader.replace('Bearer ', '')
+    const accessToken =
+      authHeader.replace('Bearer ', '')
 
     const adminSupabase = createClient(
       supabaseUrl,
@@ -51,11 +54,6 @@ export default async (request: Request) => {
         },
       }
     )
-
-    /*
-      Verify the person calling this function
-      is actually logged in.
-    */
 
     const {
       data: { user },
@@ -72,16 +70,14 @@ export default async (request: Request) => {
       )
     }
 
-    /*
-      Verify the logged-in user is a Recepta admin.
-    */
-
-    const { data: requester, error: roleError } =
-      await adminSupabase
-        .from('clients')
-        .select('role')
-        .eq('id', user.id)
-        .single()
+    const {
+      data: requester,
+      error: roleError,
+    } = await adminSupabase
+      .from('clients')
+      .select('role')
+      .eq('id', user.id)
+      .single()
 
     if (
       roleError ||
@@ -98,17 +94,6 @@ export default async (request: Request) => {
         }
       )
     }
-
-    /*
-      A new client ONLY needs:
-      - company name
-      - email
-      - temporary password
-
-      No plan is chosen here.
-      No AI model is chosen here.
-      No minutes are chosen here.
-    */
 
     const body = await request.json()
 
@@ -131,15 +116,14 @@ export default async (request: Request) => {
       )
     }
 
-    /*
-      Create Supabase Auth account.
-    */
+    const normalizedEmail =
+      email.trim().toLowerCase()
 
     const {
       data: { user: newUser },
       error: createUserError,
     } = await adminSupabase.auth.admin.createUser({
-      email: email.trim().toLowerCase(),
+      email: normalizedEmail,
       password,
       email_confirm: true,
     })
@@ -158,25 +142,21 @@ export default async (request: Request) => {
       )
     }
 
-    /*
-      Create the client record.
-
-      "setup" means they exist but have
-      not been activated yet.
-    */
-
-    const { error: clientError } = await adminSupabase
-      .from('clients')
-      .insert({
-        id: newUser.id,
-        company_name: companyName.trim(),
-        contact_email: email.trim().toLowerCase(),
-        status: 'setup',
-        role: 'client',
-      })
+    const { error: clientError } =
+      await adminSupabase
+        .from('clients')
+        .insert({
+          id: newUser.id,
+          company_name: companyName.trim(),
+          contact_email: normalizedEmail,
+          status: 'setup',
+          role: 'client',
+        })
 
     if (clientError) {
-      await adminSupabase.auth.admin.deleteUser(newUser.id)
+      await adminSupabase.auth.admin.deleteUser(
+        newUser.id
+      )
 
       return new Response(
         JSON.stringify({
@@ -189,34 +169,26 @@ export default async (request: Request) => {
       )
     }
 
-    /*
-      Create the agent shell.
-
-      The real AI receptionist will be
-      configured later during onboarding.
-    */
-
-    const { error: agentError } = await adminSupabase
-      .from('agents')
-      .insert({
-        client_id: newUser.id,
-        agent_name: `${companyName.trim()} Receptionist`,
-        business_hours: 'Not configured',
-        status: 'setup',
-      })
+    const { error: agentError } =
+      await adminSupabase
+        .from('agents')
+        .insert({
+          client_id: newUser.id,
+          agent_name:
+            `${companyName.trim()} Receptionist`,
+          business_hours: 'Not configured',
+          status: 'setup',
+        })
 
     if (agentError) {
-      /*
-        Roll everything back so we don't
-        leave a half-created customer.
-      */
-
       await adminSupabase
         .from('clients')
         .delete()
         .eq('id', newUser.id)
 
-      await adminSupabase.auth.admin.deleteUser(newUser.id)
+      await adminSupabase.auth.admin.deleteUser(
+        newUser.id
+      )
 
       return new Response(
         JSON.stringify({
@@ -229,65 +201,10 @@ export default async (request: Request) => {
       )
     }
 
-    /*
-      Create a BLANK subscription.
-
-      Important:
-      - pending
-      - no plan
-      - no price
-      - no AI model
-      - no monthly minutes
-
-      Admin activates this later.
-    */
-
-    const { error: subscriptionError } =
-      await adminSupabase
-        .from('subscriptions')
-        .insert({
-          client_id: newUser.id,
-          plan_name: null,
-          monthly_price: null,
-          monthly_minutes: null,
-          ai_model_id: null,
-          status: 'pending',
-        })
-
-    if (subscriptionError) {
-      /*
-        Roll back everything if subscription
-        creation fails.
-      */
-
-      await adminSupabase
-        .from('agents')
-        .delete()
-        .eq('client_id', newUser.id)
-
-      await adminSupabase
-        .from('clients')
-        .delete()
-        .eq('id', newUser.id)
-
-      await adminSupabase.auth.admin.deleteUser(newUser.id)
-
-      return new Response(
-        JSON.stringify({
-          error: subscriptionError.message,
-        }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
     return new Response(
       JSON.stringify({
         success: true,
         userId: newUser.id,
-        subscriptionStatus: 'pending',
       }),
       {
         status: 200,
@@ -299,7 +216,10 @@ export default async (request: Request) => {
 
     return new Response(
       JSON.stringify({
-        error: 'Unexpected server error.',
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Unexpected server error.',
       }),
       {
         status: 500,
