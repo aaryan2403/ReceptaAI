@@ -591,7 +591,7 @@ export default function Agent() {
             </strong>
 
             <p>
-              You can change operating hours above.
+              You can change operating hours below.
               For greeting, call instructions, transfer
               preferences or receptionist behaviour,
               send a request to the Recepta team.
@@ -608,128 +608,208 @@ export default function Agent() {
 
       {/* OPERATING HOURS */}
 
-<section className="agentPanel">
-  <div className="agentPanelHeading">
-    <div>
-      <span className="agentSectionLabel">
-        OPERATING HOURS
-      </span>
+        <section className="agentPanel">
+          <div
+            className="agentPanelHeading"
+            style={{
+              alignItems: 'flex-start',
+              gap: '20px',
+            }}
+          >
+            <div>
+              <span className="agentSectionLabel">
+                OPERATING HOURS
+              </span>
 
-      <h2>
-        When should your receptionist operate?
-      </h2>
+              <h2>
+                When should your receptionist answer?
+              </h2>
 
-      <p>
-        Choose the days and hours your AI receptionist
-        should handle customer calls.
-      </p>
-    </div>
-
-    <div className="agentHoursSummary">
-      {operatingHoursSummary}
-    </div>
-  </div>
-
-  <div className="agentHoursList">
-    {operatingHours.map((item, index) => (
-      <div
-        key={item.day}
-        className={
-          item.open
-            ? 'agentHoursDay agentHoursDay--open'
-            : 'agentHoursDay agentHoursDay--closed'
-        }
-      >
-        <div className="agentHoursDayHeader">
-          <div className="agentHoursDayName">
-            <strong>{item.day}</strong>
-
-            <span>
-              {item.open
-                ? `${item.start} – ${item.end}`
-                : 'Closed'}
-            </span>
-          </div>
-
-          <label className="agentHoursToggle">
-            <input
-              type="checkbox"
-              checked={item.open}
-              onChange={(event) =>
-                updateOperatingDay(index, {
-                  open: event.target.checked,
-                })
-              }
-            />
-
-            <span className="agentHoursToggleTrack">
-              <span className="agentHoursToggleThumb" />
-            </span>
-
-            <span className="agentHoursToggleLabel">
-              {item.open ? 'Open' : 'Closed'}
-            </span>
-          </label>
-        </div>
-
-        {item.open && (
-          <div className="agentHoursTimeRow">
-            <label>
-              <span>Opens</span>
-
-              <input
-                type="time"
-                value={item.start}
-                onChange={(event) =>
-                  updateOperatingDay(index, {
-                    start: event.target.value,
-                  })
-                }
-              />
-            </label>
-
-            <div className="agentHoursTimeDivider">
-              to
+              <p>
+                Set your normal weekly call-answering hours.
+                Closed days stay completely out of the way.
+              </p>
             </div>
 
-            <label>
-              <span>Closes</span>
-
-              <input
-                type="time"
-                value={item.end}
-                onChange={(event) =>
-                  updateOperatingDay(index, {
-                    end: event.target.value,
-                  })
-                }
-              />
-            </label>
+            <div
+              className="agentHoursSummary"
+              style={{
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {operatingHoursSummary}
+            </div>
           </div>
-        )}
-      </div>
-    ))}
-  </div>
 
-  <div className="agentHoursActions">
-    <button
-      type="button"
-      className="btn btnPrimary"
-      onClick={saveOperatingHours}
-      disabled={savingHours}
-    >
-      {savingHours
-        ? 'Saving...'
-        : 'Save Operating Hours'}
-    </button>
+          <div
+            className="agentHoursList"
+            style={{
+              display: 'grid',
+              gap: '12px',
+              marginTop: '24px',
+            }}
+          >
+            {operatingHours.map((item, index) => (
+              <div
+                key={item.day}
+                className={
+                  item.open
+                    ? 'agentHoursDay agentHoursDay--open'
+                    : 'agentHoursDay agentHoursDay--closed'
+                }
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '18px',
+                  padding: '18px 20px',
+                }}
+              >
+                <div
+                  className="agentHoursDayName"
+                  style={{
+                    minWidth: '150px',
+                  }}
+                >
+                  <strong>{item.day}</strong>
 
-    {hoursMessage && (
-      <span className="agentHoursMessage">
-        {hoursMessage}
-      </span>
-    )}
-  </div>
-</section>
+                  <span>
+                    {item.open
+                      ? `${item.start} – ${item.end}`
+                      : 'Closed'}
+                  </span>
+                </div>
+
+                <label
+                  className="agentHoursToggle"
+                  style={{
+                    marginLeft: 'auto',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={item.open}
+                    onChange={(event) =>
+                      updateOperatingDay(index, {
+                        open: event.target.checked,
+                      })
+                    }
+                  />
+
+                  <span className="agentHoursToggleTrack">
+                    <span className="agentHoursToggleThumb" />
+                  </span>
+
+                  <span className="agentHoursToggleLabel">
+                    {item.open ? 'Open' : 'Closed'}
+                  </span>
+                </label>
+
+                {item.open ? (
+                  <div
+                    className="agentHoursTimeRow"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'end',
+                      flexWrap: 'wrap',
+                      gap: '12px',
+                      width: '100%',
+                      paddingTop: '4px',
+                    }}
+                  >
+                    <label
+                      style={{
+                        flex: '1 1 180px',
+                      }}
+                    >
+                      <span>Opens</span>
+
+                      <input
+                        type="time"
+                        value={item.start}
+                        onChange={(event) =>
+                          updateOperatingDay(index, {
+                            start: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+
+                    <div
+                      className="agentHoursTimeDivider"
+                      style={{
+                        paddingBottom: '12px',
+                      }}
+                    >
+                      to
+                    </div>
+
+                    <label
+                      style={{
+                        flex: '1 1 180px',
+                      }}
+                    >
+                      <span>Closes</span>
+
+                      <input
+                        type="time"
+                        value={item.end}
+                        onChange={(event) =>
+                          updateOperatingDay(index, {
+                            end: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      width: '100%',
+                      opacity: 0.7,
+                      fontSize: '0.95rem',
+                    }}
+                  >
+                    Your receptionist will not answer
+                    calls on {item.day}.
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div
+            className="agentHoursActions"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '14px',
+              marginTop: '24px',
+            }}
+          >
+            <button
+              type="button"
+              className="btn btnPrimary"
+              onClick={saveOperatingHours}
+              disabled={savingHours}
+            >
+              {savingHours
+                ? 'Saving...'
+                : 'Save Operating Hours'}
+            </button>
+
+            {hoursMessage && (
+              <span
+                className="agentHoursMessage"
+                role="status"
+              >
+                {hoursMessage}
+              </span>
+            )}
+          </div>
+        </section>
 
         {/* PERFORMANCE */}
 
