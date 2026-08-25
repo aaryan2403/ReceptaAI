@@ -506,129 +506,119 @@ export default function Admin() {
       return session
     }
 
-  const handleSaveActivate = async (
-    client: ClientWithSubscription
-  ) => {
-    const draft =
-      drafts[client.id]
+const handleSaveActivate = async (
+  client: ClientWithSubscription
+) => {
+  const draft = drafts[client.id]
 
-    if (!draft) return
+  if (!draft) return
 
-    const minutes = Number(
-      draft.monthly_minutes
+  const minutes = Number(
+    draft.monthly_minutes
+  )
+
+  if (
+    !Number.isFinite(minutes) ||
+    minutes < 1
+  ) {
+    setClientActionError(
+      'Monthly minutes must be at least 1.'
     )
-
-    if (
-      !Number.isFinite(minutes) ||
-      minutes < 1
-    ) {
-      setClientActionError(
-        'Monthly minutes must be at least 1.'
-      )
-
-      return
-    }
-
-    if (!draft.ai_model_id) {
-      setClientActionError(
-        'Choose an AI model.'
-      )
-
-      return
-    }
-
-    const planPrice =
-      draft.plan_name ===
-      'Recepta Pro'
-        ? 300
-        : 200
-
-    const label =
-      client.subscription?.status ===
-      'active'
-        ? 'save these changes for'
-        : 'activate'
-
-    if (
-      !window.confirm(
-        `Are you sure you want to ${label} ${
-          client.company_name ||
-          client.contact_email ||
-          'this client'
-        }?`
-      )
-    ) {
-      return
-    }
-
-    setClientActionId(client.id)
-    setClientActionError('')
-    setClientActionSuccess('')
-
-    try {
-      /*
-        For now this is the ADMIN
-        activation step.
-
-        We write the approved
-        configuration into Supabase.
-
-        Stripe becomes the source of
-        truth later when we build the
-        customer purchase flow.
-      */
-
-      const { error } =
-        await supabase
-          .from('subscriptions')
-          .upsert(
-            {
-              client_id:
-                client.id,
-
-              plan_name:
-                draft.plan_name,
-
-              monthly_price:
-                planPrice,
-
-              monthly_minutes:
-                Math.floor(minutes),
-
-              ai_model_id:
-                draft.ai_model_id,
-
-              status: 'active',
-            },
-            {
-              onConflict:
-                'client_id',
-            }
-          )
-
-      if (error) {
-        throw error
-      }
-
-      setClientActionSuccess(
-        client.subscription?.status ===
-          'active'
-          ? `${client.company_name || 'Client'} updated.`
-          : `${client.company_name || 'Client'} activated.`
-      )
-
-      await loadData()
-    } catch (error) {
-      setClientActionError(
-        error instanceof Error
-          ? error.message
-          : 'Could not save client.'
-      )
-    } finally {
-      setClientActionId(null)
-    }
+    return
   }
 
+  if (!draft.ai_model_id) {
+    setClientActionError(
+      'Choose an AI model.'
+    )
+    return
+  }
+
+  const active =
+    client.subscription?.status ===
+    'active'
+
+  const label = active
+    ? 'save these changes for'
+    : 'activate'
+
+  if (
+    !window.confirm(
+      `Are you sure you want to ${label} ${
+        client.company_name ||
+        client.contact_email ||
+        'this client'
+      }?`
+    )
+  ) {
+    return
+  }
+
+  setClientActionId(client.id)
+  setClientActionError('')
+  setClientActionSuccess('')
+
+  try {
+    const session =
+      await getAdminSession()
+
+    const response = await fetch(
+      '/.netlify/functions/update-client-plan',
+      {
+        method: 'POST',
+
+        headers: {
+          'Content-Type':
+            'application/json',
+
+          Authorization:
+            `Bearer ${session.access_token}`,
+        },
+
+        body: JSON.stringify({
+          clientId: client.id,
+          planName: draft.plan_name,
+          monthlyMinutes:
+            Math.floor(minutes),
+          aiModelId:
+            draft.ai_model_id,
+        }),
+      }
+    )
+
+    const result =
+      await response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        result.error ||
+          'Could not update client.'
+      )
+    }
+
+    setClientActionSuccess(
+      active
+        ? `${
+            client.company_name ||
+            'Client'
+          } updated.`
+        : `${
+            client.company_name ||
+            'Client'
+          } activated.`
+    )
+
+    await loadData()
+  } catch (error) {
+    setClientActionError(
+      error instanceof Error
+        ? error.message
+        : 'Could not save client.'
+    )
+  } finally {
+    setClientActionId(null)
+  }
+}
   const handleDeleteClient = async (
     client: ClientWithSubscription
   ) => {
