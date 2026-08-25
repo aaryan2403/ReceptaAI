@@ -107,8 +107,6 @@ export default function Dashboard() {
     loadDashboard()
   }, [])
 
-  const isSubscriptionActive =
-    subscription?.status === 'active'
 
   const isSubscriptionCancelled =
     subscription?.status === 'cancelled'
