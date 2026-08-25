@@ -259,75 +259,109 @@ export default function Dashboard() {
     )
   }
 
-  if (!isSubscriptionActive) {
-    return (
-      <main className="dashboardPage">
-        <aside className="dashboardSidebar">
-          <a href="/" className="dashboardBrand">
-            <img
-              src="/components/logoR.png"
-              alt="Recepta"
-            />
+if (!isSubscriptionActive) {
+  const isCancelled =
+    subscription?.status === 'cancelled'
+
+  return (
+    <main className="dashboardPage">
+      <aside className="dashboardSidebar">
+        <a href="/" className="dashboardBrand">
+          <img
+            src="/components/logoR.png"
+            alt="Recepta"
+          />
+        </a>
+
+        <nav className="dashboardNav">
+          <a
+            href="/dashboard"
+            className="dashboardNavItem dashboardNavItemActive"
+          >
+            Overview
           </a>
 
-          <nav className="dashboardNav">
+          {isCancelled && (
             <a
               href="/dashboard/billing"
               className="dashboardNavItem"
             >
               Billing
             </a>
+          )}
 
-            <a
-              href="/dashboard/settings"
-              className="dashboardNavItem"
-            >
-              Settings
-            </a>
-          </nav>
-        </aside>
+          <a
+            href="/dashboard/settings"
+            className="dashboardNavItem"
+          >
+            Settings
+          </a>
+        </nav>
+      </aside>
 
-        <section className="dashboardMain">
-          <div className="dashboardHeader">
-            <div>
-              <p className="dashboardEyebrow">
-                SUBSCRIPTION REQUIRED
-              </p>
-
-              <h1>
-                {client?.company_name ||
-                  'Your Recepta dashboard'}
-              </h1>
-
-              <p>
-                Your subscription is not active. Choose a
-                plan to unlock your Recepta dashboard.
-              </p>
-            </div>
-          </div>
-
-          <div className="dashboardEmptyState">
-            <h2>
-              Choose your Recepta plan
-            </h2>
-
-            <p>
-              Activate Standard or Pro from Billing to
-              continue using your AI receptionist dashboard.
+      <section className="dashboardMain">
+        <div className="dashboardHeader">
+          <div>
+            <p className="dashboardEyebrow">
+              {isCancelled
+                ? 'SUBSCRIPTION CANCELLED'
+                : 'ACCOUNT SETUP'}
             </p>
 
-            <a
-              href="/dashboard/billing"
-              className="btn btnPrimary"
-            >
-              Go to Billing
-            </a>
-          </div>
-        </section>
-      </main>
-    )
-  }
+            <h1>
+              {client?.company_name ||
+                'Your Recepta account'}
+            </h1>
 
+            <p>
+              {isCancelled
+                ? 'Your Recepta subscription is no longer active.'
+                : 'Your Recepta account is being prepared.'}
+            </p>
+          </div>
+        </div>
+
+        <div className="dashboardEmptyState">
+          {isCancelled ? (
+            <>
+              <h2>
+                Your dashboard is locked
+              </h2>
+
+              <p>
+                Your subscription has been cancelled.
+                Your previous account information has
+                been preserved, but paid Recepta
+                features are currently unavailable.
+              </p>
+
+              <a
+                href="/dashboard/billing"
+                className="btn btnOutline"
+              >
+                View Billing
+              </a>
+            </>
+          ) : (
+            <>
+              <h2>
+                Setup in progress
+              </h2>
+
+              <p>
+                We're preparing your Recepta AI
+                receptionist. Your dashboard will
+                automatically become available once
+                your account has been activated by
+                Recepta.
+              </p>
+            </>
+          )}
+        </div>
+      </section>
+    </main>
+  )
+}
   return (
     <main className="dashboardPage">
       <aside className="dashboardSidebar">
