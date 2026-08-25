@@ -1,5 +1,4 @@
-
-import type { ChangeEvent, FormEvent } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 
 const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
@@ -212,7 +211,7 @@ export default function Admin() {
         []) as ClientRecord[]
 
     const combined =
-      clientRows.map((client) => ({
+      clientRows.map((client: ClientRecord) => ({
         ...client,
 
         subscription:
@@ -238,7 +237,7 @@ export default function Admin() {
       ClientDraft
     > = {}
 
-    combined.forEach((client) => {
+    combined.forEach((client: ClientWithSubscription) => {
       const existingPlan =
         client.subscription?.plan_name ===
         'Recepta Pro'
@@ -385,7 +384,7 @@ export default function Admin() {
       }
 
       return clients.filter(
-        (client) =>
+        (client: ClientWithSubscription) =>
           client.company_name
             ?.toLowerCase()
             .includes(query) ||
@@ -400,20 +399,20 @@ export default function Admin() {
       total: clients.length,
 
       active: clients.filter(
-        (client) =>
+        (client: ClientWithSubscription) =>
           client.subscription?.status ===
           'active'
       ).length,
 
       pending: clients.filter(
-        (client) =>
+        (client: ClientWithSubscription) =>
           !client.subscription ||
           client.subscription.status ===
             'pending'
       ).length,
 
       pro: clients.filter(
-        (client) =>
+        (client: ClientWithSubscription) =>
           client.subscription?.plan_name ===
           'Recepta Pro'
       ).length,
@@ -425,7 +424,7 @@ export default function Admin() {
     field: keyof ClientDraft,
     value: string
   ) => {
-    setDrafts((current) => ({
+    setDrafts((current: Record<string, ClientDraft>) => ({
       ...current,
 
       [clientId]: {
@@ -1100,7 +1099,7 @@ const handleSaveActivate = async (
           ) : (
             <div className="adminSubscriptionList">
               {filteredClients.map(
-                (client) => {
+                (client: ClientWithSubscription) => {
                   const draft =
                     drafts[client.id]
 
@@ -1232,7 +1231,7 @@ const handleSaveActivate = async (
                             }
                           >
                             {models.map(
-                              (model) => (
+                              (model: AIModel) => (
                                 <option
                                   key={
                                     model.id
