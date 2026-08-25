@@ -227,8 +227,8 @@ export default function Agent() {
 
       default:
         return {
-          label: 'Setup in progress',
-          shortLabel: 'Setup',
+          label: 'AI Configuration Pending',
+          shortLabel: 'Config Pending',
           color: '#f5b942',
           background: 'rgba(245, 185, 66, 0.08)',
           border: 'rgba(245, 185, 66, 0.25)',
@@ -516,7 +516,7 @@ export default function Agent() {
                     ? 'Receptionist paused'
                     : agent?.status === 'testing'
                       ? 'Receptionist being tested'
-                      : 'Receptionist being prepared'}
+                      : 'AI configuration pending'}
               </strong>
 
               <p>
@@ -526,7 +526,7 @@ export default function Agent() {
                     ? 'Your receptionist is currently paused and is not handling customer calls.'
                     : agent?.status === 'testing'
                       ? 'The Recepta team is currently testing your receptionist before activation.'
-                      : 'The Recepta team is preparing your receptionist before it goes live.'}
+                      : 'Your dashboard is ready. The remaining step is connecting and configuring your AI receptionist.'}
               </p>
             </div>
           </div>
