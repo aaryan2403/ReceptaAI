@@ -7326,3 +7326,215 @@
     width: 100%;
   }
 }
+/* =========================================================
+   AGENT OPERATING HOURS
+   ========================================================= */
+
+.agentHoursSummary {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.agentHoursList {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.agentHoursDay {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+  overflow: hidden;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.agentHoursDay--open {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.agentHoursDay--closed {
+  opacity: 0.72;
+}
+
+.agentHoursDayHeader {
+  min-height: 70px;
+  padding: 15px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.agentHoursDayName {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.agentHoursDayName strong {
+  font-size: 15px;
+  color: var(--text-light);
+}
+
+.agentHoursDayName span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.agentHoursToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.agentHoursToggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.agentHoursToggleTrack {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: 0.2s ease;
+}
+
+.agentHoursToggleThumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.75);
+  transition: 0.2s ease;
+}
+
+.agentHoursToggle input:checked + .agentHoursToggleTrack {
+  background: rgba(0, 200, 83, 0.2);
+  border-color: rgba(0, 200, 83, 0.4);
+}
+
+.agentHoursToggle
+  input:checked
+  + .agentHoursToggleTrack
+  .agentHoursToggleThumb {
+  transform: translateX(18px);
+  background: var(--green);
+}
+
+.agentHoursToggleLabel {
+  min-width: 46px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.agentHoursTimeRow {
+  padding: 0 18px 18px;
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    auto
+    minmax(0, 1fr);
+  align-items: end;
+  gap: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 16px;
+}
+
+.agentHoursTimeRow label {
+  display: grid;
+  gap: 7px;
+}
+
+.agentHoursTimeRow label > span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.agentHoursTimeRow input[type='time'] {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  outline: none;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text-light);
+  font: inherit;
+}
+
+.agentHoursTimeRow input[type='time']:focus {
+  border-color: rgba(0, 200, 83, 0.55);
+}
+
+.agentHoursTimeDivider {
+  padding-bottom: 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.agentHoursActions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.agentHoursMessage {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Mobile */
+
+@media (max-width: 700px) {
+  .agentHoursSummary {
+    display: none;
+  }
+
+  .agentHoursDayHeader {
+    padding: 14px;
+  }
+
+  .agentHoursTimeRow {
+    padding:
+      14px
+      14px
+      16px;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .agentHoursTimeDivider {
+    display: none;
+  }
+
+  .agentHoursToggleLabel {
+    display: none;
+  }
+
+  .agentHoursActions .btn {
+    width: 100%;
+  }
+}
