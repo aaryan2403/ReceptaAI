@@ -242,14 +242,6 @@ export default function Dashboard() {
 
   const status = getStatusInfo()
 
-  const onboardingStep =
-    client?.status === 'live'
-      ? 4
-      : client?.status === 'testing'
-        ? 3
-        : client?.status === 'paused'
-          ? 3
-          : 2
 
   if (loading) {
     return (
