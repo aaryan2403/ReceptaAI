@@ -19,6 +19,7 @@ import AdminClient from './pages/AdminClient.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import AdminRoute from './components/AdminRoute.tsx'
 import ProRoute from './components/ProRoute.tsx'
+import ActiveSubscriptionRoute from './components/ActiveSubscriptionRoute.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -26,10 +27,24 @@ createRoot(document.getElementById('root')!).render(
       <Routes>
         {/* Public */}
         <Route path="/" element={<App />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
 
-        {/* Client Dashboard */}
+        <Route
+          path="/login"
+          element={<Login />}
+        />
+
+        <Route
+          path="/reset-password"
+          element={<ResetPassword />}
+        />
+
+        {/* =====================================================
+            CLIENT DASHBOARD
+           ===================================================== */}
+
+        {/* Pending / Active / Cancelled users can reach Overview.
+            Dashboard.tsx decides whether to show the real
+            dashboard or the locked state. */}
         <Route
           path="/dashboard"
           element={
@@ -39,15 +54,19 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
+        {/* ACTIVE STANDARD + ACTIVE PRO */}
         <Route
           path="/dashboard/calls"
           element={
             <ProtectedRoute>
-              <Calls />
+              <ActiveSubscriptionRoute>
+                <Calls />
+              </ActiveSubscriptionRoute>
             </ProtectedRoute>
           }
         />
 
+        {/* ACTIVE PRO ONLY */}
         <Route
           path="/dashboard/appointments"
           element={
@@ -59,6 +78,7 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
+        {/* ACTIVE PRO ONLY */}
         <Route
           path="/dashboard/employees"
           element={
@@ -70,15 +90,20 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
+        {/* ACTIVE STANDARD + ACTIVE PRO */}
         <Route
           path="/dashboard/agent"
           element={
             <ProtectedRoute>
-              <Agent />
+              <ActiveSubscriptionRoute>
+                <Agent />
+              </ActiveSubscriptionRoute>
             </ProtectedRoute>
           }
         />
 
+        {/* Billing stays reachable for logged-in users.
+            This is important for cancelled customers later. */}
         <Route
           path="/dashboard/billing"
           element={
@@ -88,6 +113,8 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
+        {/* Settings stays reachable for pending,
+            active and cancelled users. */}
         <Route
           path="/dashboard/settings"
           element={
@@ -97,7 +124,10 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
-        {/* Recepta Admin */}
+        {/* =====================================================
+            RECEPTA ADMIN
+           ===================================================== */}
+
         <Route
           path="/admin"
           element={
