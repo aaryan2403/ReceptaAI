@@ -37,9 +37,7 @@ export default async (request: Request) => {
 
     if (!authHeader?.startsWith('Bearer ')) {
       return new Response(
-        JSON.stringify({
-          error: 'Unauthorized',
-        }),
+        JSON.stringify({ error: 'Unauthorized' }),
         {
           status: 401,
           headers: {
@@ -66,16 +64,13 @@ export default async (request: Request) => {
     const {
       data: { user },
       error: userError,
-    } =
-      await adminSupabase.auth.getUser(
-        accessToken
-      )
+    } = await adminSupabase.auth.getUser(
+      accessToken
+    )
 
     if (userError || !user) {
       return new Response(
-        JSON.stringify({
-          error: 'Unauthorized',
-        }),
+        JSON.stringify({ error: 'Unauthorized' }),
         {
           status: 401,
           headers: {
@@ -116,14 +111,20 @@ export default async (request: Request) => {
 
     const {
       clientId,
-      action,
+      planName,
+      monthlyMinutes,
+      aiModelId,
     } = body
 
-    if (!clientId || !action) {
+    if (
+      !clientId ||
+      !planName ||
+      !monthlyMinutes ||
+      !aiModelId
+    ) {
       return new Response(
         JSON.stringify({
-          error:
-            'Client ID and action are required.',
+          error: 'Missing subscription information.',
         }),
         {
           status: 400,
@@ -134,16 +135,13 @@ export default async (request: Request) => {
       )
     }
 
-    const allowedActions = [
-      'standard',
-      'pro',
-      'cancel',
-    ]
-
-    if (!allowedActions.includes(action)) {
+    if (
+      planName !== 'Recepta Standard' &&
+      planName !== 'Recepta Pro'
+    ) {
       return new Response(
         JSON.stringify({
-          error: 'Invalid subscription action.',
+          error: 'Invalid plan.',
         }),
         {
           status: 400,
@@ -154,154 +152,109 @@ export default async (request: Request) => {
       )
     }
 
-    if (action === 'cancel') {
-      const {
-        error: cancelError,
-      } = await adminSupabase
-        .from('subscriptions')
-        .update({
-          status: 'cancelled',
-        })
-        .eq('client_id', clientId)
+    const minutes = Number(monthlyMinutes)
 
-      if (cancelError) {
-        return new Response(
-          JSON.stringify({
-            error: cancelError.message,
-          }),
-          {
-            status: 400,
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-          }
-        )
-      }
-
+    if (
+      !Number.isFinite(minutes) ||
+      minutes < 1
+    ) {
       return new Response(
         JSON.stringify({
-          success: true,
-          status: 'cancelled',
+          error: 'Invalid monthly minutes.',
         }),
         {
-          status: 200,
+          status: 400,
           headers: {
-            'Content-Type':
-              'application/json',
+            'Content-Type': 'application/json',
           },
         }
       )
     }
-
-    const plan =
-      action === 'pro'
-        ? {
-            name: 'Recepta Pro',
-            price: 300,
-          }
-        : {
-            name: 'Recepta Standard',
-            price: 200,
-          }
 
     const {
-      data: existingSubscription,
-      error: existingError,
+      data: model,
+      error: modelError,
     } = await adminSupabase
-      .from('subscriptions')
-      .select('client_id')
-      .eq('client_id', clientId)
+      .from('ai_models')
+      .select('id')
+      .eq('id', aiModelId)
+      .eq('is_active', true)
       .maybeSingle()
 
-    if (existingError) {
+    if (modelError || !model) {
       return new Response(
         JSON.stringify({
-          error: existingError.message,
+          error: 'Invalid AI model.',
         }),
         {
           status: 400,
           headers: {
-            'Content-Type':
-              'application/json',
+            'Content-Type': 'application/json',
           },
         }
       )
     }
 
-    if (existingSubscription) {
-      const {
-        error: updateError,
-      } = await adminSupabase
-        .from('subscriptions')
-        .update({
-          plan_name: plan.name,
-          monthly_price: plan.price,
-          status: 'active',
-        })
-        .eq('client_id', clientId)
+    const monthlyPrice =
+      planName === 'Recepta Pro'
+        ? 300
+        : 200
 
-      if (updateError) {
-        return new Response(
-          JSON.stringify({
-            error: updateError.message,
-          }),
-          {
-            status: 400,
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-          }
-        )
-      }
-    } else {
-      const {
-        error: insertError,
-      } = await adminSupabase
-        .from('subscriptions')
-        .insert({
+    const {
+      error: subscriptionError,
+    } = await adminSupabase
+      .from('subscriptions')
+      .upsert(
+        {
           client_id: clientId,
-          plan_name: plan.name,
-          monthly_price: plan.price,
+          plan_name: planName,
+          monthly_price: monthlyPrice,
+          monthly_minutes: Math.floor(minutes),
+          ai_model_id: aiModelId,
           status: 'active',
-        })
+        },
+        {
+          onConflict: 'client_id',
+        }
+      )
 
-      if (insertError) {
-        return new Response(
-          JSON.stringify({
-            error: insertError.message,
-          }),
-          {
-            status: 400,
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-          }
-        )
-      }
+    if (subscriptionError) {
+      return new Response(
+        JSON.stringify({
+          error: subscriptionError.message,
+        }),
+        {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      )
     }
 
     return new Response(
       JSON.stringify({
         success: true,
-        planName: plan.name,
-        monthlyPrice: plan.price,
+        planName,
+        monthlyPrice,
+        monthlyMinutes: Math.floor(minutes),
+        aiModelId,
         status: 'active',
       }),
       {
         status: 200,
         headers: {
-          'Content-Type':
-            'application/json',
+          'Content-Type': 'application/json',
         },
       }
     )
-  } catch {
+  } catch (error) {
     return new Response(
       JSON.stringify({
-        error: 'Unexpected server error.',
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Unexpected server error.',
       }),
       {
         status: 500,
