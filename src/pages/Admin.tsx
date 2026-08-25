@@ -1,5 +1,5 @@
 
-import type { FormEvent } from 'react'
+import type { ChangeEvent, FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 
 const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
@@ -207,9 +207,12 @@ export default function Admin() {
       (agentsResult.data ||
         []) as AgentRecord[]
 
-    const combined =
+    const clientRows =
       (clientsResult.data ||
-        []).map((client) => ({
+        []) as ClientRecord[]
+
+    const combined =
+      clientRows.map((client) => ({
         ...client,
 
         subscription:
@@ -780,7 +783,7 @@ const handleSaveActivate = async (
                 <input
                   type="email"
                   value={adminEmail}
-                  onChange={(event) =>
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
                     setAdminEmail(
                       event.target.value
                     )
@@ -797,7 +800,7 @@ const handleSaveActivate = async (
                   value={
                     adminPassword
                   }
-                  onChange={(event) =>
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
                     setAdminPassword(
                       event.target.value
                     )
@@ -973,7 +976,7 @@ const handleSaveActivate = async (
                 value={
                   companyName
                 }
-                onChange={(event) =>
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
                   setCompanyName(
                     event.target.value
                   )
@@ -991,7 +994,7 @@ const handleSaveActivate = async (
               <input
                 type="email"
                 value={email}
-                onChange={(event) =>
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
                   setEmail(
                     event.target.value
                   )
@@ -1009,7 +1012,7 @@ const handleSaveActivate = async (
               <input
                 type="password"
                 value={password}
-                onChange={(event) =>
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
                   setPassword(
                     event.target.value
                   )
@@ -1075,7 +1078,7 @@ const handleSaveActivate = async (
               <input
                 type="search"
                 value={search}
-                onChange={(event) =>
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
                   setSearch(
                     event.target.value
                   )
@@ -1159,7 +1162,7 @@ const handleSaveActivate = async (
                               'Recepta Standard'
                             }
                             onChange={(
-                              event
+                              event: ChangeEvent<HTMLSelectElement>
                             ) =>
                               updateDraft(
                                 client.id,
@@ -1194,7 +1197,7 @@ const handleSaveActivate = async (
                               '300'
                             }
                             onChange={(
-                              event
+                              event: ChangeEvent<HTMLInputElement>
                             ) =>
                               updateDraft(
                                 client.id,
@@ -1218,7 +1221,7 @@ const handleSaveActivate = async (
                               ''
                             }
                             onChange={(
-                              event
+                              event: ChangeEvent<HTMLSelectElement>
                             ) =>
                               updateDraft(
                                 client.id,
@@ -1260,7 +1263,7 @@ const handleSaveActivate = async (
                               ''
                             }
                             onChange={(
-                              event
+                              event: ChangeEvent<HTMLInputElement>
                             ) =>
                               updateDraft(
                                 client.id,
