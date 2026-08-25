@@ -6,9 +6,14 @@ type ProRouteProps = {
   children: ReactNode
 }
 
-export default function ProRoute({ children }: ProRouteProps) {
-  const [loading, setLoading] = useState(true)
-  const [allowed, setAllowed] = useState(false)
+export default function ProRoute({
+  children,
+}: ProRouteProps) {
+  const [loading, setLoading] =
+    useState(true)
+
+  const [allowed, setAllowed] =
+    useState(false)
 
   useEffect(() => {
     const checkPlan = async () => {
@@ -22,13 +27,19 @@ export default function ProRoute({ children }: ProRouteProps) {
         return
       }
 
-      const { data, error } = await supabase
-        .from('subscriptions')
-        .select('plan_name')
-        .eq('client_id', user.id)
-        .maybeSingle()
+      const { data, error } =
+        await supabase
+          .from('subscriptions')
+          .select('plan_name, status')
+          .eq('client_id', user.id)
+          .maybeSingle()
 
-      if (!error && data?.plan_name === 'Recepta Pro') {
+      if (
+        !error &&
+        data?.status === 'active' &&
+        data?.plan_name ===
+          'Recepta Pro'
+      ) {
         setAllowed(true)
       }
 
@@ -49,7 +60,12 @@ export default function ProRoute({ children }: ProRouteProps) {
   }
 
   if (!allowed) {
-    return <Navigate to="/dashboard" replace />
+    return (
+      <Navigate
+        to="/dashboard"
+        replace
+      />
+    )
   }
 
   return <>{children}</>
