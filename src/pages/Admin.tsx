@@ -99,6 +99,26 @@ export default function Admin() {
   const [password, setPassword] =
     useState('')
 
+  const [createPlanName, setCreatePlanName] =
+    useState<'Recepta Standard' | 'Recepta Pro'>(
+      'Recepta Standard'
+    )
+
+  const [
+    createMonthlyMinutes,
+    setCreateMonthlyMinutes,
+  ] = useState('300')
+
+  const [
+    createAiModelId,
+    setCreateAiModelId,
+  ] = useState('')
+
+  const [
+    createRetellAgentId,
+    setCreateRetellAgentId,
+  ] = useState('')
+
   const [creating, setCreating] =
     useState(false)
 
@@ -452,6 +472,42 @@ export default function Admin() {
     setCreateSuccess('')
 
     try {
+      const minutes = Number(
+        createMonthlyMinutes
+      )
+
+      if (
+        !Number.isFinite(minutes) ||
+        minutes < 1
+      ) {
+        throw new Error(
+          'Monthly minutes must be at least 1.'
+        )
+      }
+
+      const modelId =
+        createAiModelId ||
+        models[0]?.id ||
+        ''
+
+      if (!modelId) {
+        throw new Error(
+          'Choose an AI model.'
+        )
+      }
+
+      const retellId =
+        createRetellAgentId.trim()
+
+      if (
+        retellId &&
+        !retellId.startsWith('agent_')
+      ) {
+        throw new Error(
+          'Retell Agent ID must start with agent_.'
+        )
+      }
+
       const {
         data: { session },
       } =
@@ -476,11 +532,18 @@ export default function Admin() {
               `Bearer ${session.access_token}`,
           },
 
-         body: JSON.stringify({
-  companyName,
-  email,
-  password,
-}),
+          body: JSON.stringify({
+            companyName,
+            email,
+            password,
+            planName:
+              createPlanName,
+            monthlyMinutes:
+              Math.floor(minutes),
+            aiModelId: modelId,
+            retellAgentId:
+              retellId || null,
+          }),
         }
       )
 
@@ -495,12 +558,18 @@ export default function Admin() {
       }
 
       setCreateSuccess(
-        `${companyName} was created.`
+        `${companyName} was created and activated.`
       )
 
       setCompanyName('')
       setEmail('')
       setPassword('')
+      setCreatePlanName(
+        'Recepta Standard'
+      )
+      setCreateMonthlyMinutes('300')
+      setCreateAiModelId('')
+      setCreateRetellAgentId('')
 
       await loadData()
     } catch (error) {
@@ -953,9 +1022,10 @@ const handleSaveActivate = async (
               </h2>
 
               <p>
-                Create their login first.
-                You will activate their
-                subscription separately.
+                Create the login and assign the
+                plan, monthly minutes and AI model
+                in one step. The client dashboard
+                is active immediately.
               </p>
             </div>
           </div>
@@ -965,6 +1035,13 @@ const handleSaveActivate = async (
             onSubmit={
               handleCreateClient
             }
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: '16px',
+              alignItems: 'end',
+            }}
           >
             <label>
               <span>
@@ -1021,15 +1098,115 @@ const handleSaveActivate = async (
               />
             </label>
 
+            <label>
+              <span>Plan</span>
+
+              <select
+                value={createPlanName}
+                onChange={(
+                  event: ChangeEvent<HTMLSelectElement>
+                ) =>
+                  setCreatePlanName(
+                    event.target.value as
+                      | 'Recepta Standard'
+                      | 'Recepta Pro'
+                  )
+                }
+              >
+                <option value="Recepta Standard">
+                  Standard — C$200
+                </option>
+
+                <option value="Recepta Pro">
+                  Pro — C$300
+                </option>
+              </select>
+            </label>
+
+            <label>
+              <span>Monthly Minutes</span>
+
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={createMonthlyMinutes}
+                onChange={(
+                  event: ChangeEvent<HTMLInputElement>
+                ) =>
+                  setCreateMonthlyMinutes(
+                    event.target.value
+                  )
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>AI Model</span>
+
+              <select
+                value={
+                  createAiModelId ||
+                  models[0]?.id ||
+                  ''
+                }
+                onChange={(
+                  event: ChangeEvent<HTMLSelectElement>
+                ) =>
+                  setCreateAiModelId(
+                    event.target.value
+                  )
+                }
+                required
+              >
+                {models.map(
+                  (model: AIModel) => (
+                    <option
+                      key={model.id}
+                      value={model.id}
+                    >
+                      {model.display_name}
+                    </option>
+                  )
+                )}
+              </select>
+            </label>
+
+            <label>
+              <span>
+                Retell Agent ID
+                {' '}
+                <small>(optional)</small>
+              </span>
+
+              <input
+                type="text"
+                value={createRetellAgentId}
+                onChange={(
+                  event: ChangeEvent<HTMLInputElement>
+                ) =>
+                  setCreateRetellAgentId(
+                    event.target.value
+                  )
+                }
+                placeholder="agent_xxxxxxxxx"
+                autoComplete="off"
+              />
+            </label>
+
             <div className="adminCreateAction">
               <button
                 className="btn btnPrimary"
                 type="submit"
-                disabled={creating}
+                disabled={
+                  creating ||
+                  models.length === 0
+                }
               >
                 {creating
                   ? 'Creating...'
-                  : 'Create Client'}
+                  : 'Create & Activate Client'}
               </button>
             </div>
           </form>
@@ -1148,7 +1325,16 @@ const handleSaveActivate = async (
                         </div>
                       </div>
 
-                      <div className="adminSubscriptionControls">
+                      <div
+                        className="adminSubscriptionControls"
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns:
+                            'repeat(auto-fit, minmax(180px, 1fr))',
+                          gap: '12px',
+                          alignItems: 'end',
+                        }}
+                      >
                         <label>
                           <span>
                             Plan
@@ -1289,8 +1475,8 @@ const handleSaveActivate = async (
                           {working
                             ? 'Saving...'
                             : active
-                              ? 'Save'
-                              : 'Save / Activate'}
+                              ? 'Save Changes'
+                              : 'Activate Plan'}
                         </button>
 
                         <button
