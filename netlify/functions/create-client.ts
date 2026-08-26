@@ -1,5 +1,37 @@
 import { createClient } from '@supabase/supabase-js'
 
+type PlanName =
+  | 'Recepta Standard'
+  | 'Recepta Pro'
+
+const ADMIN_EMAIL =
+  (
+    process.env.ADMIN_EMAIL ||
+    'aaryansmg24@gmail.com'
+  ).toLowerCase()
+
+const isAdminUser = async (
+  supabaseAdmin: any,
+  user: { id: string; email?: string | null }
+) => {
+  const emailMatches =
+    user.email?.toLowerCase() ===
+    ADMIN_EMAIL
+
+  const { data: requester } =
+    await supabaseAdmin
+      .from('clients')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()
+
+  return (
+    emailMatches ||
+    requester?.role === 'admin'
+  )
+}
+
+
 export default async (request: Request) => {
   if (request.method !== 'POST') {
     return new Response(
@@ -12,7 +44,8 @@ export default async (request: Request) => {
   }
 
   try {
-    const supabaseUrl = process.env.SUPABASE_URL
+    const supabaseUrl =
+      process.env.SUPABASE_URL
     const supabaseSecretKey =
       process.env.SUPABASE_SECRET_KEY
 
@@ -44,7 +77,7 @@ export default async (request: Request) => {
     const accessToken =
       authHeader.replace('Bearer ', '')
 
-    const adminSupabase = createClient(
+    const supabaseAdmin = createClient(
       supabaseUrl,
       supabaseSecretKey,
       {
@@ -58,31 +91,18 @@ export default async (request: Request) => {
     const {
       data: { user },
       error: userError,
-    } = await adminSupabase.auth.getUser(accessToken)
-
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' },
-        }
+    } =
+      await supabaseAdmin.auth.getUser(
+        accessToken
       )
-    }
-
-    const {
-      data: requester,
-      error: roleError,
-    } = await adminSupabase
-      .from('clients')
-      .select('role')
-      .eq('id', user.id)
-      .single()
 
     if (
-      roleError ||
-      !requester ||
-      requester.role !== 'admin'
+      userError ||
+      !user ||
+      !(await isAdminUser(
+        supabaseAdmin,
+        user
+      ))
     ) {
       return new Response(
         JSON.stringify({
@@ -95,19 +115,105 @@ export default async (request: Request) => {
       )
     }
 
-    const body = await request.json()
-
     const {
       companyName,
       email,
       password,
-    } = body
+      planName,
+      monthlyMinutes,
+      aiModelId,
+      retellAgentId,
+    } = await request.json()
 
     if (!companyName || !email || !password) {
       return new Response(
         JSON.stringify({
           error:
-            'Company name, email, and password are required.',
+            'Company name, email and password are required.',
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const validPlans: PlanName[] = [
+      'Recepta Standard',
+      'Recepta Pro',
+    ]
+
+    if (
+      !validPlans.includes(
+        planName as PlanName
+      )
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: 'Choose Standard or Pro.',
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const minutes = Number(monthlyMinutes)
+
+    if (
+      !Number.isFinite(minutes) ||
+      minutes < 1
+    ) {
+      return new Response(
+        JSON.stringify({
+          error:
+            'Monthly minutes must be at least 1.',
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const { data: model } =
+      await supabaseAdmin
+        .from('ai_models')
+        .select('id')
+        .eq('id', aiModelId)
+        .eq('is_active', true)
+        .maybeSingle()
+
+    if (!model) {
+      return new Response(
+        JSON.stringify({
+          error:
+            'Choose a valid active AI model.',
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const normalizedRetellId =
+      typeof retellAgentId === 'string' &&
+      retellAgentId.trim()
+        ? retellAgentId.trim()
+        : null
+
+    if (
+      normalizedRetellId &&
+      !normalizedRetellId.startsWith(
+        'agent_'
+      )
+    ) {
+      return new Response(
+        JSON.stringify({
+          error:
+            'Retell Agent ID must start with agent_.',
         }),
         {
           status: 400,
@@ -117,16 +223,21 @@ export default async (request: Request) => {
     }
 
     const normalizedEmail =
-      email.trim().toLowerCase()
+      String(email)
+        .trim()
+        .toLowerCase()
 
     const {
       data: { user: newUser },
       error: createUserError,
-    } = await adminSupabase.auth.admin.createUser({
-      email: normalizedEmail,
-      password,
-      email_confirm: true,
-    })
+    } =
+      await supabaseAdmin.auth.admin.createUser(
+        {
+          email: normalizedEmail,
+          password,
+          email_confirm: true,
+        }
+      )
 
     if (createUserError || !newUser) {
       return new Response(
@@ -142,69 +253,103 @@ export default async (request: Request) => {
       )
     }
 
+    const rollback = async () => {
+      await supabaseAdmin
+        .from('subscriptions')
+        .delete()
+        .eq('client_id', newUser.id)
+
+      await supabaseAdmin
+        .from('agents')
+        .delete()
+        .eq('client_id', newUser.id)
+
+      await supabaseAdmin
+        .from('clients')
+        .delete()
+        .eq('id', newUser.id)
+
+      await supabaseAdmin.auth.admin
+        .deleteUser(newUser.id)
+    }
+
     const { error: clientError } =
-      await adminSupabase
+      await supabaseAdmin
         .from('clients')
         .insert({
           id: newUser.id,
-          company_name: companyName.trim(),
-          contact_email: normalizedEmail,
+          company_name:
+            String(companyName).trim(),
+          contact_email:
+            normalizedEmail,
           status: 'setup',
           role: 'client',
         })
 
     if (clientError) {
-      await adminSupabase.auth.admin.deleteUser(
-        newUser.id
-      )
-
-      return new Response(
-        JSON.stringify({
-          error: clientError.message,
-        }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
+      await rollback()
+      throw clientError
     }
 
     const { error: agentError } =
-      await adminSupabase
+      await supabaseAdmin
         .from('agents')
         .insert({
           client_id: newUser.id,
           agent_name:
-            `${companyName.trim()} Receptionist`,
-          business_hours: 'Not configured',
+            `${String(companyName).trim()} Receptionist`,
+          business_hours:
+            'Not configured',
           status: 'setup',
+          retell_agent_id:
+            normalizedRetellId,
         })
 
     if (agentError) {
-      await adminSupabase
-        .from('clients')
-        .delete()
-        .eq('id', newUser.id)
+      await rollback()
+      throw agentError
+    }
 
-      await adminSupabase.auth.admin.deleteUser(
-        newUser.id
-      )
+    const monthlyPrice =
+      planName === 'Recepta Pro'
+        ? 300
+        : 200
 
-      return new Response(
-        JSON.stringify({
-          error: agentError.message,
-        }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
+    const { error: subscriptionError } =
+      await supabaseAdmin
+        .from('subscriptions')
+        .insert({
+          client_id: newUser.id,
+          plan_name: planName,
+          monthly_price:
+            monthlyPrice,
+          monthly_minutes:
+            Math.floor(minutes),
+          ai_model_id: aiModelId,
+          status: 'active',
+        })
+
+    if (subscriptionError) {
+      await rollback()
+      throw subscriptionError
     }
 
     return new Response(
       JSON.stringify({
         success: true,
         userId: newUser.id,
+        subscription: {
+          status: 'active',
+          planName,
+          monthlyPrice,
+          monthlyMinutes:
+            Math.floor(minutes),
+          aiModelId,
+        },
+        aiConfigurationStatus:
+          normalizedRetellId
+            ? 'pending'
+            : 'pending',
       }),
       {
         status: 200,
@@ -212,7 +357,10 @@ export default async (request: Request) => {
       }
     )
   } catch (error) {
-    console.error('Create client error:', error)
+    console.error(
+      'Create client error:',
+      error
+    )
 
     return new Response(
       JSON.stringify({
