@@ -1,8 +1,36 @@
-import { createClient } from '@supabase/supabase-js'
+
 
 type PlanName =
   | 'Recepta Standard'
   | 'Recepta Pro'
+
+const ADMIN_EMAIL =
+  (
+    process.env.ADMIN_EMAIL ||
+    'aaryansmg24@gmail.com'
+  ).toLowerCase()
+
+const isAdminUser = async (
+  supabaseAdmin: any,
+  user: { id: string; email?: string | null }
+) => {
+  const emailMatches =
+    user.email?.toLowerCase() ===
+    ADMIN_EMAIL
+
+  const { data: requester } =
+    await supabaseAdmin
+      .from('clients')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()
+
+  return (
+    emailMatches ||
+    requester?.role === 'admin'
+  )
+}
+
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -10,9 +38,7 @@ export default async (request: Request) => {
       JSON.stringify({ error: 'Method not allowed' }),
       {
         status: 405,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       }
     )
   }
@@ -30,9 +56,7 @@ export default async (request: Request) => {
         }),
         {
           status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
@@ -45,9 +69,7 @@ export default async (request: Request) => {
         JSON.stringify({ error: 'Unauthorized' }),
         {
           status: 401,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
@@ -69,35 +91,18 @@ export default async (request: Request) => {
     const {
       data: { user },
       error: userError,
-    } = await supabaseAdmin.auth.getUser(
-      accessToken
-    )
-
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        {
-          status: 401,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
+    } =
+      await supabaseAdmin.auth.getUser(
+        accessToken
       )
-    }
-
-    const {
-      data: requester,
-      error: roleError,
-    } = await supabaseAdmin
-      .from('clients')
-      .select('role')
-      .eq('id', user.id)
-      .single()
 
     if (
-      roleError ||
-      !requester ||
-      requester.role !== 'admin'
+      userError ||
+      !user ||
+      !(await isAdminUser(
+        supabaseAdmin,
+        user
+      ))
     ) {
       return new Response(
         JSON.stringify({
@@ -105,9 +110,7 @@ export default async (request: Request) => {
         }),
         {
           status: 403,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
@@ -119,39 +122,24 @@ export default async (request: Request) => {
       aiModelId,
     } = await request.json()
 
-    if (!clientId) {
-      return new Response(
-        JSON.stringify({
-          error: 'Client ID is required.',
-        }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      )
-    }
-
     const validPlans: PlanName[] = [
       'Recepta Standard',
       'Recepta Pro',
     ]
 
     if (
+      !clientId ||
       !validPlans.includes(
         planName as PlanName
       )
     ) {
       return new Response(
         JSON.stringify({
-          error: 'Invalid Recepta plan.',
+          error: 'Client and valid plan are required.',
         }),
         {
           status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
@@ -169,9 +157,7 @@ export default async (request: Request) => {
         }),
         {
           status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
@@ -183,24 +169,20 @@ export default async (request: Request) => {
         }),
         {
           status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
 
-    const {
-      data: model,
-      error: modelError,
-    } = await supabaseAdmin
-      .from('ai_models')
-      .select('id, display_name, is_active')
-      .eq('id', aiModelId)
-      .eq('is_active', true)
-      .maybeSingle()
+    const { data: model } =
+      await supabaseAdmin
+        .from('ai_models')
+        .select('id')
+        .eq('id', aiModelId)
+        .eq('is_active', true)
+        .maybeSingle()
 
-    if (modelError || !model) {
+    if (!model) {
       return new Response(
         JSON.stringify({
           error:
@@ -208,9 +190,7 @@ export default async (request: Request) => {
         }),
         {
           status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
@@ -220,128 +200,64 @@ export default async (request: Request) => {
         ? 300
         : 200
 
-    const subscriptionValues = {
+    const values = {
       client_id: clientId,
       plan_name: planName,
       monthly_price: monthlyPrice,
-      monthly_minutes: Math.floor(minutes),
+      monthly_minutes:
+        Math.floor(minutes),
       ai_model_id: aiModelId,
       status: 'active',
     }
 
-    /*
-      Do NOT use upsert(... onConflict: 'client_id') here.
-      Older Recepta databases may not yet have a UNIQUE
-      constraint on subscriptions.client_id.
+    const { data: existing } =
+      await supabaseAdmin
+        .from('subscriptions')
+        .select('client_id')
+        .eq('client_id', clientId)
+        .limit(1)
 
-      We check first, then UPDATE or INSERT. This removes
-      the "no unique or exclusion constraint matching the
-      ON CONFLICT specification" failure entirely.
-    */
-    const {
-      data: existingRows,
-      error: existingError,
-    } = await supabaseAdmin
-      .from('subscriptions')
-      .select('client_id')
-      .eq('client_id', clientId)
-      .limit(1)
-
-    if (existingError) {
-      return new Response(
-        JSON.stringify({
-          error: existingError.message,
-        }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      )
-    }
-
-    if (
-      existingRows &&
-      existingRows.length > 0
-    ) {
-      const { error: updateError } =
+    if (existing?.length) {
+      const { error } =
         await supabaseAdmin
           .from('subscriptions')
-          .update(subscriptionValues)
+          .update(values)
           .eq('client_id', clientId)
 
-      if (updateError) {
-        return new Response(
-          JSON.stringify({
-            error: updateError.message,
-          }),
-          {
-            status: 400,
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          }
-        )
-      }
+      if (error) throw error
     } else {
-      const { error: insertError } =
+      const { error } =
         await supabaseAdmin
           .from('subscriptions')
-          .insert(subscriptionValues)
+          .insert(values)
 
-      if (insertError) {
-        return new Response(
-          JSON.stringify({
-            error: insertError.message,
-          }),
-          {
-            status: 400,
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          }
-        )
-      }
+      if (error) throw error
     }
 
-    /*
-      The account itself is ready immediately after the
-      admin assigns plan/model/minutes. The AI agent stays
-      in setup until Retell is actually connected/configured.
-    */
+    // Reactivation restores the customer workspace.
     await supabaseAdmin
       .from('clients')
-      .update({
-        status: 'setup',
-      })
+      .update({ status: 'setup' })
       .eq('id', clientId)
 
     await supabaseAdmin
       .from('agents')
-      .update({
-        status: 'setup',
-      })
+      .update({ status: 'setup' })
       .eq('client_id', clientId)
 
     return new Response(
       JSON.stringify({
         success: true,
-        subscription: {
-          planName,
-          monthlyPrice,
-          monthlyMinutes: Math.floor(minutes),
-          aiModelId,
-          status: 'active',
-        },
-        aiConfigurationStatus:
-          'pending',
+        status: 'active',
+        planName,
+        monthlyPrice,
+        monthlyMinutes:
+          Math.floor(minutes),
+        aiModelId,
       }),
       {
         status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       }
     )
   } catch (error) {
@@ -359,9 +275,7 @@ export default async (request: Request) => {
       }),
       {
         status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       }
     )
   }
