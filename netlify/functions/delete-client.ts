@@ -1,16 +1,40 @@
 import { createClient } from '@supabase/supabase-js'
 
+const ADMIN_EMAIL =
+  (
+    process.env.ADMIN_EMAIL ||
+    'aaryansmg24@gmail.com'
+  ).toLowerCase()
+
+const isAdminUser = async (
+  supabaseAdmin: any,
+  user: { id: string; email?: string | null }
+) => {
+  const emailMatches =
+    user.email?.toLowerCase() ===
+    ADMIN_EMAIL
+
+  const { data: requester } =
+    await supabaseAdmin
+      .from('clients')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()
+
+  return (
+    emailMatches ||
+    requester?.role === 'admin'
+  )
+}
+
+
 export default async (request: Request) => {
   if (request.method !== 'POST') {
     return new Response(
-      JSON.stringify({
-        error: 'Method not allowed',
-      }),
+      JSON.stringify({ error: 'Method not allowed' }),
       {
         status: 405,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       }
     )
   }
@@ -18,7 +42,6 @@ export default async (request: Request) => {
   try {
     const supabaseUrl =
       process.env.SUPABASE_URL
-
     const supabaseSecretKey =
       process.env.SUPABASE_SECRET_KEY
 
@@ -29,9 +52,7 @@ export default async (request: Request) => {
         }),
         {
           status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
@@ -41,22 +62,15 @@ export default async (request: Request) => {
 
     if (!authHeader?.startsWith('Bearer ')) {
       return new Response(
-        JSON.stringify({
-          error: 'Unauthorized',
-        }),
+        JSON.stringify({ error: 'Unauthorized' }),
         {
           status: 401,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
 
-    const accessToken =
-      authHeader.replace('Bearer ', '')
-
-    const adminSupabase = createClient(
+    const supabaseAdmin = createClient(
       supabaseUrl,
       supabaseSecretKey,
       {
@@ -67,41 +81,24 @@ export default async (request: Request) => {
       }
     )
 
+    const accessToken =
+      authHeader.replace('Bearer ', '')
+
     const {
       data: { user },
       error: userError,
-    } = await adminSupabase.auth.getUser(
-      accessToken
-    )
-
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({
-          error: 'Unauthorized',
-        }),
-        {
-          status: 401,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
+    } =
+      await supabaseAdmin.auth.getUser(
+        accessToken
       )
-    }
-
-    // Same admin check used by create-client.ts
-    const {
-      data: requester,
-      error: roleError,
-    } = await adminSupabase
-      .from('clients')
-      .select('role')
-      .eq('id', user.id)
-      .single()
 
     if (
-      roleError ||
-      !requester ||
-      requester.role !== 'admin'
+      userError ||
+      !user ||
+      !(await isAdminUser(
+        supabaseAdmin,
+        user
+      ))
     ) {
       return new Response(
         JSON.stringify({
@@ -109,109 +106,74 @@ export default async (request: Request) => {
         }),
         {
           status: 403,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
 
-    const body = await request.json()
-
-    const clientId = body.clientId
+    const { clientId } =
+      await request.json()
 
     if (!clientId) {
       return new Response(
         JSON.stringify({
-          error: 'Client ID is required',
+          error: 'Client ID is required.',
         }),
         {
           status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
 
-    if (clientId === user.id) {
-      return new Response(
-        JSON.stringify({
-          error:
-            'You cannot delete your own admin account.',
-        }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      )
+    // Best-effort cleanup of known child rows.
+    const childTables = [
+      'appointments',
+      'calls',
+      'employees',
+      'onboarding',
+      'subscriptions',
+      'agents',
+    ]
+
+    for (const table of childTables) {
+      try {
+        await supabaseAdmin
+          .from(table)
+          .delete()
+          .eq('client_id', clientId)
+      } catch {
+        // Some installations may not use every table.
+      }
     }
 
-    /*
-     * Delete client database record.
-     * Related tables should use ON DELETE CASCADE.
-     */
-    const {
-      error: clientDeleteError,
-    } = await adminSupabase
-      .from('clients')
-      .delete()
-      .eq('id', clientId)
+    const { error: clientError } =
+      await supabaseAdmin
+        .from('clients')
+        .delete()
+        .eq('id', clientId)
 
-    if (clientDeleteError) {
-      return new Response(
-        JSON.stringify({
-          error: clientDeleteError.message,
-        }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      )
-    }
+    if (clientError) throw clientError
 
-    /*
-     * Delete their Supabase Auth login.
-     */
-    const {
-      error: authDeleteError,
-    } =
-      await adminSupabase.auth.admin.deleteUser(
-        clientId
-      )
+    const { error: authError } =
+      await supabaseAdmin.auth.admin
+        .deleteUser(clientId)
 
-    if (authDeleteError) {
-      return new Response(
-        JSON.stringify({
-          error:
-            'Client record was deleted, but their login could not be deleted: ' +
-            authDeleteError.message,
-        }),
-        {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      )
-    }
+    if (authError) throw authError
 
     return new Response(
-      JSON.stringify({
-        success: true,
-      }),
+      JSON.stringify({ success: true }),
       {
         status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       }
     )
   } catch (error) {
+    console.error(
+      'Delete client error:',
+      error
+    )
+
     return new Response(
       JSON.stringify({
         error:
@@ -221,9 +183,7 @@ export default async (request: Request) => {
       }),
       {
         status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       }
     )
   }
