@@ -1,4 +1,32 @@
-import { createClient } from '@supabase/supabase-js'
+
+
+const ADMIN_EMAIL =
+  (
+    process.env.ADMIN_EMAIL ||
+    'aaryansmg24@gmail.com'
+  ).toLowerCase()
+
+const isAdminUser = async (
+  supabaseAdmin: any,
+  user: { id: string; email?: string | null }
+) => {
+  const emailMatches =
+    user.email?.toLowerCase() ===
+    ADMIN_EMAIL
+
+  const { data: requester } =
+    await supabaseAdmin
+      .from('clients')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()
+
+  return (
+    emailMatches ||
+    requester?.role === 'admin'
+  )
+}
+
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -6,9 +34,7 @@ export default async (request: Request) => {
       JSON.stringify({ error: 'Method not allowed' }),
       {
         status: 405,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       }
     )
   }
@@ -26,9 +52,7 @@ export default async (request: Request) => {
         }),
         {
           status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
@@ -41,9 +65,7 @@ export default async (request: Request) => {
         JSON.stringify({ error: 'Unauthorized' }),
         {
           status: 401,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
@@ -51,7 +73,7 @@ export default async (request: Request) => {
     const accessToken =
       authHeader.replace('Bearer ', '')
 
-    const adminSupabase = createClient(
+    const supabaseAdmin = createClient(
       supabaseUrl,
       supabaseSecretKey,
       {
@@ -65,35 +87,18 @@ export default async (request: Request) => {
     const {
       data: { user },
       error: userError,
-    } = await adminSupabase.auth.getUser(
-      accessToken
-    )
-
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        {
-          status: 401,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
+    } =
+      await supabaseAdmin.auth.getUser(
+        accessToken
       )
-    }
-
-    const {
-      data: requester,
-      error: roleError,
-    } = await adminSupabase
-      .from('clients')
-      .select('role')
-      .eq('id', user.id)
-      .single()
 
     if (
-      roleError ||
-      !requester ||
-      requester.role !== 'admin'
+      userError ||
+      !user ||
+      !(await isAdminUser(
+        supabaseAdmin,
+        user
+      ))
     ) {
       return new Response(
         JSON.stringify({
@@ -101,9 +106,7 @@ export default async (request: Request) => {
         }),
         {
           status: 403,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
@@ -120,9 +123,7 @@ export default async (request: Request) => {
         }),
         {
           status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
@@ -135,7 +136,9 @@ export default async (request: Request) => {
 
     if (
       normalizedRetellId &&
-      !normalizedRetellId.startsWith('agent_')
+      !normalizedRetellId.startsWith(
+        'agent_'
+      )
     ) {
       return new Response(
         JSON.stringify({
@@ -144,53 +147,13 @@ export default async (request: Request) => {
         }),
         {
           status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
 
-    const {
-      data: existingAgent,
-      error: existingError,
-    } = await adminSupabase
-      .from('agents')
-      .select('client_id')
-      .eq('client_id', clientId)
-      .maybeSingle()
-
-    if (existingError) {
-      return new Response(
-        JSON.stringify({
-          error: existingError.message,
-        }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      )
-    }
-
-    if (!existingAgent) {
-      return new Response(
-        JSON.stringify({
-          error:
-            'This client does not have an agent record.',
-        }),
-        {
-          status: 404,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      )
-    }
-
-    const { error: updateError } =
-      await adminSupabase
+    const { error } =
+      await supabaseAdmin
         .from('agents')
         .update({
           retell_agent_id:
@@ -198,19 +161,7 @@ export default async (request: Request) => {
         })
         .eq('client_id', clientId)
 
-    if (updateError) {
-      return new Response(
-        JSON.stringify({
-          error: updateError.message,
-        }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      )
-    }
+    if (error) throw error
 
     return new Response(
       JSON.stringify({
@@ -220,9 +171,7 @@ export default async (request: Request) => {
       }),
       {
         status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       }
     )
   } catch (error) {
@@ -235,9 +184,7 @@ export default async (request: Request) => {
       }),
       {
         status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       }
     )
   }
