@@ -1,36 +1,41 @@
 import { useEffect, useState } from 'react'
-import { Navigate } from 'react-router'
+import type { ReactNode } from 'react'
+import { Navigate, useLocation } from 'react-router'
 import { supabase } from '../lib/supabase'
+
+const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
 
 export default function AdminRoute({
   children,
 }: {
-  children: React.ReactNode
+  children: ReactNode
 }) {
+  const location = useLocation()
+
   const [loading, setLoading] = useState(true)
+  const [authenticated, setAuthenticated] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     const checkAdmin = async () => {
       const {
-        data: { user },
-      } = await supabase.auth.getUser()
+        data: { session },
+      } = await supabase.auth.getSession()
 
-      if (!user) {
+      if (!session) {
+        setAuthenticated(false)
+        setIsAdmin(false)
         setLoading(false)
         return
       }
 
-      const { data, error } = await supabase
-        .from('clients')
-        .select('role')
-        .eq('id', user.id)
-        .single()
+      setAuthenticated(true)
 
-      if (!error && data?.role === 'admin') {
-        setIsAdmin(true)
-      }
+      const admin =
+        session.user.email?.toLowerCase() ===
+        ADMIN_EMAIL.toLowerCase()
 
+      setIsAdmin(admin)
       setLoading(false)
     }
 
@@ -53,6 +58,17 @@ export default function AdminRoute({
     )
   }
 
+  // /admin itself must stay accessible so Admin.tsx
+  // can display the separate admin login form.
+  if (!authenticated) {
+    if (location.pathname === '/admin') {
+      return <>{children}</>
+    }
+
+    return <Navigate to="/admin" replace />
+  }
+
+  // A logged-in customer cannot enter the admin area.
   if (!isAdmin) {
     return <Navigate to="/dashboard" replace />
   }
