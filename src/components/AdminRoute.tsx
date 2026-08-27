@@ -13,7 +13,6 @@ export default function AdminRoute({
   const location = useLocation()
 
   const [loading, setLoading] = useState(true)
-  const [authenticated, setAuthenticated] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
@@ -22,17 +21,8 @@ export default function AdminRoute({
         data: { session },
       } = await supabase.auth.getSession()
 
-      if (!session) {
-        setAuthenticated(false)
-        setIsAdmin(false)
-        setLoading(false)
-        return
-      }
-
-      setAuthenticated(true)
-
       const admin =
-        session.user.email?.toLowerCase() ===
+        session?.user.email?.trim().toLowerCase() ===
         ADMIN_EMAIL.toLowerCase()
 
       setIsAdmin(admin)
@@ -41,6 +31,12 @@ export default function AdminRoute({
 
     checkAdmin()
   }, [])
+
+  // The main /admin page must ALWAYS be reachable.
+  // Admin.tsx handles its own separate login.
+  if (location.pathname === '/admin') {
+    return <>{children}</>
+  }
 
   if (loading) {
     return (
@@ -58,19 +54,9 @@ export default function AdminRoute({
     )
   }
 
-  // /admin itself must stay accessible so Admin.tsx
-  // can display the separate admin login form.
-  if (!authenticated) {
-    if (location.pathname === '/admin') {
-      return <>{children}</>
-    }
-
-    return <Navigate to="/admin" replace />
-  }
-
-  // A logged-in customer cannot enter the admin area.
+  // Protect pages such as /admin/client/:id
   if (!isAdmin) {
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to="/admin" replace />
   }
 
   return <>{children}</>
