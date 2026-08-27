@@ -3,6 +3,8 @@ import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { supabase } from '../lib/supabase'
 
+const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
+
 export default function Login() {
   const navigate = useNavigate()
 
@@ -12,20 +14,52 @@ export default function Login() {
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
 
-  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
+  const handleLogin = async (
+    event: FormEvent<HTMLFormElement>
+  ) => {
     event.preventDefault()
 
     setLoading(true)
     setErrorMessage('')
     setSuccessMessage('')
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    const normalizedEmail =
+      email.trim().toLowerCase()
 
-    if (error) {
-      setErrorMessage('Invalid email or password.')
+    if (
+      normalizedEmail ===
+      ADMIN_EMAIL.toLowerCase()
+    ) {
+      setErrorMessage(
+        'Admin accounts must sign in through the admin portal.'
+      )
+      setLoading(false)
+      return
+    }
+
+    const { data, error } =
+      await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      })
+
+    if (error || !data.user) {
+      setErrorMessage(
+        'Invalid email or password.'
+      )
+      setLoading(false)
+      return
+    }
+
+    if (
+      data.user.email?.toLowerCase() ===
+      ADMIN_EMAIL.toLowerCase()
+    ) {
+      await supabase.auth.signOut()
+
+      setErrorMessage(
+        'Admin accounts must sign in through the admin portal.'
+      )
       setLoading(false)
       return
     }
@@ -42,19 +76,37 @@ export default function Login() {
       return
     }
 
+    if (
+      email.trim().toLowerCase() ===
+      ADMIN_EMAIL.toLowerCase()
+    ) {
+      setErrorMessage(
+        'Admin password management must be done through the admin account.'
+      )
+      return
+    }
+
     setLoading(true)
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    })
+    const { error } =
+      await supabase.auth.resetPasswordForEmail(
+        email.trim(),
+        {
+          redirectTo: `${window.location.origin}/reset-password`,
+        }
+      )
 
     if (error) {
-      setErrorMessage('Could not send password reset email.')
+      setErrorMessage(
+        'Could not send password reset email.'
+      )
       setLoading(false)
       return
     }
 
-    setSuccessMessage('Password reset email sent.')
+    setSuccessMessage(
+      'Password reset email sent.'
+    )
     setLoading(false)
   }
 
@@ -63,7 +115,10 @@ export default function Login() {
       <div className="loginGlow" />
 
       <div className="loginCard">
-        <a href="/" className="loginBrand">
+        <a
+          href="/"
+          className="loginBrand"
+        >
           <img
             src="/components/logoR.png"
             alt="Recepta"
@@ -73,28 +128,41 @@ export default function Login() {
 
         <div className="loginHeading">
           <h1>Welcome back</h1>
-          <p>Sign in to manage your Recepta AI receptionist.</p>
+
+          <p>
+            Sign in to manage your Recepta AI
+            receptionist.
+          </p>
         </div>
 
-        <form className="loginForm" onSubmit={handleLogin}>
+        <form
+          className="loginForm"
+          onSubmit={handleLogin}
+        >
           <label>
             Email
+
             <input
               type="email"
               placeholder="you@company.com"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) =>
+                setEmail(event.target.value)
+              }
               required
             />
           </label>
 
           <label>
             Password
+
             <input
               type="password"
               placeholder="Enter your password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) =>
+                setPassword(event.target.value)
+              }
               required
             />
           </label>
@@ -129,12 +197,16 @@ export default function Login() {
             type="submit"
             disabled={loading}
           >
-            {loading ? 'Please wait...' : 'Log in'}
+            {loading
+              ? 'Please wait...'
+              : 'Log in'}
           </button>
         </form>
 
         <p className="loginHelp">
-          Don't have an account? Recepta accounts are created for active clients.
+          Don't have an account? Recepta
+          accounts are created for active
+          clients.
         </p>
       </div>
     </main>
