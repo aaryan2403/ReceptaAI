@@ -1,4 +1,4 @@
-
+import { createClient } from '@supabase/supabase-js'
 
 type PlanName =
   | 'Recepta Standard'
@@ -30,7 +30,6 @@ const isAdminUser = async (
     requester?.role === 'admin'
   )
 }
-
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -174,13 +173,18 @@ export default async (request: Request) => {
       )
     }
 
-    const { data: model } =
+    const {
+      data: model,
+      error: modelError,
+    } =
       await supabaseAdmin
         .from('ai_models')
         .select('id')
         .eq('id', aiModelId)
         .eq('is_active', true)
         .maybeSingle()
+
+    if (modelError) throw modelError
 
     if (!model) {
       return new Response(
@@ -210,12 +214,17 @@ export default async (request: Request) => {
       status: 'active',
     }
 
-    const { data: existing } =
+    const {
+      data: existing,
+      error: existingError,
+    } =
       await supabaseAdmin
         .from('subscriptions')
         .select('client_id')
         .eq('client_id', clientId)
         .limit(1)
+
+    if (existingError) throw existingError
 
     if (existing?.length) {
       const { error } =
@@ -234,16 +243,21 @@ export default async (request: Request) => {
       if (error) throw error
     }
 
-    // Reactivation restores the customer workspace.
-    await supabaseAdmin
-      .from('clients')
-      .update({ status: 'setup' })
-      .eq('id', clientId)
+    const { error: clientError } =
+      await supabaseAdmin
+        .from('clients')
+        .update({ status: 'setup' })
+        .eq('id', clientId)
 
-    await supabaseAdmin
-      .from('agents')
-      .update({ status: 'setup' })
-      .eq('client_id', clientId)
+    if (clientError) throw clientError
+
+    const { error: agentError } =
+      await supabaseAdmin
+        .from('agents')
+        .update({ status: 'setup' })
+        .eq('client_id', clientId)
+
+    if (agentError) throw agentError
 
     return new Response(
       JSON.stringify({
