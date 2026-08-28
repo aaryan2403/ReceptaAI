@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+
 import { supabase } from '../lib/supabase'
+
+type PlanName = 'Recepta Standard' | 'Recepta Pro'
 
 type SubscriptionStatus =
   | 'pending'
@@ -25,6 +27,7 @@ type AIModel = {
   display_name: string
   provider: string
   tier_name: string
+  customer_price_per_minute_cad: number | null
 }
 
 export default function Billing() {
@@ -44,6 +47,21 @@ export default function Billing() {
     useState(false)
 
   const [billingError, setBillingError] =
+    useState('')
+
+  const [selectedPlan, setSelectedPlan] =
+    useState<PlanName>('Recepta Standard')
+
+  const [selectedModelId, setSelectedModelId] =
+    useState('')
+
+  const [selectedMinutes, setSelectedMinutes] =
+    useState('300')
+
+  const [checkoutLoading, setCheckoutLoading] =
+    useState(false)
+
+  const [checkoutError, setCheckoutError] =
     useState('')
 
   useEffect(() => {
@@ -89,7 +107,8 @@ export default function Billing() {
             id,
             display_name,
             provider,
-            tier_name
+            tier_name,
+            customer_price_per_minute_cad
             `
           )
           .eq('is_active', true)
@@ -111,9 +130,41 @@ export default function Billing() {
       }
 
       if (modelsResult.data) {
-        setModels(
+        const loadedModels =
           modelsResult.data as AIModel[]
-        )
+
+        setModels(loadedModels)
+
+        const subscriptionData =
+          subscriptionResult.data as
+            | Subscription
+            | null
+
+        if (subscriptionData) {
+          setSelectedPlan(
+            subscriptionData.plan_name ===
+              'Recepta Pro'
+              ? 'Recepta Pro'
+              : 'Recepta Standard'
+          )
+
+          setSelectedMinutes(
+            String(
+              subscriptionData.monthly_minutes ??
+                300
+            )
+          )
+
+          setSelectedModelId(
+            subscriptionData.ai_model_id ||
+              loadedModels[0]?.id ||
+              ''
+          )
+        } else {
+          setSelectedModelId(
+            loadedModels[0]?.id || ''
+          )
+        }
       }
 
       if (subscriptionResult.error) {
@@ -168,6 +219,38 @@ export default function Billing() {
       ) ?? null
     )
   }, [models, subscription])
+
+
+  const selectedModel = useMemo(() => {
+    return (
+      models.find(
+        (model) =>
+          model.id === selectedModelId
+      ) ?? null
+    )
+  }, [models, selectedModelId])
+
+  const selectedMinutesNumber =
+    Number(selectedMinutes)
+
+  const selectedBasePrice =
+    selectedPlan === 'Recepta Pro'
+      ? 300
+      : 200
+
+  const selectedMinutePrice =
+    Number(
+      selectedModel
+        ?.customer_price_per_minute_cad ??
+        0
+    )
+
+  const selectedMonthlyTotal =
+    selectedBasePrice +
+    (Number.isFinite(selectedMinutesNumber)
+      ? Math.max(0, selectedMinutesNumber) *
+        selectedMinutePrice
+      : 0)
 
   const statusInfo = useMemo(() => {
     switch (subscription?.status) {
@@ -310,6 +393,94 @@ export default function Billing() {
         )
       } finally {
         setCancelling(false)
+      }
+    }
+
+  const handleStartNewSubscription =
+    async () => {
+      setCheckoutError('')
+
+      const minutes =
+        Number(selectedMinutes)
+
+      if (
+        !Number.isFinite(minutes) ||
+        minutes < 1
+      ) {
+        setCheckoutError(
+          'Monthly minutes must be at least 1.'
+        )
+        return
+      }
+
+      if (!selectedModelId) {
+        setCheckoutError(
+          'Choose an AI model.'
+        )
+        return
+      }
+
+      setCheckoutLoading(true)
+
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+
+        if (!session?.access_token) {
+          throw new Error(
+            'Your session has expired. Please sign in again.'
+          )
+        }
+
+        const response = await fetch(
+          '/.netlify/functions/create-checkout-session',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type':
+                'application/json',
+              Authorization:
+                `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              planName: selectedPlan,
+              aiModelId: selectedModelId,
+              monthlyMinutes:
+                Math.floor(minutes),
+            }),
+          }
+        )
+
+        const result =
+          await response
+            .json()
+            .catch(() => ({}))
+
+        if (!response.ok) {
+          throw new Error(
+            result?.error ||
+              'Could not start Stripe checkout.'
+          )
+        }
+
+        if (!result?.url) {
+          throw new Error(
+            'Stripe checkout URL was not returned.'
+          )
+        }
+
+        window.location.assign(
+          result.url
+        )
+      } catch (error) {
+        setCheckoutError(
+          error instanceof Error
+            ? error.message
+            : 'Could not start Stripe checkout.'
+        )
+      } finally {
+        setCheckoutLoading(false)
       }
     }
 
@@ -654,28 +825,167 @@ export default function Billing() {
                   }}
                 >
                   <span className="billingPremiumEyebrow">
-                    SUBSCRIPTION CANCELLED
+                    START A NEW SUBSCRIPTION
                   </span>
 
                   <h2>
-                    Your subscription is no
-                    longer active
+                    Choose your new Recepta plan
                   </h2>
 
                   <p>
-                    Your previous subscription
-                    information has been preserved.
-                    Recepta can reactivate or change
-                    your plan from the admin system.
+                    Choose your plan, AI model and
+                    monthly minutes, then continue
+                    to secure Stripe checkout.
                   </p>
 
-                  <p className="billingCheckoutDisclaimer">
-                    Plan changes, reactivation,
-                    AI model selection and monthly
-                    minute changes are handled by
-                    the Recepta team.
-                  </p>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns:
+                        'repeat(auto-fit, minmax(220px, 1fr))',
+                      gap: '16px',
+                      marginTop: '24px',
+                    }}
+                  >
+                    <label>
+                      <span>Plan</span>
+                      <select
+                        value={selectedPlan}
+                        onChange={(event) =>
+                          setSelectedPlan(
+                            event.target.value as PlanName
+                          )
+                        }
+                      >
+                        <option value="Recepta Standard">
+                          Standard — C$200/month
+                        </option>
+                        <option value="Recepta Pro">
+                          Pro — C$300/month
+                        </option>
+                      </select>
+                    </label>
 
+                    <label>
+                      <span>AI Model</span>
+                      <select
+                        value={selectedModelId}
+                        onChange={(event) =>
+                          setSelectedModelId(
+                            event.target.value
+                          )
+                        }
+                      >
+                        {models.map((model) => (
+                          <option
+                            key={model.id}
+                            value={model.id}
+                          >
+                            {model.display_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label>
+                      <span>Monthly Minutes</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={selectedMinutes}
+                        onChange={(event) =>
+                          setSelectedMinutes(
+                            event.target.value
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
+
+                  <div
+                    className="billingCurrentStats"
+                    style={{
+                      marginTop: '24px',
+                    }}
+                  >
+                    <div>
+                      <span>Platform</span>
+                      <strong>
+                        C${selectedBasePrice.toFixed(2)}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>AI Model</span>
+                      <strong>
+                        {selectedModel?.display_name ||
+                          'Choose a model'}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Minutes</span>
+                      <strong>
+                        {Number.isFinite(
+                          selectedMinutesNumber
+                        )
+                          ? Math.max(
+                              0,
+                              Math.floor(
+                                selectedMinutesNumber
+                              )
+                            ).toLocaleString()
+                          : '0'}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span>Monthly Total</span>
+                      <strong>
+                        C${selectedMonthlyTotal.toFixed(2)}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn btnPrimary billingUpdateSubscription"
+                    onClick={
+                      handleStartNewSubscription
+                    }
+                    disabled={
+                      checkoutLoading ||
+                      !selectedModelId
+                    }
+                    style={{
+                      marginTop: '24px',
+                    }}
+                  >
+                    {checkoutLoading
+                      ? 'Opening Stripe Checkout...'
+                      : 'Continue to Secure Checkout'}
+                  </button>
+
+                  {checkoutError && (
+                    <p
+                      className="billingCheckoutDisclaimer"
+                      role="alert"
+                    >
+                      {checkoutError}
+                    </p>
+                  )}
+
+                  <p
+                    className="billingCheckoutDisclaimer"
+                    style={{
+                      marginTop: '16px',
+                    }}
+                  >
+                    Your new subscription becomes
+                    active after Stripe confirms
+                    payment.
+                  </p>
                 </section>
               )}
 
