@@ -1,4 +1,4 @@
-import type { Handler } from '@netlify/functions'
+
 import { createClient } from '@supabase/supabase-js'
 
 type PlanName = 'Recepta Standard' | 'Recepta Pro'
@@ -165,7 +165,7 @@ export const handler: Handler = async (event) => {
   } = await supabaseAdmin
     .from('clients')
     .select(
-      'id, user_id, contact_email'
+      'id, contact_email'
     )
     .eq('id', clientId)
     .maybeSingle()
@@ -176,8 +176,7 @@ export const handler: Handler = async (event) => {
     })
   }
 
-  const userId =
-    client.user_id || client.id
+  const userId = client.id
 
   const authChanges: {
     email?: string
@@ -337,6 +336,3 @@ export const handler: Handler = async (event) => {
   }
 
   return json(200, {
-    success: true,
-  })
-}
