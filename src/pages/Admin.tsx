@@ -980,86 +980,202 @@ export default function Admin() {
             <div className="adminEmpty">
               Loading clients...
             </div>
-          ) : filteredClients.length ===
-            0 ? (
+          ) : filteredClients.length === 0 ? (
             <div className="adminEmpty">
               No clients found.
             </div>
           ) : (
-            <div className="adminSubscriptionList">
-              {filteredClients.map(
-                (client) => (
+            <div
+              style={{
+                display: 'grid',
+                gap: '14px',
+                marginTop: '24px',
+              }}
+            >
+              {filteredClients.map((client) => (
+                <div
+                  key={client.id}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns:
+                      'minmax(260px, 1.5fr) repeat(3, minmax(140px, 0.7fr)) auto',
+                    gap: '18px',
+                    alignItems: 'center',
+                    padding: '20px',
+                    border:
+                      '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '18px',
+                    background:
+                      'rgba(255,255,255,0.025)',
+                  }}
+                >
                   <div
-                    key={client.id}
-                    className="adminSubscriptionCard"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '14px',
+                      minWidth: 0,
+                    }}
                   >
-                    <div className="adminSubscriptionClient">
-                      <div className="adminClientAvatar">
-                        {(client.company_name ||
-                          'C')
-                          .slice(0, 2)
-                          .toUpperCase()}
-                      </div>
-
-                      <div>
-                        <strong>
-                          {client.company_name ||
-                            'Unnamed Client'}
-                        </strong>
-
-                        <span>
-                          {client.contact_email ||
-                            'No email'}
-                        </span>
-
-                        <small>
-                          {client.subscription
-                            ?.plan_name ||
-                            'No plan'}
-                          {' · '}
-                          {client.subscription
-                            ?.status ||
-                            'pending'}
-                          {' · '}
-                          {modelName(
-                            client.subscription
-                              ?.ai_model_id
-                          )}
-                        </small>
-                      </div>
+                    <div
+                      className="adminClientAvatar"
+                      style={{
+                        flex: '0 0 auto',
+                      }}
+                    >
+                      {(client.company_name || 'C')
+                        .slice(0, 2)
+                        .toUpperCase()}
                     </div>
 
                     <div
                       style={{
-                        display: 'flex',
-                        justifyContent:
-                          'flex-end',
-                        alignItems:
-                          'center',
+                        display: 'grid',
+                        gap: '4px',
+                        minWidth: 0,
                       }}
                     >
-                      <button
-                        type="button"
-                        className="btn btnOutline employeeDeleteButton"
-                        disabled={
-                          deletingId ===
-                          client.id
-                        }
-                        onClick={() =>
-                          handleDeleteClient(
-                            client
-                          )
-                        }
+                      <strong
+                        style={{
+                          fontSize: '17px',
+                          color: '#fff',
+                        }}
                       >
-                        {deletingId ===
-                        client.id
-                          ? 'Deleting...'
-                          : 'Delete Client'}
-                      </button>
+                        {client.company_name ||
+                          'Unnamed Client'}
+                      </strong>
+
+                      <span
+                        style={{
+                          color:
+                            'rgba(255,255,255,0.62)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {client.contact_email ||
+                          'No email'}
+                      </span>
                     </div>
                   </div>
-                )
-              )}
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gap: '5px',
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        letterSpacing: '0.08em',
+                        fontWeight: 700,
+                        color:
+                          'rgba(255,255,255,0.42)',
+                      }}
+                    >
+                      PLAN
+                    </span>
+
+                    <strong>
+                      {client.subscription?.plan_name ===
+                      'Recepta Pro'
+                        ? 'Pro — C$300'
+                        : client.subscription
+                            ?.plan_name ===
+                          'Recepta Standard'
+                        ? 'Standard — C$200'
+                        : 'No plan'}
+                    </strong>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gap: '5px',
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        letterSpacing: '0.08em',
+                        fontWeight: 700,
+                        color:
+                          'rgba(255,255,255,0.42)',
+                      }}
+                    >
+                      AI MODEL
+                    </span>
+
+                    <strong>
+                      {modelName(
+                        client.subscription
+                          ?.ai_model_id
+                      )}
+                    </strong>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gap: '5px',
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        letterSpacing: '0.08em',
+                        fontWeight: 700,
+                        color:
+                          'rgba(255,255,255,0.42)',
+                      }}
+                    >
+                      STATUS
+                    </span>
+
+                    <strong
+                      style={{
+                        color:
+                          client.subscription?.status ===
+                          'active'
+                            ? '#00e676'
+                            : client.subscription
+                                  ?.status ===
+                                'cancelled'
+                            ? '#ff6b6b'
+                            : '#d5d5d5',
+                      }}
+                    >
+                      {client.subscription?.status
+                        ? client.subscription.status
+                            .charAt(0)
+                            .toUpperCase() +
+                          client.subscription.status.slice(
+                            1
+                          )
+                        : 'Pending'}
+                    </strong>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn btnOutline employeeDeleteButton"
+                    disabled={
+                      deletingId === client.id
+                    }
+                    onClick={() =>
+                      handleDeleteClient(client)
+                    }
+                    style={{
+                      minWidth: '140px',
+                    }}
+                  >
+                    {deletingId === client.id
+                      ? 'Deleting...'
+                      : 'Delete Client'}
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </section>
