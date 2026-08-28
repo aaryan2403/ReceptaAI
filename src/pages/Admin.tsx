@@ -1613,7 +1613,6 @@ export default function Admin() {
             </section>
           </div>
         )}
-        </section>
       </section>
     </main>
   )
