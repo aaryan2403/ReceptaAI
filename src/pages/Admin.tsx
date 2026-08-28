@@ -40,15 +40,8 @@ type AIModel = {
   sort_order: number
 }
 
-type AgentRecord = {
-  client_id: string
-  retell_agent_id: string | null
-  status: string | null
-}
-
 type ClientWithSubscription = ClientRecord & {
   subscription: SubscriptionRecord | null
-  agent: AgentRecord | null
 }
 
 export default function Admin() {
@@ -102,84 +95,55 @@ export default function Admin() {
   const [search, setSearch] =
     useState('')
 
-  const [editingClient, setEditingClient] =
-    useState<ClientWithSubscription | null>(null)
-  const [editCompanyName, setEditCompanyName] =
-    useState('')
-  const [editEmail, setEditEmail] =
-    useState('')
-  const [editPlanName, setEditPlanName] =
-    useState<PlanName>('Recepta Standard')
-  const [editMonthlyMinutes, setEditMonthlyMinutes] =
-    useState('300')
-  const [editAiModelId, setEditAiModelId] =
-    useState('')
-  const [editRetellAgentId, setEditRetellAgentId] =
-    useState('')
-  const [editPassword, setEditPassword] =
-    useState('')
-  const [savingEdit, setSavingEdit] =
-    useState(false)
-  const [editError, setEditError] =
-    useState('')
-
   const loadData = async () => {
     setLoading(true)
 
-    const [
-      clientsResult,
-      subscriptionsResult,
-      agentsResult,
-      modelsResult,
-    ] = await Promise.all([
-      supabase
-        .from('clients')
-        .select(
-          'id, company_name, contact_email, created_at'
-        )
-        .order('created_at', {
-          ascending: false,
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session?.access_token) {
+      setLoading(false)
+      return
+    }
+
+    const [adminClientsResponse, modelsResult] =
+      await Promise.all([
+        fetch('/.netlify/functions/admin-clients', {
+          headers: {
+            Authorization:
+              `Bearer ${session.access_token}`,
+          },
         }),
 
-      supabase
-        .from('subscriptions')
-        .select(
-          'client_id, plan_name, monthly_price, monthly_minutes, ai_model_id, status'
-        ),
+        supabase
+          .from('ai_models')
+          .select(
+            `
+            id,
+            display_name,
+            provider,
+            tier_name,
+            sort_order
+            `
+          )
+          .eq('is_active', true)
+          .order('sort_order', {
+            ascending: true,
+          }),
+      ])
 
-      supabase
-        .from('agents')
-        .select(
-          'client_id, retell_agent_id, status'
-        ),
-
-      supabase
-        .from('ai_models')
-        .select(
-          `
-          id,
-          display_name,
-          provider,
-          tier_name,
-          sort_order
-          `
-        )
-        .eq('is_active', true)
-        .order('sort_order', {
-          ascending: true,
-        }),
-    ])
+    const adminClientsResult =
+      await adminClientsResponse
+        .json()
+        .catch(() => ({}))
 
     if (
-      clientsResult.error ||
-      subscriptionsResult.error ||
-      agentsResult.error ||
+      !adminClientsResponse.ok ||
       modelsResult.error
     ) {
       console.error(
-        clientsResult.error ||
-          subscriptionsResult.error ||
-          agentsResult.error ||
+        adminClientsResult?.error ||
           modelsResult.error
       )
       setLoading(false)
@@ -187,22 +151,12 @@ export default function Admin() {
     }
 
     const subscriptions =
-      (subscriptionsResult.data ||
+      (adminClientsResult.subscriptions ||
         []) as SubscriptionRecord[]
 
-    const agents =
-      (agentsResult.data ||
-        []) as AgentRecord[]
-
     const clientRows =
-      ((clientsResult.data ||
-        []) as ClientRecord[]).filter(
-          (client) =>
-            client.contact_email
-              ?.trim()
-              .toLowerCase() !==
-            ADMIN_EMAIL.toLowerCase()
-        )
+      (adminClientsResult.clients ||
+        []) as ClientRecord[]
 
     const combined =
       clientRows.map((client) => ({
@@ -211,11 +165,6 @@ export default function Admin() {
           subscriptions.find(
             (subscription) =>
               subscription.client_id === client.id
-          ) || null,
-        agent:
-          agents.find(
-            (agent) =>
-              agent.client_id === client.id
           ) || null,
       }))
 
@@ -441,161 +390,6 @@ export default function Admin() {
       )
     } finally {
       setCreating(false)
-    }
-  }
-
-  const openEditClient = (
-    client: ClientWithSubscription
-  ) => {
-    setEditingClient(client)
-    setEditCompanyName(
-      client.company_name || ''
-    )
-    setEditEmail(
-      client.contact_email || ''
-    )
-    setEditPlanName(
-      client.subscription?.plan_name ===
-        'Recepta Pro'
-        ? 'Recepta Pro'
-        : 'Recepta Standard'
-    )
-    setEditMonthlyMinutes(
-      String(
-        client.subscription?.monthly_minutes ||
-          300
-      )
-    )
-    setEditAiModelId(
-      client.subscription?.ai_model_id ||
-        models[0]?.id ||
-        ''
-    )
-    setEditRetellAgentId(
-      client.agent?.retell_agent_id || ''
-    )
-    setEditPassword('')
-    setEditError('')
-  }
-
-  const handleSaveClientEdit = async (
-    event: FormEvent<HTMLFormElement>
-  ) => {
-    event.preventDefault()
-
-    if (!editingClient) return
-
-    setSavingEdit(true)
-    setEditError('')
-    setActionError('')
-    setActionSuccess('')
-
-    try {
-      const minutes =
-        Number(editMonthlyMinutes)
-
-      if (
-        !Number.isFinite(minutes) ||
-        minutes < 1
-      ) {
-        throw new Error(
-          'Monthly minutes must be at least 1.'
-        )
-      }
-
-      if (!editAiModelId) {
-        throw new Error(
-          'Choose an AI model.'
-        )
-      }
-
-      const normalizedRetellId =
-        editRetellAgentId.trim()
-
-      if (
-        normalizedRetellId &&
-        !normalizedRetellId.startsWith(
-          'agent_'
-        )
-      ) {
-        throw new Error(
-          'Retell Agent ID must start with agent_.'
-        )
-      }
-
-      if (
-        editPassword &&
-        editPassword.length < 8
-      ) {
-        throw new Error(
-          'New temporary password must be at least 8 characters.'
-        )
-      }
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-
-      if (!session?.access_token) {
-        throw new Error(
-          'Admin session expired. Sign in again.'
-        )
-      }
-
-      const response = await fetch(
-        '/.netlify/functions/update-client',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type':
-              'application/json',
-            Authorization:
-              `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            clientId: editingClient.id,
-            companyName:
-              editCompanyName.trim(),
-            email:
-              editEmail.trim().toLowerCase(),
-            planName: editPlanName,
-            monthlyMinutes:
-              Math.floor(minutes),
-            aiModelId: editAiModelId,
-            retellAgentId:
-              normalizedRetellId || null,
-            newPassword:
-              editPassword || null,
-          }),
-        }
-      )
-
-      const result =
-        await response
-          .json()
-          .catch(() => ({}))
-
-      if (!response.ok) {
-        throw new Error(
-          result?.error ||
-            'Could not update client.'
-        )
-      }
-
-      setActionSuccess(
-        `${editCompanyName.trim()} updated.`
-      )
-      setEditingClient(null)
-      setEditPassword('')
-      await loadData()
-    } catch (error) {
-      setEditError(
-        error instanceof Error
-          ? error.message
-          : 'Could not update client.'
-      )
-    } finally {
-      setSavingEdit(false)
     }
   }
 
@@ -1186,433 +980,89 @@ export default function Admin() {
             <div className="adminEmpty">
               Loading clients...
             </div>
-          ) : filteredClients.length === 0 ? (
+          ) : filteredClients.length ===
+            0 ? (
             <div className="adminEmpty">
               No clients found.
             </div>
           ) : (
-            <div
-              style={{
-                display: 'grid',
-                gap: '14px',
-                marginTop: '24px',
-              }}
-            >
-              {filteredClients.map((client) => (
-                <div
-                  key={client.id}
-                  style={{
-                    display: 'grid',
-                    gap: '18px',
-                    padding: '20px',
-                    border:
-                      '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: '18px',
-                    background:
-                      'rgba(255,255,255,0.025)',
-                  }}
-                >
+            <div className="adminSubscriptionList">
+              {filteredClients.map(
+                (client) => (
                   <div
-                    style={{
-                      display: 'flex',
-                      justifyContent:
-                        'space-between',
-                      gap: '18px',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                    }}
+                    key={client.id}
+                    className="adminSubscriptionCard"
                   >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '14px',
-                        minWidth: 0,
-                      }}
-                    >
-                      <div
-                        className="adminClientAvatar"
-                      >
-                        {(client.company_name || 'C')
+                    <div className="adminSubscriptionClient">
+                      <div className="adminClientAvatar">
+                        {(client.company_name ||
+                          'C')
                           .slice(0, 2)
                           .toUpperCase()}
                       </div>
 
                       <div>
-                        <strong
-                          style={{
-                            fontSize: '18px',
-                            color: '#fff',
-                          }}
-                        >
+                        <strong>
                           {client.company_name ||
                             'Unnamed Client'}
                         </strong>
 
-                        <div
-                          style={{
-                            marginTop: '4px',
-                            color:
-                              'rgba(255,255,255,0.62)',
-                          }}
-                        >
+                        <span>
                           {client.contact_email ||
                             'No email'}
-                        </div>
+                        </span>
+
+                        <small>
+                          {client.subscription
+                            ?.plan_name ||
+                            'No plan'}
+                          {' · '}
+                          {client.subscription
+                            ?.status ||
+                            'pending'}
+                          {' · '}
+                          {modelName(
+                            client.subscription
+                              ?.ai_model_id
+                          )}
+                        </small>
                       </div>
                     </div>
 
                     <div
                       style={{
                         display: 'flex',
-                        gap: '10px',
+                        justifyContent:
+                          'flex-end',
+                        alignItems:
+                          'center',
                       }}
                     >
                       <button
                         type="button"
-                        className="btn btnOutline"
-                        onClick={() =>
-                          openEditClient(client)
-                        }
-                      >
-                        Edit Client
-                      </button>
-
-                      <button
-                        type="button"
                         className="btn btnOutline employeeDeleteButton"
                         disabled={
-                          deletingId === client.id
+                          deletingId ===
+                          client.id
                         }
                         onClick={() =>
-                          handleDeleteClient(client)
+                          handleDeleteClient(
+                            client
+                          )
                         }
                       >
-                        {deletingId === client.id
+                        {deletingId ===
+                        client.id
                           ? 'Deleting...'
                           : 'Delete Client'}
                       </button>
                     </div>
                   </div>
-
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns:
-                        'repeat(auto-fit, minmax(170px, 1fr))',
-                      gap: '14px',
-                    }}
-                  >
-                    <div>
-                      <small>PLAN</small>
-                      <div>
-                        {client.subscription?.plan_name ||
-                          'No plan'}
-                      </div>
-                    </div>
-
-                    <div>
-                      <small>MONTHLY MINUTES</small>
-                      <div>
-                        {client.subscription?.monthly_minutes ??
-                          'Not set'}
-                      </div>
-                    </div>
-
-                    <div>
-                      <small>AI MODEL</small>
-                      <div>
-                        {modelName(
-                          client.subscription
-                            ?.ai_model_id
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <small>RETELL AGENT ID</small>
-                      <div>
-                        {client.agent?.retell_agent_id ||
-                          'Not connected'}
-                      </div>
-                    </div>
-
-                    <div>
-                      <small>SUBSCRIPTION STATUS</small>
-                      <div>
-                        {client.subscription?.status ||
-                          'pending'}
-                      </div>
-                    </div>
-
-                    <div>
-                      <small>AI STATUS</small>
-                      <div>
-                        {client.agent?.status ||
-                          'setup'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                )
+              )}
             </div>
           )}
         </section>
-
-        {editingClient && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 9999,
-              display: 'grid',
-              placeItems: 'center',
-              padding: '24px',
-              background:
-                'rgba(0,0,0,0.72)',
-            }}
-            onMouseDown={(event) => {
-              if (
-                event.target ===
-                event.currentTarget
-              ) {
-                setEditingClient(null)
-              }
-            }}
-          >
-            <section
-              style={{
-                width: 'min(900px, 100%)',
-                maxHeight: '90vh',
-                overflowY: 'auto',
-                padding: '28px',
-                border:
-                  '1px solid rgba(0,230,118,0.18)',
-                borderRadius: '24px',
-                background: '#07140d',
-                color: '#fff',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent:
-                    'space-between',
-                  gap: '16px',
-                  alignItems: 'center',
-                  marginBottom: '22px',
-                }}
-              >
-                <div>
-                  <span className="adminEyebrow">
-                    EDIT CLIENT
-                  </span>
-                  <h2
-                    style={{
-                      margin: '8px 0 0',
-                    }}
-                  >
-                    {editingClient.company_name ||
-                      'Client'}
-                  </h2>
-                </div>
-
-                <button
-                  type="button"
-                  className="btn btnOutline"
-                  onClick={() =>
-                    setEditingClient(null)
-                  }
-                >
-                  Close
-                </button>
-              </div>
-
-              <form
-                onSubmit={
-                  handleSaveClientEdit
-                }
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns:
-                    'repeat(auto-fit, minmax(230px, 1fr))',
-                  gap: '16px',
-                }}
-              >
-                <label>
-                  <span>Company name</span>
-                  <input
-                    value={editCompanyName}
-                    onChange={(event) =>
-                      setEditCompanyName(
-                        event.target.value
-                      )
-                    }
-                    required
-                  />
-                </label>
-
-                <label>
-                  <span>Email</span>
-                  <input
-                    type="email"
-                    value={editEmail}
-                    onChange={(event) =>
-                      setEditEmail(
-                        event.target.value
-                      )
-                    }
-                    required
-                  />
-                </label>
-
-                <label>
-                  <span>Plan</span>
-                  <select
-                    value={editPlanName}
-                    onChange={(event) =>
-                      setEditPlanName(
-                        event.target
-                          .value as PlanName
-                      )
-                    }
-                  >
-                    <option value="Recepta Standard">
-                      Standard — C$200
-                    </option>
-                    <option value="Recepta Pro">
-                      Pro — C$300
-                    </option>
-                  </select>
-                </label>
-
-                <label>
-                  <span>Monthly Minutes</span>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={editMonthlyMinutes}
-                    onChange={(event) =>
-                      setEditMonthlyMinutes(
-                        event.target.value
-                      )
-                    }
-                    required
-                  />
-                </label>
-
-                <label>
-                  <span>AI Model</span>
-                  <select
-                    value={editAiModelId}
-                    onChange={(event) =>
-                      setEditAiModelId(
-                        event.target.value
-                      )
-                    }
-                    required
-                  >
-                    {models.map((model) => (
-                      <option
-                        key={model.id}
-                        value={model.id}
-                      >
-                        {model.display_name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label>
-                  <span>Retell Agent ID</span>
-                  <input
-                    value={editRetellAgentId}
-                    onChange={(event) =>
-                      setEditRetellAgentId(
-                        event.target.value
-                      )
-                    }
-                    placeholder="agent_xxxxxxxxx"
-                  />
-                </label>
-
-                <label
-                  style={{
-                    gridColumn: '1 / -1',
-                  }}
-                >
-                  <span>
-                    New temporary password
-                  </span>
-                  <input
-                    type="password"
-                    minLength={8}
-                    value={editPassword}
-                    onChange={(event) =>
-                      setEditPassword(
-                        event.target.value
-                      )
-                    }
-                    placeholder="Leave blank to keep current password"
-                  />
-                  <small
-                    style={{
-                      display: 'block',
-                      marginTop: '6px',
-                      opacity: 0.62,
-                    }}
-                  >
-                    Existing passwords cannot be
-                    displayed. Enter a new one only
-                    when you want to reset it.
-                  </small>
-                </label>
-
-                {editError && (
-                  <p
-                    className="adminFormMessage adminFormMessage--error"
-                    style={{
-                      gridColumn: '1 / -1',
-                    }}
-                  >
-                    {editError}
-                  </p>
-                )}
-
-                <div
-                  style={{
-                    gridColumn: '1 / -1',
-                    display: 'flex',
-                    justifyContent:
-                      'flex-end',
-                    gap: '10px',
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="btn btnOutline"
-                    onClick={() =>
-                      setEditingClient(null)
-                    }
-                  >
-                    Cancel
-                  </button>
-
-                  <button
-                    type="submit"
-                    className="btn btnPrimary"
-                    disabled={savingEdit}
-                  >
-                    {savingEdit
-                      ? 'Saving...'
-                      : 'Save Client'}
-                  </button>
-                </div>
-              </form>
-            </section>
-          </div>
-        )}
       </section>
     </main>
   )
