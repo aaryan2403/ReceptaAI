@@ -336,3 +336,6 @@ export const handler: Handler = async (event) => {
   }
 
   return json(200, {
+    success: true,
+  })
+}
