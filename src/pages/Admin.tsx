@@ -1,341 +1,1601 @@
 
-import { createClient } from '@supabase/supabase-js'
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from 'react'
+import { supabase } from '../lib/supabase'
+
+const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
 
 type PlanName = 'Recepta Standard' | 'Recepta Pro'
+type SubscriptionStatus =
+  | 'pending'
+  | 'active'
+  | 'past_due'
+  | 'cancelled'
 
-const json = (
-  statusCode: number,
-  body: Record<string, unknown>
-) => ({
-  statusCode,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify(body),
-})
+type ClientRecord = {
+  id: string
+  company_name: string | null
+  contact_email: string | null
+  created_at: string
+}
 
-export const handler: Handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return json(405, {
-      error: 'Method not allowed.',
-    })
-  }
+type SubscriptionRecord = {
+  client_id: string
+  plan_name: string | null
+  monthly_price: number | null
+  monthly_minutes: number | null
+  ai_model_id: string | null
+  status: SubscriptionStatus
+}
 
-  const supabaseUrl =
-    process.env.SUPABASE_URL
-  const supabaseSecretKey =
-    process.env.SUPABASE_SECRET_KEY
-  const adminEmail =
-    process.env.ADMIN_EMAIL
+type AIModel = {
+  id: string
+  display_name: string
+  provider: string
+  tier_name: string
+  sort_order: number
+}
 
-  if (
-    !supabaseUrl ||
-    !supabaseSecretKey ||
-    !adminEmail
-  ) {
-    return json(500, {
-      error:
-        'Server configuration is incomplete.',
-    })
-  }
+type AgentRecord = {
+  client_id: string
+  retell_agent_id: string | null
+  status: string | null
+}
 
-  const authHeader =
-    event.headers.authorization ||
-    event.headers.Authorization
+type ClientWithSubscription = ClientRecord & {
+  subscription: SubscriptionRecord | null
+  agent: AgentRecord | null
+}
 
-  if (!authHeader?.startsWith('Bearer ')) {
-    return json(401, {
-      error: 'Unauthorized.',
-    })
-  }
+export default function Admin() {
+  const [clients, setClients] =
+    useState<ClientWithSubscription[]>([])
+  const [models, setModels] =
+    useState<AIModel[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const token =
-    authHeader.slice('Bearer '.length)
+  const [checkingAdmin, setCheckingAdmin] =
+    useState(true)
+  const [isAdmin, setIsAdmin] =
+    useState(false)
+  const [adminEmail, setAdminEmail] =
+    useState('')
+  const [adminPassword, setAdminPassword] =
+    useState('')
+  const [loginError, setLoginError] =
+    useState('')
+  const [loggingIn, setLoggingIn] =
+    useState(false)
 
-  const supabaseAdmin = createClient(
-    supabaseUrl,
-    supabaseSecretKey,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
+  const [companyName, setCompanyName] =
+    useState('')
+  const [email, setEmail] =
+    useState('')
+  const [password, setPassword] =
+    useState('')
+  const [planName, setPlanName] =
+    useState<PlanName>('Recepta Standard')
+  const [monthlyMinutes, setMonthlyMinutes] =
+    useState('300')
+  const [aiModelId, setAiModelId] =
+    useState('')
+  const [retellAgentId, setRetellAgentId] =
+    useState('')
+  const [creating, setCreating] =
+    useState(false)
+  const [createError, setCreateError] =
+    useState('')
+  const [createSuccess, setCreateSuccess] =
+    useState('')
 
-  const {
-    data: { user: adminUser },
-    error: adminUserError,
-  } = await supabaseAdmin.auth.getUser(token)
+  const [deletingId, setDeletingId] =
+    useState<string | null>(null)
+  const [actionError, setActionError] =
+    useState('')
+  const [actionSuccess, setActionSuccess] =
+    useState('')
 
-  if (
-    adminUserError ||
-    !adminUser ||
-    adminUser.email
-      ?.trim()
-      .toLowerCase() !==
-      adminEmail.trim().toLowerCase()
-  ) {
-    return json(403, {
-      error: 'Admin access required.',
-    })
-  }
+  const [search, setSearch] =
+    useState('')
 
-  let body: {
-    clientId?: string
-    companyName?: string
-    email?: string
-    planName?: PlanName
-    monthlyMinutes?: number
-    aiModelId?: string
-    retellAgentId?: string | null
-    newPassword?: string | null
-  }
+  const [editingClient, setEditingClient] =
+    useState<ClientWithSubscription | null>(null)
+  const [editCompanyName, setEditCompanyName] =
+    useState('')
+  const [editEmail, setEditEmail] =
+    useState('')
+  const [editPlanName, setEditPlanName] =
+    useState<PlanName>('Recepta Standard')
+  const [editMonthlyMinutes, setEditMonthlyMinutes] =
+    useState('300')
+  const [editAiModelId, setEditAiModelId] =
+    useState('')
+  const [editRetellAgentId, setEditRetellAgentId] =
+    useState('')
+  const [editPassword, setEditPassword] =
+    useState('')
+  const [savingEdit, setSavingEdit] =
+    useState(false)
+  const [editError, setEditError] =
+    useState('')
 
-  try {
-    body = JSON.parse(event.body || '{}')
-  } catch {
-    return json(400, {
-      error: 'Invalid request body.',
-    })
-  }
+  const loadData = async () => {
+    setLoading(true)
 
-  const clientId =
-    body.clientId?.trim()
-  const companyName =
-    body.companyName?.trim()
-  const email =
-    body.email?.trim().toLowerCase()
-  const planName =
-    body.planName
-  const monthlyMinutes =
-    Number(body.monthlyMinutes)
-  const aiModelId =
-    body.aiModelId?.trim()
-  const retellAgentId =
-    body.retellAgentId?.trim() || null
-  const newPassword =
-    body.newPassword || null
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
 
-  if (
-    !clientId ||
-    !companyName ||
-    !email ||
-    !aiModelId ||
-    !Number.isFinite(monthlyMinutes) ||
-    monthlyMinutes < 1
-  ) {
-    return json(400, {
-      error: 'Missing or invalid client fields.',
-    })
-  }
+      if (!session?.access_token) {
+        throw new Error(
+          'Admin session expired. Sign in again.'
+        )
+      }
 
-  if (
-    planName !== 'Recepta Standard' &&
-    planName !== 'Recepta Pro'
-  ) {
-    return json(400, {
-      error: 'Invalid plan.',
-    })
-  }
-
-  if (
-    retellAgentId &&
-    !retellAgentId.startsWith('agent_')
-  ) {
-    return json(400, {
-      error:
-        'Retell Agent ID must start with agent_.',
-    })
-  }
-
-  if (
-    newPassword &&
-    newPassword.length < 8
-  ) {
-    return json(400, {
-      error:
-        'New temporary password must be at least 8 characters.',
-    })
-  }
-
-  const {
-    data: client,
-    error: clientLookupError,
-  } = await supabaseAdmin
-    .from('clients')
-    .select(
-      'id, contact_email'
-    )
-    .eq('id', clientId)
-    .maybeSingle()
-
-  if (clientLookupError || !client) {
-    return json(404, {
-      error: 'Client not found.',
-    })
-  }
-
-  const userId = client.id
-
-  const authChanges: {
-    email?: string
-    password?: string
-  } = {}
-
-  if (
-    email !==
-    client.contact_email
-      ?.trim()
-      .toLowerCase()
-  ) {
-    authChanges.email = email
-  }
-
-  if (newPassword) {
-    authChanges.password =
-      newPassword
-  }
-
-  if (
-    Object.keys(authChanges).length > 0
-  ) {
-    const { error: authUpdateError } =
-      await supabaseAdmin.auth.admin.updateUserById(
-        userId,
-        authChanges
+      const response = await fetch(
+        '/.netlify/functions/admin-clients',
+        {
+          method: 'GET',
+          headers: {
+            Authorization:
+              `Bearer ${session.access_token}`,
+          },
+        }
       )
 
-    if (authUpdateError) {
-      return json(400, {
-        error: authUpdateError.message,
-      })
+      const result =
+        (await response
+          .json()
+          .catch(() => ({}))) as {
+          error?: string
+          clients?: ClientRecord[]
+          subscriptions?: SubscriptionRecord[]
+          agents?: AgentRecord[]
+          models?: AIModel[]
+        }
+
+      if (!response.ok) {
+        throw new Error(
+          result.error ||
+            'Could not load clients.'
+        )
+      }
+
+      const clientRows =
+        result.clients || []
+      const subscriptions =
+        result.subscriptions || []
+      const agents = result.agents || []
+      const loadedModels =
+        result.models || []
+
+      const loadedClients =
+        clientRows.map((client) => ({
+          ...client,
+          subscription:
+            subscriptions.find(
+              (subscription) =>
+                subscription.client_id ===
+                client.id
+            ) || null,
+          agent:
+            agents.find(
+              (agent) =>
+                agent.client_id ===
+                client.id
+            ) || null,
+        }))
+
+      setClients(loadedClients)
+      setModels(loadedModels)
+      setActionError('')
+
+      setAiModelId((current) =>
+        current ||
+        loadedModels[0]?.id ||
+        ''
+      )
+    } catch (error) {
+      console.error(
+        'Load clients error:',
+        error
+      )
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : 'Could not load clients.'
+      )
+    } finally {
+      setLoading(false)
     }
   }
 
-  const { error: clientUpdateError } =
-    await supabaseAdmin
-      .from('clients')
-      .update({
-        company_name: companyName,
-        contact_email: email,
-      })
-      .eq('id', clientId)
+  useEffect(() => {
+    let mounted = true
 
-  if (clientUpdateError) {
-    return json(400, {
-      error: clientUpdateError.message,
-    })
-  }
+    const checkAdmin = async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
 
-  const monthlyPrice =
-    planName === 'Recepta Pro'
-      ? 300
-      : 200
+        if (!mounted) return
 
-  const {
-    data: existingSubscription,
-    error: subscriptionLookupError,
-  } = await supabaseAdmin
-    .from('subscriptions')
-    .select('client_id')
-    .eq('client_id', clientId)
-    .maybeSingle()
+        if (
+          user?.email
+            ?.trim()
+            .toLowerCase() ===
+          ADMIN_EMAIL.toLowerCase()
+        ) {
+          setIsAdmin(true)
+          await loadData()
+        } else {
+          setIsAdmin(false)
 
-  if (subscriptionLookupError) {
-    return json(400, {
-      error:
-        subscriptionLookupError.message,
-    })
-  }
-
-  if (existingSubscription) {
-    const { error } = await supabaseAdmin
-      .from('subscriptions')
-      .update({
-        plan_name: planName,
-        monthly_price: monthlyPrice,
-        monthly_minutes:
-          Math.floor(monthlyMinutes),
-        ai_model_id: aiModelId,
-      })
-      .eq('client_id', clientId)
-
-    if (error) {
-      return json(400, {
-        error: error.message,
-      })
+          if (user) {
+            await supabase.auth.signOut()
+          }
+        }
+      } finally {
+        if (mounted) {
+          setCheckingAdmin(false)
+        }
+      }
     }
-  } else {
-    const { error } = await supabaseAdmin
-      .from('subscriptions')
-      .insert({
-        client_id: clientId,
-        plan_name: planName,
-        monthly_price: monthlyPrice,
-        monthly_minutes:
-          Math.floor(monthlyMinutes),
-        ai_model_id: aiModelId,
-        status: 'active',
-      })
 
-    if (error) {
-      return json(400, {
-        error: error.message,
-      })
+    checkAdmin()
+
+    return () => {
+      mounted = false
     }
-  }
+  }, [])
 
-  const {
-    data: existingAgent,
-    error: agentLookupError,
-  } = await supabaseAdmin
-    .from('agents')
-    .select('client_id')
-    .eq('client_id', clientId)
-    .maybeSingle()
+  const handleAdminLogin = async (
+    event: FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault()
+    setLoggingIn(true)
+    setLoginError('')
 
-  if (agentLookupError) {
-    return json(400, {
-      error: agentLookupError.message,
-    })
-  }
+    try {
+      const { data, error } =
+        await supabase.auth.signInWithPassword({
+          email: adminEmail.trim(),
+          password: adminPassword,
+        })
 
-  if (existingAgent) {
-    const { error } = await supabaseAdmin
-      .from('agents')
-      .update({
-        retell_agent_id: retellAgentId,
-        status: retellAgentId
-          ? 'active'
-          : 'setup',
-      })
-      .eq('client_id', clientId)
+      if (error || !data.user) {
+        setLoginError(
+          'Invalid email or password.'
+        )
+        return
+      }
 
-    if (error) {
-      return json(400, {
-        error: error.message,
-      })
-    }
-  } else {
-    const { error } = await supabaseAdmin
-      .from('agents')
-      .insert({
-        client_id: clientId,
-        retell_agent_id: retellAgentId,
-        status: retellAgentId
-          ? 'active'
-          : 'setup',
-      })
+      if (
+        data.user.email
+          ?.trim()
+          .toLowerCase() !==
+        ADMIN_EMAIL.toLowerCase()
+      ) {
+        await supabase.auth.signOut()
+        setLoginError(
+          'This account does not have admin access.'
+        )
+        return
+      }
 
-    if (error) {
-      return json(400, {
-        error: error.message,
-      })
+      setIsAdmin(true)
+      setAdminPassword('')
+      await loadData()
+    } catch {
+      setLoginError(
+        'Could not connect to the server.'
+      )
+    } finally {
+      setLoggingIn(false)
     }
   }
 
-  return json(200, {
-    success: true,
-  })
+  const handleAdminLogout = async () => {
+    await supabase.auth.signOut()
+    setIsAdmin(false)
+    setClients([])
+  }
+
+  const handleCreateClient = async (
+    event: FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault()
+
+    setCreating(true)
+    setCreateError('')
+    setCreateSuccess('')
+    setActionError('')
+    setActionSuccess('')
+
+    try {
+      const minutes = Number(monthlyMinutes)
+
+      if (
+        !Number.isFinite(minutes) ||
+        minutes < 1
+      ) {
+        throw new Error(
+          'Monthly minutes must be at least 1.'
+        )
+      }
+
+      if (!aiModelId) {
+        throw new Error(
+          'Choose an AI model.'
+        )
+      }
+
+      const normalizedRetellId =
+        retellAgentId.trim()
+
+      if (
+        normalizedRetellId &&
+        !normalizedRetellId.startsWith(
+          'agent_'
+        )
+      ) {
+        throw new Error(
+          'Retell Agent ID must start with agent_.'
+        )
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error(
+          'Admin session expired. Sign in again.'
+        )
+      }
+
+      const response = await fetch(
+        '/.netlify/functions/create-client',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':
+              'application/json',
+            Authorization:
+              `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            companyName:
+              companyName.trim(),
+            email:
+              email.trim().toLowerCase(),
+            password,
+            planName,
+            monthlyMinutes:
+              Math.floor(minutes),
+            aiModelId,
+            retellAgentId:
+              normalizedRetellId || null,
+          }),
+        }
+      )
+
+      const result =
+        await response
+          .json()
+          .catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error ||
+            'Could not create client.'
+        )
+      }
+
+      setCreateSuccess(
+        `${companyName.trim()} created successfully.`
+      )
+
+      setCompanyName('')
+      setEmail('')
+      setPassword('')
+      setPlanName(
+        'Recepta Standard'
+      )
+      setMonthlyMinutes('300')
+      setAiModelId(
+        models[0]?.id || ''
+      )
+      setRetellAgentId('')
+
+      await loadData()
+    } catch (error) {
+      setCreateError(
+        error instanceof Error
+          ? error.message
+          : 'Could not create client.'
+      )
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const openEditClient = (
+    client: ClientWithSubscription
+  ) => {
+    setEditingClient(client)
+    setEditCompanyName(
+      client.company_name || ''
+    )
+    setEditEmail(
+      client.contact_email || ''
+    )
+    setEditPlanName(
+      client.subscription?.plan_name ===
+        'Recepta Pro'
+        ? 'Recepta Pro'
+        : 'Recepta Standard'
+    )
+    setEditMonthlyMinutes(
+      String(
+        client.subscription?.monthly_minutes ||
+          300
+      )
+    )
+    setEditAiModelId(
+      client.subscription?.ai_model_id ||
+        models[0]?.id ||
+        ''
+    )
+    setEditRetellAgentId(
+      client.agent?.retell_agent_id || ''
+    )
+    setEditPassword('')
+    setEditError('')
+  }
+
+  const handleSaveClientEdit = async (
+    event: FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault()
+
+    if (!editingClient) return
+
+    setSavingEdit(true)
+    setEditError('')
+    setActionError('')
+    setActionSuccess('')
+
+    try {
+      const minutes =
+        Number(editMonthlyMinutes)
+
+      if (
+        !Number.isFinite(minutes) ||
+        minutes < 1
+      ) {
+        throw new Error(
+          'Monthly minutes must be at least 1.'
+        )
+      }
+
+      if (!editAiModelId) {
+        throw new Error(
+          'Choose an AI model.'
+        )
+      }
+
+      const normalizedRetellId =
+        editRetellAgentId.trim()
+
+      if (
+        normalizedRetellId &&
+        !normalizedRetellId.startsWith(
+          'agent_'
+        )
+      ) {
+        throw new Error(
+          'Retell Agent ID must start with agent_.'
+        )
+      }
+
+      if (
+        editPassword &&
+        editPassword.length < 8
+      ) {
+        throw new Error(
+          'New temporary password must be at least 8 characters.'
+        )
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error(
+          'Admin session expired. Sign in again.'
+        )
+      }
+
+      const response = await fetch(
+        '/.netlify/functions/update-clients',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':
+              'application/json',
+            Authorization:
+              `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            clientId: editingClient.id,
+            companyName:
+              editCompanyName.trim(),
+            email:
+              editEmail.trim().toLowerCase(),
+            planName: editPlanName,
+            monthlyMinutes:
+              Math.floor(minutes),
+            aiModelId: editAiModelId,
+            retellAgentId:
+              normalizedRetellId || null,
+            newPassword:
+              editPassword || null,
+          }),
+        }
+      )
+
+      const result =
+        await response
+          .json()
+          .catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error ||
+            'Could not update client.'
+        )
+      }
+
+      setActionSuccess(
+        `${editCompanyName.trim()} updated.`
+      )
+      setEditingClient(null)
+      setEditPassword('')
+      await loadData()
+    } catch (error) {
+      setEditError(
+        error instanceof Error
+          ? error.message
+          : 'Could not update client.'
+      )
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  const handleDeleteClient = async (
+    client: ClientWithSubscription
+  ) => {
+    const clientName =
+      client.company_name ||
+      client.contact_email ||
+      'this client'
+
+    if (
+      !window.confirm(
+        `Permanently delete ${clientName}?`
+      )
+    ) {
+      return
+    }
+
+    setDeletingId(client.id)
+    setActionError('')
+    setActionSuccess('')
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error(
+          'Admin session expired. Sign in again.'
+        )
+      }
+
+      const response = await fetch(
+        '/.netlify/functions/delete-client',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':
+              'application/json',
+            Authorization:
+              `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            clientId: client.id,
+          }),
+        }
+      )
+
+      const result =
+        await response
+          .json()
+          .catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error ||
+            'Could not delete client.'
+        )
+      }
+
+      setActionSuccess(
+        `${clientName} deleted.`
+      )
+
+      await loadData()
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : 'Could not delete client.'
+      )
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const filteredClients = useMemo(() => {
+    const query =
+      search.trim().toLowerCase()
+
+    if (!query) return clients
+
+    return clients.filter(
+      (client) =>
+        client.company_name
+          ?.toLowerCase()
+          .includes(query) ||
+        client.contact_email
+          ?.toLowerCase()
+          .includes(query)
+    )
+  }, [clients, search])
+
+  const stats = useMemo(() => {
+    return {
+      total: clients.length,
+      active: clients.filter(
+        (client) =>
+          client.subscription?.status ===
+          'active'
+      ).length,
+      pro: clients.filter(
+        (client) =>
+          client.subscription?.plan_name ===
+          'Recepta Pro'
+      ).length,
+    }
+  }, [clients])
+
+  const modelName = (
+    id: string | null | undefined
+  ) =>
+    models.find(
+      (model) => model.id === id
+    )?.display_name || 'Not assigned'
+
+  if (checkingAdmin) {
+    return (
+      <main
+        style={{
+          minHeight: '100vh',
+          display: 'grid',
+          placeItems: 'center',
+          background: '#030a06',
+          color: '#fff',
+        }}
+      >
+        Checking admin access...
+      </main>
+    )
+  }
+
+  if (!isAdmin) {
+    return (
+      <main
+        style={{
+          minHeight: '100vh',
+          width: '100%',
+          display: 'grid',
+          placeItems: 'center',
+          padding: '24px',
+          background: '#030a06',
+          color: '#fff',
+          boxSizing: 'border-box',
+        }}
+      >
+        <section
+          style={{
+            width: '100%',
+            maxWidth: '480px',
+            padding: '36px',
+            border:
+              '1px solid rgba(0,230,118,0.15)',
+            borderRadius: '24px',
+            background:
+              'rgba(8,25,16,0.95)',
+            boxSizing: 'border-box',
+          }}
+        >
+          <span className="adminEyebrow">
+            RECEPTA ADMIN
+          </span>
+
+          <h1
+            style={{
+              margin:
+                '10px 0 8px',
+            }}
+          >
+            Admin login
+          </h1>
+
+          <p
+            style={{
+              margin:
+                '0 0 24px',
+              opacity: 0.7,
+            }}
+          >
+            Sign in to the Recepta
+            administration portal.
+          </p>
+
+          <form
+            onSubmit={handleAdminLogin}
+            style={{
+              display: 'grid',
+              gap: '16px',
+            }}
+          >
+            <label
+              style={{
+                display: 'grid',
+                gap: '8px',
+              }}
+            >
+              <span>Email</span>
+
+              <input
+                type="email"
+                value={adminEmail}
+                onChange={(
+                  event: ChangeEvent<HTMLInputElement>
+                ) =>
+                  setAdminEmail(
+                    event.target.value
+                  )
+                }
+                required
+                style={{
+                  width: '100%',
+                  boxSizing:
+                    'border-box',
+                }}
+              />
+            </label>
+
+            <label
+              style={{
+                display: 'grid',
+                gap: '8px',
+              }}
+            >
+              <span>Password</span>
+
+              <input
+                type="password"
+                value={adminPassword}
+                onChange={(
+                  event: ChangeEvent<HTMLInputElement>
+                ) =>
+                  setAdminPassword(
+                    event.target.value
+                  )
+                }
+                required
+                style={{
+                  width: '100%',
+                  boxSizing:
+                    'border-box',
+                }}
+              />
+            </label>
+
+            {loginError && (
+              <p className="adminFormMessage adminFormMessage--error">
+                {loginError}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              className="btn btnPrimary"
+              disabled={loggingIn}
+              style={{
+                width: '100%',
+              }}
+            >
+              {loggingIn
+                ? 'Signing in...'
+                : 'Sign in'}
+            </button>
+          </form>
+        </section>
+      </main>
+    )
+  }
+
+  return (
+    <main className="adminPage">
+      <aside className="adminSidebar">
+        <div>
+          <a
+            href="/"
+            className="adminBrand"
+          >
+            <img
+              src="/components/logoR.png"
+              alt="Recepta"
+            />
+
+            <div>
+              <strong>Recepta</strong>
+              <span>ADMIN</span>
+            </div>
+          </a>
+
+          <nav className="adminNav">
+            <a
+              href="/admin"
+              className="adminNavItem adminNavItem--active"
+            >
+              Clients
+            </a>
+          </nav>
+        </div>
+      </aside>
+
+      <section className="adminMain">
+        <header className="adminHeader">
+          <div>
+            <span className="adminEyebrow">
+              RECEPTA ADMIN
+            </span>
+
+            <h1>
+              Client Control Center
+            </h1>
+
+            <p>
+              Create a client once. Their
+              plan, dashboard, billing
+              configuration and AI model are
+              assigned immediately.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="btn btnOutline"
+            onClick={handleAdminLogout}
+          >
+            Sign out
+          </button>
+        </header>
+
+        <div className="adminStats">
+          <div className="adminStatCard">
+            <span>TOTAL CLIENTS</span>
+            <strong>{stats.total}</strong>
+          </div>
+
+          <div className="adminStatCard">
+            <span>ACTIVE</span>
+            <strong>{stats.active}</strong>
+          </div>
+
+          <div className="adminStatCard">
+            <span>PRO CLIENTS</span>
+            <strong>{stats.pro}</strong>
+          </div>
+        </div>
+
+        <section className="adminPanel">
+          <div className="adminPanelHeading">
+            <div>
+              <span className="adminEyebrow">
+                NEW CLIENT
+              </span>
+
+              <h2>
+                Create client account
+              </h2>
+
+              <p>
+                Standard gets Overview,
+                Calls, Agent, Billing and
+                Settings. Pro also gets
+                Appointments and Employees.
+              </p>
+            </div>
+          </div>
+
+          <form
+            className="adminNewClientForm"
+            onSubmit={handleCreateClient}
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: '16px',
+              alignItems: 'end',
+            }}
+          >
+            <label>
+              <span>Company name</span>
+              <input
+                value={companyName}
+                onChange={(
+                  event: ChangeEvent<HTMLInputElement>
+                ) =>
+                  setCompanyName(
+                    event.target.value
+                  )
+                }
+                placeholder="ABC Plumbing"
+                required
+              />
+            </label>
+
+            <label>
+              <span>Client email</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(
+                  event: ChangeEvent<HTMLInputElement>
+                ) =>
+                  setEmail(
+                    event.target.value
+                  )
+                }
+                placeholder="owner@company.com"
+                required
+              />
+            </label>
+
+            <label>
+              <span>
+                Temporary password
+              </span>
+              <input
+                type="password"
+                value={password}
+                onChange={(
+                  event: ChangeEvent<HTMLInputElement>
+                ) =>
+                  setPassword(
+                    event.target.value
+                  )
+                }
+                minLength={8}
+                required
+              />
+            </label>
+
+            <label>
+              <span>Plan</span>
+              <select
+                value={planName}
+                onChange={(
+                  event: ChangeEvent<HTMLSelectElement>
+                ) =>
+                  setPlanName(
+                    event.target.value as PlanName
+                  )
+                }
+              >
+                <option value="Recepta Standard">
+                  Standard — C$200
+                </option>
+                <option value="Recepta Pro">
+                  Pro — C$300
+                </option>
+              </select>
+            </label>
+
+            <label>
+              <span>
+                Monthly Minutes
+              </span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={monthlyMinutes}
+                onChange={(
+                  event: ChangeEvent<HTMLInputElement>
+                ) =>
+                  setMonthlyMinutes(
+                    event.target.value
+                  )
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>AI Model</span>
+              <select
+                value={aiModelId}
+                onChange={(
+                  event: ChangeEvent<HTMLSelectElement>
+                ) =>
+                  setAiModelId(
+                    event.target.value
+                  )
+                }
+                required
+              >
+                <option
+                  value=""
+                  disabled
+                >
+                  Choose AI model
+                </option>
+
+                {models.map(
+                  (model) => (
+                    <option
+                      key={model.id}
+                      value={model.id}
+                    >
+                      {model.display_name}
+                    </option>
+                  )
+                )}
+              </select>
+            </label>
+
+            <label>
+              <span>
+                Retell Agent ID{' '}
+                <small>(optional)</small>
+              </span>
+              <input
+                value={retellAgentId}
+                onChange={(
+                  event: ChangeEvent<HTMLInputElement>
+                ) =>
+                  setRetellAgentId(
+                    event.target.value
+                  )
+                }
+                placeholder="agent_xxxxxxxxx"
+              />
+            </label>
+
+            <div className="adminCreateAction">
+              <button
+                className="btn btnPrimary"
+                type="submit"
+                disabled={
+                  creating ||
+                  models.length === 0
+                }
+              >
+                {creating
+                  ? 'Creating...'
+                  : 'Create & Activate Client'}
+              </button>
+            </div>
+          </form>
+
+          {createError && (
+            <p className="adminFormMessage adminFormMessage--error">
+              {createError}
+            </p>
+          )}
+
+          {createSuccess && (
+            <p className="adminFormMessage adminFormMessage--success">
+              {createSuccess}
+            </p>
+          )}
+        </section>
+
+        {actionError && (
+          <p className="adminFormMessage adminFormMessage--error">
+            {actionError}
+          </p>
+        )}
+
+        {actionSuccess && (
+          <p className="adminFormMessage adminFormMessage--success">
+            {actionSuccess}
+          </p>
+        )}
+
+        <section className="adminPanel">
+          <div className="adminClientHeader">
+            <div>
+              <span className="adminEyebrow">
+                CLIENTS
+              </span>
+              <h2>Current clients</h2>
+            </div>
+
+            <div className="adminSearch">
+              <input
+                type="search"
+                value={search}
+                onChange={(
+                  event: ChangeEvent<HTMLInputElement>
+                ) =>
+                  setSearch(
+                    event.target.value
+                  )
+                }
+                placeholder="Search clients..."
+              />
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="adminEmpty">
+              Loading clients...
+            </div>
+          ) : filteredClients.length === 0 ? (
+            <div className="adminEmpty">
+              No clients found.
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gap: '14px',
+                marginTop: '24px',
+              }}
+            >
+              {filteredClients.map((client) => (
+                <div
+                  key={client.id}
+                  style={{
+                    display: 'grid',
+                    gap: '18px',
+                    padding: '20px',
+                    border:
+                      '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '18px',
+                    background:
+                      'rgba(255,255,255,0.025)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent:
+                        'space-between',
+                      gap: '18px',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '14px',
+                        minWidth: 0,
+                      }}
+                    >
+                      <div
+                        className="adminClientAvatar"
+                      >
+                        {(client.company_name || 'C')
+                          .slice(0, 2)
+                          .toUpperCase()}
+                      </div>
+
+                      <div>
+                        <strong
+                          style={{
+                            fontSize: '18px',
+                            color: '#fff',
+                          }}
+                        >
+                          {client.company_name ||
+                            'Unnamed Client'}
+                        </strong>
+
+                        <div
+                          style={{
+                            marginTop: '4px',
+                            color:
+                              'rgba(255,255,255,0.62)',
+                          }}
+                        >
+                          {client.contact_email ||
+                            'No email'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: '10px',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="btn btnOutline"
+                        onClick={() =>
+                          openEditClient(client)
+                        }
+                      >
+                        Edit Client
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btnOutline employeeDeleteButton"
+                        disabled={
+                          deletingId === client.id
+                        }
+                        onClick={() =>
+                          handleDeleteClient(client)
+                        }
+                      >
+                        {deletingId === client.id
+                          ? 'Deleting...'
+                          : 'Delete Client'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns:
+                        'repeat(auto-fit, minmax(170px, 1fr))',
+                      gap: '14px',
+                    }}
+                  >
+                    <div>
+                      <small>PLAN</small>
+                      <div>
+                        {client.subscription?.plan_name ||
+                          'No plan'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <small>MONTHLY MINUTES</small>
+                      <div>
+                        {client.subscription?.monthly_minutes ??
+                          'Not set'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <small>AI MODEL</small>
+                      <div>
+                        {modelName(
+                          client.subscription
+                            ?.ai_model_id
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <small>RETELL AGENT ID</small>
+                      <div>
+                        {client.agent?.retell_agent_id ||
+                          'Not connected'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <small>SUBSCRIPTION STATUS</small>
+                      <div>
+                        {client.subscription?.status ||
+                          'pending'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <small>AI STATUS</small>
+                      <div>
+                        {client.agent?.status ||
+                          'setup'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {editingClient && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 9999,
+              display: 'grid',
+              placeItems: 'center',
+              padding: '24px',
+              background:
+                'rgba(0,0,0,0.72)',
+            }}
+            onMouseDown={(event) => {
+              if (
+                event.target ===
+                event.currentTarget
+              ) {
+                setEditingClient(null)
+              }
+            }}
+          >
+            <section
+              style={{
+                width: 'min(900px, 100%)',
+                maxHeight: '90vh',
+                overflowY: 'auto',
+                padding: '28px',
+                border:
+                  '1px solid rgba(0,230,118,0.18)',
+                borderRadius: '24px',
+                background: '#07140d',
+                color: '#fff',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent:
+                    'space-between',
+                  gap: '16px',
+                  alignItems: 'center',
+                  marginBottom: '22px',
+                }}
+              >
+                <div>
+                  <span className="adminEyebrow">
+                    EDIT CLIENT
+                  </span>
+                  <h2
+                    style={{
+                      margin: '8px 0 0',
+                    }}
+                  >
+                    {editingClient.company_name ||
+                      'Client'}
+                  </h2>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btnOutline"
+                  onClick={() =>
+                    setEditingClient(null)
+                  }
+                >
+                  Close
+                </button>
+              </div>
+
+              <form
+                onSubmit={
+                  handleSaveClientEdit
+                }
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(230px, 1fr))',
+                  gap: '16px',
+                }}
+              >
+                <label>
+                  <span>Company name</span>
+                  <input
+                    value={editCompanyName}
+                    onChange={(event) =>
+                      setEditCompanyName(
+                        event.target.value
+                      )
+                    }
+                    required
+                  />
+                </label>
+
+                <label>
+                  <span>Email</span>
+                  <input
+                    type="email"
+                    value={editEmail}
+                    onChange={(event) =>
+                      setEditEmail(
+                        event.target.value
+                      )
+                    }
+                    required
+                  />
+                </label>
+
+                <label>
+                  <span>Plan</span>
+                  <select
+                    value={editPlanName}
+                    onChange={(event) =>
+                      setEditPlanName(
+                        event.target
+                          .value as PlanName
+                      )
+                    }
+                  >
+                    <option value="Recepta Standard">
+                      Standard — C$200
+                    </option>
+                    <option value="Recepta Pro">
+                      Pro — C$300
+                    </option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Monthly Minutes</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={editMonthlyMinutes}
+                    onChange={(event) =>
+                      setEditMonthlyMinutes(
+                        event.target.value
+                      )
+                    }
+                    required
+                  />
+                </label>
+
+                <label>
+                  <span>AI Model</span>
+                  <select
+                    value={editAiModelId}
+                    onChange={(event) =>
+                      setEditAiModelId(
+                        event.target.value
+                      )
+                    }
+                    required
+                  >
+                    {models.map((model) => (
+                      <option
+                        key={model.id}
+                        value={model.id}
+                      >
+                        {model.display_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  <span>Retell Agent ID</span>
+                  <input
+                    value={editRetellAgentId}
+                    onChange={(event) =>
+                      setEditRetellAgentId(
+                        event.target.value
+                      )
+                    }
+                    placeholder="agent_xxxxxxxxx"
+                  />
+                </label>
+
+                <label
+                  style={{
+                    gridColumn: '1 / -1',
+                  }}
+                >
+                  <span>
+                    New temporary password
+                  </span>
+                  <input
+                    type="password"
+                    minLength={8}
+                    value={editPassword}
+                    onChange={(event) =>
+                      setEditPassword(
+                        event.target.value
+                      )
+                    }
+                    placeholder="Leave blank to keep current password"
+                  />
+                  <small
+                    style={{
+                      display: 'block',
+                      marginTop: '6px',
+                      opacity: 0.62,
+                    }}
+                  >
+                    Existing passwords cannot be
+                    displayed. Enter a new one only
+                    when you want to reset it.
+                  </small>
+                </label>
+
+                {editError && (
+                  <p
+                    className="adminFormMessage adminFormMessage--error"
+                    style={{
+                      gridColumn: '1 / -1',
+                    }}
+                  >
+                    {editError}
+                  </p>
+                )}
+
+                <div
+                  style={{
+                    gridColumn: '1 / -1',
+                    display: 'flex',
+                    justifyContent:
+                      'flex-end',
+                    gap: '10px',
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="btn btnOutline"
+                    onClick={() =>
+                      setEditingClient(null)
+                    }
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="btn btnPrimary"
+                    disabled={savingEdit}
+                  >
+                    {savingEdit
+                      ? 'Saving...'
+                      : 'Save Client'}
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+        )}
+      </section>
+    </main>
+  )
 }
