@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+
 import Stripe from 'stripe'
 
 export default async (request: Request) => {
@@ -151,6 +151,20 @@ export default async (request: Request) => {
           if (updateError) {
             throw updateError
           }
+
+          await supabaseAdmin
+            .from('clients')
+            .update({
+              status: 'setup',
+            })
+            .eq('id', clientId)
+
+          await supabaseAdmin
+            .from('agents')
+            .update({
+              status: 'setup',
+            })
+            .eq('client_id', clientId)
         }
       }
     }
