@@ -1,44 +1,42 @@
 import { createClient } from '@supabase/supabase-js'
+import Stripe from 'stripe'
 
 type PlanName =
   | 'Recepta Standard'
   | 'Recepta Pro'
 
 const ADMIN_EMAIL =
-  (
-    process.env.ADMIN_EMAIL ||
-    'aaryansmg24@gmail.com'
-  ).toLowerCase()
+  (process.env.ADMIN_EMAIL || '')
+    .trim()
+    .toLowerCase()
 
-const isAdminUser = async (
-  supabaseAdmin: any,
-  user: { id: string; email?: string | null }
+const isAdminUser = (
+  user: { email?: string | null }
 ) => {
-  const emailMatches =
-    user.email?.toLowerCase() ===
-    ADMIN_EMAIL
-
-  const { data: requester } =
-    await supabaseAdmin
-      .from('clients')
-      .select('role')
-      .eq('id', user.id)
-      .maybeSingle()
+  if (!ADMIN_EMAIL) {
+    return false
+  }
 
   return (
-    emailMatches ||
-    requester?.role === 'admin'
+    user.email
+      ?.trim()
+      .toLowerCase() ===
+    ADMIN_EMAIL
   )
 }
-
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
     return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
+      JSON.stringify({
+        error: 'Method not allowed',
+      }),
       {
         status: 405,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type':
+            'application/json',
+        },
       }
     )
   }
@@ -48,45 +46,71 @@ export default async (request: Request) => {
       process.env.SUPABASE_URL
     const supabaseSecretKey =
       process.env.SUPABASE_SECRET_KEY
+    const stripeSecretKey =
+      process.env.STRIPE_SECRET_KEY
 
-    if (!supabaseUrl || !supabaseSecretKey) {
+    if (
+      !supabaseUrl ||
+      !supabaseSecretKey ||
+      !stripeSecretKey ||
+      !ADMIN_EMAIL
+    ) {
       return new Response(
         JSON.stringify({
-          error: 'Server configuration is missing.',
+          error:
+            'Server configuration is missing.',
         }),
         {
           status: 500,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
         }
       )
     }
 
     const authHeader =
-      request.headers.get('authorization')
+      request.headers.get(
+        'authorization'
+      )
 
-    if (!authHeader?.startsWith('Bearer ')) {
+    if (
+      !authHeader?.startsWith(
+        'Bearer '
+      )
+    ) {
       return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
+        JSON.stringify({
+          error: 'Unauthorized',
+        }),
         {
           status: 401,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
         }
       )
     }
 
     const accessToken =
-      authHeader.replace('Bearer ', '')
+      authHeader.replace(
+        'Bearer ',
+        ''
+      )
 
-    const supabaseAdmin = createClient(
-      supabaseUrl,
-      supabaseSecretKey,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      }
-    )
+    const supabaseAdmin =
+      createClient(
+        supabaseUrl,
+        supabaseSecretKey,
+        {
+          auth: {
+            autoRefreshToken: false,
+            persistSession: false,
+          },
+        }
+      )
 
     const {
       data: { user },
@@ -99,18 +123,19 @@ export default async (request: Request) => {
     if (
       userError ||
       !user ||
-      !(await isAdminUser(
-        supabaseAdmin,
-        user
-      ))
+      !isAdminUser(user)
     ) {
       return new Response(
         JSON.stringify({
-          error: 'Admin access required',
+          error:
+            'Admin access required',
         }),
         {
           status: 403,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
         }
       )
     }
@@ -125,7 +150,11 @@ export default async (request: Request) => {
       retellAgentId,
     } = await request.json()
 
-    if (!companyName || !email || !password) {
+    if (
+      !companyName ||
+      !email ||
+      !password
+    ) {
       return new Response(
         JSON.stringify({
           error:
@@ -133,7 +162,10 @@ export default async (request: Request) => {
         }),
         {
           status: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
         }
       )
     }
@@ -150,16 +182,21 @@ export default async (request: Request) => {
     ) {
       return new Response(
         JSON.stringify({
-          error: 'Choose Standard or Pro.',
+          error:
+            'Choose Standard or Pro.',
         }),
         {
           status: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
         }
       )
     }
 
-    const minutes = Number(monthlyMinutes)
+    const minutes =
+      Number(monthlyMinutes)
 
     if (
       !Number.isFinite(minutes) ||
@@ -172,12 +209,18 @@ export default async (request: Request) => {
         }),
         {
           status: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
         }
       )
     }
 
-    const { data: model } =
+    const {
+      data: model,
+      error: modelError,
+    } =
       await supabaseAdmin
         .from('ai_models')
         .select('id')
@@ -185,7 +228,10 @@ export default async (request: Request) => {
         .eq('is_active', true)
         .maybeSingle()
 
-    if (!model) {
+    if (
+      modelError ||
+      !model
+    ) {
       return new Response(
         JSON.stringify({
           error:
@@ -193,13 +239,17 @@ export default async (request: Request) => {
         }),
         {
           status: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
         }
       )
     }
 
     const normalizedRetellId =
-      typeof retellAgentId === 'string' &&
+      typeof retellAgentId ===
+        'string' &&
       retellAgentId.trim()
         ? retellAgentId.trim()
         : null
@@ -217,7 +267,10 @@ export default async (request: Request) => {
         }),
         {
           status: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
         }
       )
     }
@@ -227,19 +280,25 @@ export default async (request: Request) => {
         .trim()
         .toLowerCase()
 
+    const normalizedCompany =
+      String(companyName).trim()
+
     const {
       data: { user: newUser },
       error: createUserError,
     } =
-      await supabaseAdmin.auth.admin.createUser(
-        {
+      await supabaseAdmin
+        .auth.admin
+        .createUser({
           email: normalizedEmail,
           password,
           email_confirm: true,
-        }
-      )
+        })
 
-    if (createUserError || !newUser) {
+    if (
+      createUserError ||
+      !newUser
+    ) {
       return new Response(
         JSON.stringify({
           error:
@@ -248,38 +307,92 @@ export default async (request: Request) => {
         }),
         {
           status: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
         }
       )
     }
+
+    const stripe =
+      new Stripe(stripeSecretKey)
+
+    let stripeCustomerId:
+      | string
+      | null = null
 
     const rollback = async () => {
       await supabaseAdmin
         .from('subscriptions')
         .delete()
-        .eq('client_id', newUser.id)
+        .eq(
+          'client_id',
+          newUser.id
+        )
 
       await supabaseAdmin
         .from('agents')
         .delete()
-        .eq('client_id', newUser.id)
+        .eq(
+          'client_id',
+          newUser.id
+        )
 
       await supabaseAdmin
         .from('clients')
         .delete()
         .eq('id', newUser.id)
 
-      await supabaseAdmin.auth.admin
+      if (stripeCustomerId) {
+        try {
+          await stripe.customers.del(
+            stripeCustomerId
+          )
+        } catch {
+          // Best effort rollback.
+        }
+      }
+
+      await supabaseAdmin
+        .auth.admin
         .deleteUser(newUser.id)
     }
 
-    const { error: clientError } =
+    try {
+      const customer =
+        await stripe.customers.create({
+          email: normalizedEmail,
+          name: normalizedCompany,
+          metadata: {
+            recepta_client_id:
+              newUser.id,
+            recepta_plan:
+              String(planName),
+          },
+        })
+
+      stripeCustomerId =
+        customer.id
+    } catch (error) {
+      await rollback()
+
+      throw new Error(
+        error instanceof Error
+          ? `Stripe customer creation failed: ${error.message}`
+          : 'Stripe customer creation failed.'
+      )
+    }
+
+    const {
+      error: clientError,
+    } =
       await supabaseAdmin
         .from('clients')
         .insert({
           id: newUser.id,
           company_name:
-            String(companyName).trim(),
+            normalizedCompany,
           contact_email:
             normalizedEmail,
           status: 'setup',
@@ -291,13 +404,16 @@ export default async (request: Request) => {
       throw clientError
     }
 
-    const { error: agentError } =
+    const {
+      error: agentError,
+    } =
       await supabaseAdmin
         .from('agents')
         .insert({
-          client_id: newUser.id,
+          client_id:
+            newUser.id,
           agent_name:
-            `${String(companyName).trim()} Receptionist`,
+            `${normalizedCompany} Receptionist`,
           business_hours:
             'Not configured',
           status: 'setup',
@@ -311,22 +427,32 @@ export default async (request: Request) => {
     }
 
     const monthlyPrice =
-      planName === 'Recepta Pro'
+      planName ===
+      'Recepta Pro'
         ? 300
         : 200
 
-    const { error: subscriptionError } =
+    const {
+      error:
+        subscriptionError,
+    } =
       await supabaseAdmin
         .from('subscriptions')
         .insert({
-          client_id: newUser.id,
+          client_id:
+            newUser.id,
           plan_name: planName,
           monthly_price:
             monthlyPrice,
           monthly_minutes:
             Math.floor(minutes),
-          ai_model_id: aiModelId,
+          ai_model_id:
+            aiModelId,
           status: 'active',
+          stripe_customer_id:
+            stripeCustomerId,
+          stripe_subscription_id:
+            null,
         })
 
     if (subscriptionError) {
@@ -338,6 +464,7 @@ export default async (request: Request) => {
       JSON.stringify({
         success: true,
         userId: newUser.id,
+        stripeCustomerId,
         subscription: {
           status: 'active',
           planName,
@@ -347,13 +474,14 @@ export default async (request: Request) => {
           aiModelId,
         },
         aiConfigurationStatus:
-          normalizedRetellId
-            ? 'pending'
-            : 'pending',
+          'pending',
       }),
       {
         status: 200,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type':
+            'application/json',
+        },
       }
     )
   } catch (error) {
@@ -371,7 +499,10 @@ export default async (request: Request) => {
       }),
       {
         status: 500,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type':
+            'application/json',
+        },
       }
     )
   }
