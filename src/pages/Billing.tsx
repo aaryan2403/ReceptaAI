@@ -692,9 +692,22 @@ export default function Billing() {
 
                 {currentModel && (
                   <div
-                    className="billingModelCard billingModelCard--selected"
+                    className={
+                      subscriptionIsCancelled
+                        ? 'billingModelCard'
+                        : 'billingModelCard billingModelCard--selected'
+                    }
                     style={{
                       marginTop: '24px',
+                      ...(subscriptionIsCancelled
+                        ? {
+                            borderColor:
+                              'rgba(255,255,255,0.12)',
+                            background:
+                              'rgba(255,255,255,0.035)',
+                            boxShadow: 'none',
+                          }
+                        : {}),
                     }}
                   >
                     <div className="billingModelTop">
@@ -707,8 +720,28 @@ export default function Billing() {
                         />
                       </div>
 
-                      <span className="billingStatus billingStatus--active">
-                        Current
+                      <span
+                        className={
+                          subscriptionIsCancelled
+                            ? 'billingStatus'
+                            : 'billingStatus billingStatus--active'
+                        }
+                        style={
+                          subscriptionIsCancelled
+                            ? {
+                                color:
+                                  'rgba(255,255,255,0.66)',
+                                borderColor:
+                                  'rgba(255,255,255,0.14)',
+                                background:
+                                  'rgba(255,255,255,0.06)',
+                              }
+                            : undefined
+                        }
+                      >
+                        {subscriptionIsCancelled
+                          ? 'Previous'
+                          : 'Current'}
                       </span>
                     </div>
 
@@ -721,9 +754,9 @@ export default function Billing() {
                     </h3>
 
                     <p>
-                      This AI model is currently
-                      assigned to your Recepta
-                      receptionist.
+                      {subscriptionIsCancelled
+                        ? 'This was the AI model assigned to your previous Recepta subscription.'
+                        : 'This AI model is currently assigned to your Recepta receptionist.'}
                     </p>
                   </div>
                 )}
@@ -819,147 +852,579 @@ export default function Billing() {
 
               {subscriptionIsCancelled && (
                 <section
-                  className="billingCheckoutSummary"
                   style={{
-                    marginTop: '24px',
+                    marginTop: '28px',
+                    padding: '34px',
+                    border:
+                      '1px solid rgba(0,230,118,0.20)',
+                    borderRadius: '26px',
+                    background:
+                      'linear-gradient(180deg, rgba(5,22,13,0.98), rgba(3,14,8,0.98))',
+                    boxShadow:
+                      '0 24px 70px rgba(0,0,0,0.24)',
                   }}
                 >
                   <span className="billingPremiumEyebrow">
                     START A NEW SUBSCRIPTION
                   </span>
 
-                  <h2>
+                  <h2
+                    style={{
+                      margin: '10px 0 8px',
+                      fontSize:
+                        'clamp(28px, 3vw, 40px)',
+                    }}
+                  >
                     Choose your new Recepta plan
                   </h2>
 
-                  <p>
-                    Choose your plan, AI model and
-                    monthly minutes, then continue
-                    to secure Stripe checkout.
+                  <p
+                    style={{
+                      margin: 0,
+                      maxWidth: '820px',
+                      opacity: 0.76,
+                      fontSize: '16px',
+                    }}
+                  >
+                    Pick your plan, choose the AI model powering your receptionist,
+                    set your monthly minutes, then continue to secure Stripe checkout.
                   </p>
 
                   <div
                     style={{
-                      display: 'grid',
-                      gridTemplateColumns:
-                        'repeat(auto-fit, minmax(220px, 1fr))',
-                      gap: '16px',
-                      marginTop: '24px',
+                      marginTop: '30px',
                     }}
                   >
-                    <label>
-                      <span>Plan</span>
-                      <select
-                        value={selectedPlan}
-                        onChange={(event) =>
-                          setSelectedPlan(
-                            event.target.value as PlanName
-                          )
-                        }
-                      >
-                        <option value="Recepta Standard">
-                          Standard — C$200/month
-                        </option>
-                        <option value="Recepta Pro">
-                          Pro — C$300/month
-                        </option>
-                      </select>
-                    </label>
+                    <span
+                      style={{
+                        display: 'block',
+                        marginBottom: '12px',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        opacity: 0.6,
+                      }}
+                    >
+                      Choose your plan
+                    </span>
 
-                    <label>
-                      <span>AI Model</span>
-                      <select
-                        value={selectedModelId}
-                        onChange={(event) =>
-                          setSelectedModelId(
-                            event.target.value
-                          )
-                        }
-                      >
-                        {models.map((model) => (
-                          <option
-                            key={model.id}
-                            value={model.id}
-                          >
-                            {model.display_name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns:
+                          'repeat(auto-fit, minmax(260px, 1fr))',
+                        gap: '14px',
+                      }}
+                    >
+                      {(['Recepta Standard', 'Recepta Pro'] as PlanName[]).map(
+                        (plan) => {
+                          const selected = selectedPlan === plan
+                          const isProPlan = plan === 'Recepta Pro'
 
-                    <label>
-                      <span>Monthly Minutes</span>
-                      <input
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={selectedMinutes}
-                        onChange={(event) =>
-                          setSelectedMinutes(
-                            event.target.value
+                          return (
+                            <button
+                              key={plan}
+                              type="button"
+                              onClick={() => setSelectedPlan(plan)}
+                              style={{
+                                width: '100%',
+                                padding: '22px',
+                                textAlign: 'left',
+                                color: '#fff',
+                                borderRadius: '20px',
+                                border: selected
+                                  ? '1px solid rgba(0,230,118,0.72)'
+                                  : '1px solid rgba(255,255,255,0.10)',
+                                background: selected
+                                  ? 'rgba(0,230,118,0.075)'
+                                  : 'rgba(255,255,255,0.025)',
+                                boxShadow: selected
+                                  ? '0 0 0 1px rgba(0,230,118,0.05), 0 18px 45px rgba(0,0,0,0.18)'
+                                  : 'none',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  gap: '20px',
+                                  alignItems: 'flex-start',
+                                }}
+                              >
+                                <div>
+                                  <span
+                                    style={{
+                                      display: 'block',
+                                      fontSize: '11px',
+                                      fontWeight: 800,
+                                      letterSpacing: '0.08em',
+                                      opacity: 0.58,
+                                      textTransform: 'uppercase',
+                                    }}
+                                  >
+                                    {isProPlan ? 'PRO' : 'STANDARD'}
+                                  </span>
+
+                                  <strong
+                                    style={{
+                                      display: 'block',
+                                      marginTop: '7px',
+                                      fontSize: '22px',
+                                    }}
+                                  >
+                                    {plan}
+                                  </strong>
+                                </div>
+
+                                <span
+                                  style={{
+                                    width: '24px',
+                                    height: '24px',
+                                    display: 'grid',
+                                    placeItems: 'center',
+                                    flex: '0 0 auto',
+                                    borderRadius: '999px',
+                                    border: selected
+                                      ? '1px solid rgba(0,230,118,0.65)'
+                                      : '1px solid rgba(255,255,255,0.18)',
+                                  }}
+                                >
+                                  {selected && (
+                                    <span
+                                      style={{
+                                        width: '10px',
+                                        height: '10px',
+                                        borderRadius: '999px',
+                                        background: '#00e676',
+                                        boxShadow: '0 0 12px rgba(0,230,118,0.75)',
+                                      }}
+                                    />
+                                  )}
+                                </span>
+                              </div>
+
+                              <div
+                                style={{
+                                  marginTop: '20px',
+                                  display: 'flex',
+                                  alignItems: 'baseline',
+                                  gap: '5px',
+                                }}
+                              >
+                                <strong
+                                  style={{
+                                    fontSize: '29px',
+                                  }}
+                                >
+                                  C${isProPlan ? '300' : '200'}
+                                </strong>
+                                <span style={{ opacity: 0.55 }}>/ month</span>
+                              </div>
+
+                              <p
+                                style={{
+                                  margin: '12px 0 0',
+                                  opacity: 0.67,
+                                  lineHeight: 1.55,
+                                }}
+                              >
+                                {isProPlan
+                                  ? 'Everything in Standard, plus appointments and employee availability.'
+                                  : 'Core AI receptionist with calls, agent, billing and settings.'}
+                              </p>
+                            </button>
                           )
                         }
-                      />
-                    </label>
+                      )}
+                    </div>
                   </div>
 
                   <div
-                    className="billingCurrentStats"
                     style={{
-                      marginTop: '24px',
+                      marginTop: '34px',
                     }}
                   >
-                    <div>
-                      <span>Platform</span>
-                      <strong>
-                        C${selectedBasePrice.toFixed(2)}
-                      </strong>
-                    </div>
+                    <span
+                      style={{
+                        display: 'block',
+                        marginBottom: '6px',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        opacity: 0.6,
+                      }}
+                    >
+                      Choose your AI model
+                    </span>
 
-                    <div>
-                      <span>AI Model</span>
-                      <strong>
-                        {selectedModel?.display_name ||
-                          'Choose a model'}
-                      </strong>
-                    </div>
+                    <p
+                      style={{
+                        margin: '0 0 16px',
+                        opacity: 0.66,
+                      }}
+                    >
+                      Select the AI model powering your Recepta receptionist.
+                    </p>
 
-                    <div>
-                      <span>Minutes</span>
-                      <strong>
-                        {Number.isFinite(
-                          selectedMinutesNumber
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns:
+                          'repeat(auto-fit, minmax(230px, 1fr))',
+                        gap: '14px',
+                      }}
+                    >
+                      {models.map((model) => {
+                        const selected = selectedModelId === model.id
+                        const normalized = `${model.id} ${model.display_name}`.toLowerCase()
+                        const isLuna = normalized.includes('luna')
+                        const isTerra = normalized.includes('terra')
+                        const isClaude = normalized.includes('claude')
+                        const isRecommended = normalized.includes('4.1') || normalized.includes('4-1')
+
+                        const description = isLuna
+                          ? 'Fast and cost-efficient AI for straightforward receptionist conversations.'
+                          : isTerra
+                            ? 'Advanced AI for more complicated conversations and business workflows.'
+                            : isClaude
+                              ? 'Premium conversational AI for nuanced and complex customer interactions.'
+                              : 'A strong balance of conversation quality, reliability and cost.'
+
+                        const bestFor = isLuna
+                          ? 'Straightforward calls, FAQs and information requests'
+                          : isTerra
+                            ? 'Businesses with detailed call handling requirements'
+                            : isClaude
+                              ? 'Complex customer conversations and premium deployments'
+                              : 'Most businesses and everyday receptionist workflows'
+
+                        return (
+                          <button
+                            key={model.id}
+                            type="button"
+                            onClick={() => setSelectedModelId(model.id)}
+                            style={{
+                              minHeight: '350px',
+                              padding: '22px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              textAlign: 'left',
+                              color: '#fff',
+                              borderRadius: '20px',
+                              border: selected
+                                ? '1px solid rgba(0,230,118,0.76)'
+                                : '1px solid rgba(255,255,255,0.10)',
+                              background: selected
+                                ? 'rgba(0,230,118,0.065)'
+                                : 'rgba(255,255,255,0.025)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                justifyContent: 'space-between',
+                                gap: '14px',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: '52px',
+                                  height: '52px',
+                                  display: 'grid',
+                                  placeItems: 'center',
+                                  borderRadius: '14px',
+                                  background: '#fff',
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                <img
+                                  src={getProviderLogo(model.provider)}
+                                  alt={`${model.provider} logo`}
+                                  style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    objectFit: 'contain',
+                                  }}
+                                />
+                              </div>
+
+                              <span
+                                style={{
+                                  width: '24px',
+                                  height: '24px',
+                                  display: 'grid',
+                                  placeItems: 'center',
+                                  borderRadius: '999px',
+                                  border: selected
+                                    ? '1px solid rgba(0,230,118,0.65)'
+                                    : '1px solid rgba(255,255,255,0.18)',
+                                }}
+                              >
+                                {selected && (
+                                  <span
+                                    style={{
+                                      width: '10px',
+                                      height: '10px',
+                                      borderRadius: '999px',
+                                      background: '#00e676',
+                                      boxShadow: '0 0 12px rgba(0,230,118,0.75)',
+                                    }}
+                                  />
+                                )}
+                              </span>
+                            </div>
+
+                            <div
+                              style={{
+                                marginTop: '22px',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  flexWrap: 'wrap',
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontSize: '11px',
+                                    fontWeight: 800,
+                                    letterSpacing: '0.08em',
+                                    opacity: 0.6,
+                                    textTransform: 'uppercase',
+                                  }}
+                                >
+                                  {model.tier_name}
+                                </span>
+
+                                {isRecommended && (
+                                  <span
+                                    style={{
+                                      padding: '4px 8px',
+                                      borderRadius: '999px',
+                                      fontSize: '9px',
+                                      fontWeight: 800,
+                                      letterSpacing: '0.08em',
+                                      color: '#00e676',
+                                      border: '1px solid rgba(0,230,118,0.28)',
+                                      background: 'rgba(0,230,118,0.08)',
+                                    }}
+                                  >
+                                    RECOMMENDED
+                                  </span>
+                                )}
+                              </div>
+
+                              <h3
+                                style={{
+                                  margin: '9px 0 10px',
+                                  fontSize: '22px',
+                                }}
+                              >
+                                {model.display_name}
+                              </h3>
+
+                              <p
+                                style={{
+                                  margin: 0,
+                                  opacity: 0.66,
+                                  lineHeight: 1.55,
+                                }}
+                              >
+                                {description}
+                              </p>
+                            </div>
+
+                            <div
+                              style={{
+                                marginTop: 'auto',
+                                paddingTop: '22px',
+                                borderTop: '1px solid rgba(255,255,255,0.08)',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  display: 'block',
+                                  marginBottom: '7px',
+                                  fontSize: '10px',
+                                  fontWeight: 800,
+                                  letterSpacing: '0.08em',
+                                  opacity: 0.55,
+                                  textTransform: 'uppercase',
+                                }}
+                              >
+                                Best for
+                              </span>
+
+                              <strong
+                                style={{
+                                  display: 'block',
+                                  minHeight: '42px',
+                                  fontSize: '14px',
+                                  lineHeight: 1.4,
+                                }}
+                              >
+                                {bestFor}
+                              </strong>
+
+                              <div
+                                style={{
+                                  marginTop: '18px',
+                                  display: 'flex',
+                                  alignItems: 'baseline',
+                                  gap: '5px',
+                                }}
+                              >
+                                <strong
+                                  style={{
+                                    fontSize: '28px',
+                                  }}
+                                >
+                                  C${Number(
+                                    model.customer_price_per_minute_cad ?? 0
+                                  ).toFixed(2)}
+                                </strong>
+                                <span style={{ opacity: 0.55 }}>/ minute</span>
+                              </div>
+                            </div>
+                          </button>
                         )
-                          ? Math.max(
-                              0,
-                              Math.floor(
-                                selectedMinutesNumber
-                              )
-                            ).toLocaleString()
-                          : '0'}
-                      </strong>
+                      })}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: '34px',
+                      display: 'grid',
+                      gridTemplateColumns:
+                        'minmax(220px, 0.55fr) minmax(0, 1.45fr)',
+                      gap: '18px',
+                      alignItems: 'stretch',
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: '22px',
+                        borderRadius: '20px',
+                        border: '1px solid rgba(255,255,255,0.10)',
+                        background: 'rgba(255,255,255,0.025)',
+                      }}
+                    >
+                      <label
+                        style={{
+                          display: 'grid',
+                          gap: '10px',
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            letterSpacing: '0.08em',
+                            textTransform: 'uppercase',
+                            opacity: 0.6,
+                          }}
+                        >
+                          Monthly minutes
+                        </span>
+
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={selectedMinutes}
+                          onChange={(event) =>
+                            setSelectedMinutes(event.target.value)
+                          }
+                          style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            fontSize: '20px',
+                          }}
+                        />
+                      </label>
                     </div>
 
-                    <div>
-                      <span>Monthly Total</span>
-                      <strong>
-                        C${selectedMonthlyTotal.toFixed(2)}
-                      </strong>
+                    <div
+                      style={{
+                        padding: '22px',
+                        display: 'grid',
+                        gridTemplateColumns:
+                          'repeat(3, minmax(0, 1fr))',
+                        gap: '14px',
+                        borderRadius: '20px',
+                        border: '1px solid rgba(255,255,255,0.10)',
+                        background: 'rgba(255,255,255,0.025)',
+                      }}
+                    >
+                      <div>
+                        <span style={{ opacity: 0.55, fontSize: '12px' }}>
+                          Platform
+                        </span>
+                        <strong
+                          style={{
+                            display: 'block',
+                            marginTop: '8px',
+                            fontSize: '20px',
+                          }}
+                        >
+                          C${selectedBasePrice.toFixed(2)}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span style={{ opacity: 0.55, fontSize: '12px' }}>
+                          AI model
+                        </span>
+                        <strong
+                          style={{
+                            display: 'block',
+                            marginTop: '8px',
+                            fontSize: '20px',
+                          }}
+                        >
+                          {selectedModel?.display_name || 'Choose a model'}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span style={{ opacity: 0.55, fontSize: '12px' }}>
+                          Monthly total
+                        </span>
+                        <strong
+                          style={{
+                            display: 'block',
+                            marginTop: '8px',
+                            fontSize: '20px',
+                          }}
+                        >
+                          C${selectedMonthlyTotal.toFixed(2)}
+                        </strong>
+                      </div>
                     </div>
                   </div>
 
                   <button
                     type="button"
                     className="btn btnPrimary billingUpdateSubscription"
-                    onClick={
-                      handleStartNewSubscription
-                    }
+                    onClick={handleStartNewSubscription}
                     disabled={
                       checkoutLoading ||
                       !selectedModelId
                     }
                     style={{
+                      width: '100%',
                       marginTop: '24px',
+                      minHeight: '58px',
+                      fontSize: '17px',
                     }}
                   >
                     {checkoutLoading
@@ -971,6 +1436,9 @@ export default function Billing() {
                     <p
                       className="billingCheckoutDisclaimer"
                       role="alert"
+                      style={{
+                        marginTop: '14px',
+                      }}
                     >
                       {checkoutError}
                     </p>
@@ -979,12 +1447,11 @@ export default function Billing() {
                   <p
                     className="billingCheckoutDisclaimer"
                     style={{
-                      marginTop: '16px',
+                      marginTop: '14px',
+                      textAlign: 'center',
                     }}
                   >
-                    Your new subscription becomes
-                    active after Stripe confirms
-                    payment.
+                    Your new subscription becomes active after Stripe confirms payment.
                   </p>
                 </section>
               )}
