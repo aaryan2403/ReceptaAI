@@ -143,7 +143,6 @@ export default async (request: Request) => {
         .select(
           'id, company_name, contact_email, created_at'
         )
-        .eq('role', 'client')
         .order('created_at', {
           ascending: false,
         }),
@@ -170,32 +169,43 @@ export default async (request: Request) => {
       supabaseAdmin
         .from('ai_models')
         .select(
-          'id, display_name, provider, tier_name, sort_order'
+          'id, display_name'
         )
-        .eq('is_active', true)
-        .order('sort_order', {
-          ascending: true,
-        }),
+        .eq('is_active', true),
     ])
 
-    if (
+    const queryError =
       clientsResult.error ||
       subscriptionsResult.error ||
       agentsResult.error ||
       modelsResult.error
-    ) {
-      throw (
-        clientsResult.error ||
-        subscriptionsResult.error ||
-        agentsResult.error ||
-        modelsResult.error
+
+    if (queryError) {
+      return new Response(
+        JSON.stringify({
+          error: queryError.message,
+        }),
+        {
+          status: 400,
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+        }
       )
     }
 
     return new Response(
       JSON.stringify({
         clients:
-          clientsResult.data || [],
+          (clientsResult.data || [])
+            .filter(
+              (client) =>
+                client.contact_email
+                  ?.trim()
+                  .toLowerCase() !==
+                ADMIN_EMAIL
+            ),
         subscriptions:
           subscriptionsResult.data || [],
         agents:
