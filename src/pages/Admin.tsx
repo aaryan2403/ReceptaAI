@@ -98,59 +98,52 @@ export default function Admin() {
   const loadData = async () => {
     setLoading(true)
 
-    const [
-      clientsResult,
-      subscriptionsResult,
-      modelsResult,
-    ] = await Promise.all([
-      supabase
-        .from('clients')
-        .select(
-          'id, company_name, contact_email, created_at'
-        )
-        .eq('role', 'client')
-        .order('created_at', {
-          ascending: false,
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session?.access_token) {
+      setLoading(false)
+      return
+    }
+
+    const [adminClientsResponse, modelsResult] =
+      await Promise.all([
+        fetch('/.netlify/functions/admin-clients', {
+          headers: {
+            Authorization:
+              `Bearer ${session.access_token}`,
+          },
         }),
 
-      supabase
-        .from('subscriptions')
-        .select(
-          `
-          client_id,
-          plan_name,
-          monthly_price,
-          monthly_minutes,
-          ai_model_id,
-          status
-          `
-        ),
+        supabase
+          .from('ai_models')
+          .select(
+            `
+            id,
+            display_name,
+            provider,
+            tier_name,
+            sort_order
+            `
+          )
+          .eq('is_active', true)
+          .order('sort_order', {
+            ascending: true,
+          }),
+      ])
 
-      supabase
-        .from('ai_models')
-        .select(
-          `
-          id,
-          display_name,
-          provider,
-          tier_name,
-          sort_order
-          `
-        )
-        .eq('is_active', true)
-        .order('sort_order', {
-          ascending: true,
-        }),
-    ])
+    const adminClientsResult =
+      await adminClientsResponse
+        .json()
+        .catch(() => ({}))
 
     if (
-      clientsResult.error ||
-      subscriptionsResult.error ||
+      !adminClientsResponse.ok ||
       modelsResult.error
     ) {
       console.error(
-        clientsResult.error ||
-          subscriptionsResult.error ||
+        adminClientsResult?.error ||
           modelsResult.error
       )
       setLoading(false)
@@ -158,11 +151,11 @@ export default function Admin() {
     }
 
     const subscriptions =
-      (subscriptionsResult.data ||
+      (adminClientsResult.subscriptions ||
         []) as SubscriptionRecord[]
 
     const clientRows =
-      (clientsResult.data ||
+      (adminClientsResult.clients ||
         []) as ClientRecord[]
 
     const combined =
