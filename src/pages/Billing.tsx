@@ -14,6 +14,9 @@ type Subscription = {
   monthly_price: number | null
   monthly_minutes: number | null
   ai_model_id: string | null
+  pii_redaction_enabled: boolean
+  safety_guardrails_enabled: boolean
+  extra_phone_numbers: number
   status: SubscriptionStatus
   next_billing_date: string | null
 }
@@ -28,6 +31,12 @@ type AIModel = {
   provider: string
   tier_name: string
   customer_price_per_minute_cad: number | null
+}
+
+const ADD_ON_PRICES = {
+  piiRedactionPerMinuteCad: 0.014,
+  safetyGuardrailsPerMinuteCad: 0.007,
+  extraPhoneNumberMonthlyCad: 20,
 }
 
 export default function Billing() {
@@ -64,6 +73,19 @@ export default function Billing() {
   const [checkoutError, setCheckoutError] =
     useState('')
 
+  const [piiRedaction, setPiiRedaction] =
+    useState(false)
+
+  const [
+    safetyGuardrails,
+    setSafetyGuardrails,
+  ] = useState(false)
+
+  const [
+    extraPhoneNumbers,
+    setExtraPhoneNumbers,
+  ] = useState(0)
+
   useEffect(() => {
     const loadBilling = async () => {
       const {
@@ -88,6 +110,9 @@ export default function Billing() {
             monthly_price,
             monthly_minutes,
             ai_model_id,
+            pii_redaction_enabled,
+            safety_guardrails_enabled,
+            extra_phone_numbers,
             status,
             next_billing_date
             `
@@ -118,8 +143,28 @@ export default function Billing() {
       ])
 
       if (subscriptionResult.data) {
-        setSubscription(
+        const loadedSubscription =
           subscriptionResult.data as Subscription
+
+        setSubscription(loadedSubscription)
+        setPiiRedaction(
+          Boolean(
+            loadedSubscription.pii_redaction_enabled
+          )
+        )
+        setSafetyGuardrails(
+          Boolean(
+            loadedSubscription.safety_guardrails_enabled
+          )
+        )
+        setExtraPhoneNumbers(
+          Math.max(
+            0,
+            Number(
+              loadedSubscription.extra_phone_numbers ??
+                0
+            )
+          )
         )
       }
 
@@ -220,6 +265,34 @@ export default function Billing() {
     )
   }, [models, subscription])
 
+  const currentAddOnLabels = useMemo(() => {
+    if (!subscription) {
+      return []
+    }
+
+    const labels: string[] = []
+
+    if (subscription.pii_redaction_enabled) {
+      labels.push('PII Redaction')
+    }
+
+    if (subscription.safety_guardrails_enabled) {
+      labels.push('Safety Guardrails')
+    }
+
+    if (subscription.extra_phone_numbers > 0) {
+      labels.push(
+        `${subscription.extra_phone_numbers} extra ${
+          subscription.extra_phone_numbers === 1
+            ? 'number'
+            : 'numbers'
+        }`
+      )
+    }
+
+    return labels
+  }, [subscription])
+
 
   const selectedModel = useMemo(() => {
     return (
@@ -245,12 +318,40 @@ export default function Billing() {
         0
     )
 
+  const selectedBillableMinutes =
+    Number.isFinite(selectedMinutesNumber)
+      ? Math.max(
+          0,
+          Math.floor(selectedMinutesNumber)
+        )
+      : 0
+
+  const selectedPiiRedactionCost =
+    piiRedaction
+      ? selectedBillableMinutes *
+        ADD_ON_PRICES.piiRedactionPerMinuteCad
+      : 0
+
+  const selectedSafetyGuardrailsCost =
+    safetyGuardrails
+      ? selectedBillableMinutes *
+        ADD_ON_PRICES.safetyGuardrailsPerMinuteCad
+      : 0
+
+  const selectedExtraPhoneNumbersCost =
+    extraPhoneNumbers *
+    ADD_ON_PRICES.extraPhoneNumberMonthlyCad
+
+  const selectedAddOnsTotal =
+    selectedPiiRedactionCost +
+    selectedSafetyGuardrailsCost +
+    selectedExtraPhoneNumbersCost
+
   const selectedMonthlyTotal =
     selectedBasePrice +
-    (Number.isFinite(selectedMinutesNumber)
-      ? Math.max(0, selectedMinutesNumber) *
-        selectedMinutePrice
-      : 0)
+    selectedBillableMinutes *
+      selectedMinutePrice +
+    selectedAddOnsTotal
 
   const statusInfo = useMemo(() => {
     switch (subscription?.status) {
@@ -396,6 +497,21 @@ export default function Billing() {
       }
     }
 
+  const updateExtraPhoneNumbers = (
+    value: string
+  ) => {
+    const parsed = Number(value)
+
+    if (Number.isFinite(parsed)) {
+      setExtraPhoneNumbers(
+        Math.min(
+          20,
+          Math.max(0, Math.floor(parsed))
+        )
+      )
+    }
+  }
+
   const handleStartNewSubscription =
     async () => {
       setCheckoutError('')
@@ -448,6 +564,11 @@ export default function Billing() {
               aiModelId: selectedModelId,
               monthlyMinutes:
                 Math.floor(minutes),
+              addOns: {
+                piiRedaction,
+                safetyGuardrails,
+                extraPhoneNumbers,
+              },
             }),
           }
         )
@@ -683,7 +804,19 @@ export default function Billing() {
                         ? new Date(
                             subscription.next_billing_date
                           ).toLocaleDateString()
-                        : 'Not scheduled'}
+                      : 'Not scheduled'}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Add-ons
+                    </span>
+
+                    <strong>
+                      {currentAddOnLabels.length > 0
+                        ? currentAddOnLabels.join(', ')
+                        : 'None'}
                     </strong>
                   </div>
                 </div>
@@ -1067,6 +1200,8 @@ export default function Billing() {
                       }}
                     >
                       Select the AI model powering your Recepta receptionist.
+                      All displayed model rates include advanced background-noise
+                      removal.
                     </p>
 
                     <div
@@ -1303,6 +1438,147 @@ export default function Billing() {
                   <div
                     style={{
                       marginTop: '34px',
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: 'block',
+                        marginBottom: '6px',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        opacity: 0.6,
+                      }}
+                    >
+                      Optional add-ons
+                    </span>
+
+                    <p
+                      style={{
+                        margin: '0 0 16px',
+                        opacity: 0.66,
+                      }}
+                    >
+                      Available with both Recepta Standard and Recepta Pro.
+                    </p>
+
+                    <div className="billingPlanChoices">
+                      <button
+                        type="button"
+                        aria-pressed={piiRedaction}
+                        className={`billingPlanChoice ${
+                          piiRedaction
+                            ? 'billingPlanChoice--selected'
+                            : ''
+                        }`}
+                        onClick={() =>
+                          setPiiRedaction(
+                            (enabled) => !enabled
+                          )
+                        }
+                      >
+                        <div className="billingPlanChoiceTop">
+                          <div>
+                            <span>OPTIONAL</span>
+                            <h3>PII Redaction</h3>
+                          </div>
+
+                          <div className="billingChoiceRadio">
+                            {piiRedaction && <span />}
+                          </div>
+                        </div>
+
+                        <div className="billingChoicePrice">
+                          <strong>C$0.014</strong>
+                          <span>/ AI minute</span>
+                        </div>
+
+                        <p>
+                          Redacts selected personal information from stored call
+                          transcripts and recordings.
+                        </p>
+                      </button>
+
+                      <button
+                        type="button"
+                        aria-pressed={safetyGuardrails}
+                        className={`billingPlanChoice ${
+                          safetyGuardrails
+                            ? 'billingPlanChoice--selected'
+                            : ''
+                        }`}
+                        onClick={() =>
+                          setSafetyGuardrails(
+                            (enabled) => !enabled
+                          )
+                        }
+                      >
+                        <div className="billingPlanChoiceTop">
+                          <div>
+                            <span>OPTIONAL</span>
+                            <h3>Safety Guardrails</h3>
+                          </div>
+
+                          <div className="billingChoiceRadio">
+                            {safetyGuardrails && <span />}
+                          </div>
+                        </div>
+
+                        <div className="billingChoicePrice">
+                          <strong>C$0.007</strong>
+                          <span>/ AI minute</span>
+                        </div>
+
+                        <p>
+                          Adds protection against unsafe, harmful or inappropriate
+                          AI responses during calls.
+                        </p>
+                      </button>
+
+                      <div className="billingPlanChoice">
+                        <div className="billingPlanChoiceTop">
+                          <div>
+                            <span>OPTIONAL</span>
+                            <h3>Additional Phone Numbers</h3>
+                          </div>
+                        </div>
+
+                        <div className="billingChoicePrice">
+                          <strong>C$20</strong>
+                          <span>/ number / month</span>
+                        </div>
+
+                        <p>
+                          Adds another dedicated business number connected to the
+                          same Recepta account.
+                        </p>
+
+                        <div className="billingCustomMinutes">
+                          <label>
+                            Extra numbers
+
+                            <input
+                              type="number"
+                              min="0"
+                              max="20"
+                              step="1"
+                              value={extraPhoneNumbers}
+                              onChange={(event) =>
+                                updateExtraPhoneNumbers(
+                                  event.target.value
+                                )
+                              }
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: '34px',
                       display: 'grid',
                       gridTemplateColumns:
                         'minmax(220px, 0.55fr) minmax(0, 1.45fr)',
@@ -1358,7 +1634,7 @@ export default function Billing() {
                         padding: '22px',
                         display: 'grid',
                         gridTemplateColumns:
-                          'repeat(3, minmax(0, 1fr))',
+                          'repeat(auto-fit, minmax(140px, 1fr))',
                         gap: '14px',
                         borderRadius: '20px',
                         border: '1px solid rgba(255,255,255,0.10)',
@@ -1392,6 +1668,21 @@ export default function Billing() {
                           }}
                         >
                           {selectedModel?.display_name || 'Choose a model'}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span style={{ opacity: 0.55, fontSize: '12px' }}>
+                          Add-ons
+                        </span>
+                        <strong
+                          style={{
+                            display: 'block',
+                            marginTop: '8px',
+                            fontSize: '20px',
+                          }}
+                        >
+                          C${selectedAddOnsTotal.toFixed(2)}
                         </strong>
                       </div>
 

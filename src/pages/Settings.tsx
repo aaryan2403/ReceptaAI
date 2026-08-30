@@ -579,31 +579,6 @@ export default function Settings() {
             </div>
           </div>
 
-          <div
-            className="settingsActionRow"
-            style={{
-              marginTop: '14px',
-            }}
-          >
-            <div>
-              <strong>
-                Need to change your receptionist?
-              </strong>
-
-              <p>
-                Greeting, voice, operating hours,
-                transfer rules and receptionist
-                behaviour are managed by Recepta.
-              </p>
-            </div>
-
-            <a
-              className="btn btnOutline"
-              href="mailto:support@recepta.ca?subject=Recepta%20Agent%20Change%20Request"
-            >
-              Request Change
-            </a>
-          </div>
         </section>
 
         {/* PLAN */}
@@ -703,7 +678,7 @@ export default function Settings() {
 
               <a
                 className="btn btnPrimary"
-                href="mailto:support@recepta.ca?subject=Upgrade%20to%20Recepta%20Pro"
+                href="mailto:receptahelp02@gmail.com?subject=Upgrade%20to%20Recepta%20Pro"
               >
                 Upgrade to Pro
               </a>
@@ -778,7 +753,7 @@ export default function Settings() {
 
           <a
             className="btn btnPrimary"
-            href="mailto:support@recepta.ca"
+            href="mailto:receptahelp02@gmail.com?subject=Recepta%20Support%20Request"
           >
             Contact Recepta
           </a>

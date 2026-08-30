@@ -1,4 +1,5 @@
 
+import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 
 export default async (request: Request) => {
@@ -104,6 +105,19 @@ export default async (request: Request) => {
             session.metadata
               ?.base_price_cad
           )
+        const piiRedactionEnabled =
+          session.metadata
+            ?.pii_redaction_enabled ===
+          'true'
+        const safetyGuardrailsEnabled =
+          session.metadata
+            ?.safety_guardrails_enabled ===
+          'true'
+        const extraPhoneNumbers =
+          Number(
+            session.metadata
+              ?.extra_phone_numbers ?? 0
+          )
 
         const subscriptionId =
           typeof session.subscription ===
@@ -123,7 +137,12 @@ export default async (request: Request) => {
           aiModelId &&
           Number.isFinite(monthlyMinutes) &&
           monthlyMinutes > 0 &&
-          Number.isFinite(basePrice)
+          Number.isFinite(basePrice) &&
+          Number.isInteger(
+            extraPhoneNumbers
+          ) &&
+          extraPhoneNumbers >= 0 &&
+          extraPhoneNumbers <= 20
         ) {
           const {
             error: updateError,
@@ -137,6 +156,12 @@ export default async (request: Request) => {
                   monthlyMinutes
                 ),
               ai_model_id: aiModelId,
+              pii_redaction_enabled:
+                piiRedactionEnabled,
+              safety_guardrails_enabled:
+                safetyGuardrailsEnabled,
+              extra_phone_numbers:
+                extraPhoneNumbers,
               status: 'active',
               stripe_subscription_id:
                 subscriptionId || null,

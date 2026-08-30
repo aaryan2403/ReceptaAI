@@ -83,6 +83,7 @@ export default async (request: Request) => {
       planName,
       aiModelId,
       monthlyMinutes,
+      addOns,
     } = await request.json()
 
     if (
@@ -207,8 +208,63 @@ export default async (request: Request) => {
       Math.floor(minutes) *
       perMinutePrice
 
+    const piiRedaction =
+      addOns?.piiRedaction === true
+
+    const safetyGuardrails =
+      addOns?.safetyGuardrails === true
+
+    const extraPhoneNumbers =
+      Number(
+        addOns?.extraPhoneNumbers ?? 0
+      )
+
+    if (
+      !Number.isInteger(extraPhoneNumbers) ||
+      extraPhoneNumbers < 0 ||
+      extraPhoneNumbers > 20
+    ) {
+      return new Response(
+        JSON.stringify({
+          error:
+            'Extra phone numbers must be between 0 and 20.',
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const piiRedactionRateCad = 0.014
+    const safetyGuardrailsRateCad = 0.007
+    const extraPhoneNumberMonthlyCad = 20
+
+    const piiRedactionCost =
+      piiRedaction
+        ? Math.floor(minutes) *
+          piiRedactionRateCad
+        : 0
+
+    const safetyGuardrailsCost =
+      safetyGuardrails
+        ? Math.floor(minutes) *
+          safetyGuardrailsRateCad
+        : 0
+
+    const extraPhoneNumbersCost =
+      extraPhoneNumbers *
+      extraPhoneNumberMonthlyCad
+
+    const addOnsMonthlyCost =
+      piiRedactionCost +
+      safetyGuardrailsCost +
+      extraPhoneNumbersCost
+
     const monthlyTotal =
-      basePrice + minuteCost
+      basePrice +
+      minuteCost +
+      addOnsMonthlyCost
 
     const monthlyTotalCents =
       Math.round(monthlyTotal * 100)
@@ -243,9 +299,39 @@ export default async (request: Request) => {
         String(Math.floor(minutes)),
       per_minute_cad:
         String(perMinutePrice),
+      pii_redaction_enabled:
+        String(piiRedaction),
+      pii_redaction_rate_cad:
+        String(piiRedactionRateCad),
+      safety_guardrails_enabled:
+        String(safetyGuardrails),
+      safety_guardrails_rate_cad:
+        String(safetyGuardrailsRateCad),
+      extra_phone_numbers:
+        String(extraPhoneNumbers),
+      extra_phone_number_monthly_cad:
+        String(extraPhoneNumberMonthlyCad),
+      add_ons_monthly_cad:
+        addOnsMonthlyCost.toFixed(2),
       monthly_total_cad:
         monthlyTotal.toFixed(2),
     }
+
+    const selectedAddOns = [
+      piiRedaction
+        ? 'PII Redaction'
+        : null,
+      safetyGuardrails
+        ? 'Safety Guardrails'
+        : null,
+      extraPhoneNumbers > 0
+        ? `${extraPhoneNumbers} additional phone ${
+            extraPhoneNumbers === 1
+              ? 'number'
+              : 'numbers'
+          }`
+        : null,
+    ].filter(Boolean)
 
     const checkoutSession =
       await stripe.checkout.sessions.create({
@@ -266,7 +352,11 @@ export default async (request: Request) => {
                 name:
                   `${planName} — ${model.display_name}`,
                 description:
-                  `${Math.floor(minutes)} AI call minutes per month`,
+                  `${Math.floor(minutes)} AI call minutes per month${
+                    selectedAddOns.length > 0
+                      ? `; add-ons: ${selectedAddOns.join(', ')}`
+                      : ''
+                  }`,
               },
             },
           },
