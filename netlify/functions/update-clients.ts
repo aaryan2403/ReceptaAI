@@ -1,5 +1,13 @@
 
 import { createClient } from '@supabase/supabase-js'
+import {
+  normalizeE164,
+  syncRetellSubscription,
+} from '../lib/retell'
+import {
+  calculateMonthlyPriceCad,
+  MAX_MONTHLY_MINUTES,
+} from '../lib/pricing'
 
 type PlanName = 'Recepta Standard' | 'Recepta Pro'
 
@@ -27,6 +35,8 @@ export default async (request: Request) => {
     process.env.SUPABASE_SECRET_KEY
   const adminEmail =
     process.env.ADMIN_EMAIL
+  const retellApiKey =
+    process.env.RETELL_API_KEY
 
   if (
     !supabaseUrl ||
@@ -91,6 +101,8 @@ export default async (request: Request) => {
     phoneNumber?: string | null
     newPassword?: string | null
     reactivateSubscription?: boolean
+    piiRedactionEnabled?: boolean
+    safetyGuardrailsEnabled?: boolean
   }
 
   try {
@@ -115,12 +127,18 @@ export default async (request: Request) => {
     body.aiModelId?.trim()
   const retellAgentId =
     body.retellAgentId?.trim() || null
-  const phoneNumber =
+  const rawPhoneNumber =
     body.phoneNumber?.trim() || null
+  const phoneNumber =
+    normalizeE164(rawPhoneNumber)
   const newPassword =
     body.newPassword || null
   const reactivateSubscription =
     body.reactivateSubscription === true
+  const piiRedactionEnabled =
+    body.piiRedactionEnabled === true
+  const safetyGuardrailsEnabled =
+    body.safetyGuardrailsEnabled === true
 
   if (
     !clientId ||
@@ -128,10 +146,18 @@ export default async (request: Request) => {
     !email ||
     !aiModelId ||
     !Number.isFinite(monthlyMinutes) ||
-    monthlyMinutes < 1
+    monthlyMinutes < 1 ||
+    monthlyMinutes > MAX_MONTHLY_MINUTES
   ) {
     return json(400, {
       error: 'Missing or invalid client fields.',
+    })
+  }
+
+  if (rawPhoneNumber && !phoneNumber) {
+    return json(400, {
+      error:
+        'Phone number must include the country code, for example +14165550123.',
     })
   }
 
@@ -161,6 +187,34 @@ export default async (request: Request) => {
     return json(400, {
       error:
         'New temporary password must be at least 8 characters.',
+    })
+  }
+
+  const {
+    data: selectedModel,
+    error: selectedModelError,
+  } = await supabaseAdmin
+    .from('ai_models')
+    .select(
+      'id, customer_price_per_minute_cad'
+    )
+    .eq('id', aiModelId)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  const modelMinutePrice = Number(
+    selectedModel?.customer_price_per_minute_cad
+  )
+
+  if (
+    selectedModelError ||
+    !selectedModel ||
+    !Number.isFinite(modelMinutePrice) ||
+    modelMinutePrice < 0
+  ) {
+    return json(400, {
+      error:
+        'Choose an active AI model with valid pricing.',
     })
   }
 
@@ -233,17 +287,14 @@ export default async (request: Request) => {
     })
   }
 
-  const monthlyPrice =
-    planName === 'Recepta Pro'
-      ? 300
-      : 200
-
   const {
     data: existingSubscription,
     error: subscriptionLookupError,
   } = await supabaseAdmin
     .from('subscriptions')
-    .select('client_id, status')
+    .select(
+      'client_id, status, extra_phone_numbers'
+    )
     .eq('client_id', clientId)
     .maybeSingle()
 
@@ -276,6 +327,29 @@ export default async (request: Request) => {
         : 'setup'
       : 'paused'
 
+  const monthlyPrice =
+    calculateMonthlyPriceCad({
+      planName,
+      monthlyMinutes,
+      modelPricePerMinuteCad:
+        modelMinutePrice,
+      piiRedactionEnabled,
+      safetyGuardrailsEnabled,
+      extraPhoneNumbers: Math.max(
+        0,
+        Number(
+          existingSubscription?.extra_phone_numbers ??
+            0
+        ) || 0
+      ),
+    })
+
+  const periodStart = new Date()
+  const periodEnd = new Date(periodStart)
+  periodEnd.setUTCMonth(
+    periodEnd.getUTCMonth() + 1
+  )
+
   if (existingSubscription) {
     const { error } = await supabaseAdmin
       .from('subscriptions')
@@ -285,10 +359,20 @@ export default async (request: Request) => {
         monthly_minutes:
           Math.floor(monthlyMinutes),
         ai_model_id: aiModelId,
+        pii_redaction_enabled:
+          piiRedactionEnabled,
+        safety_guardrails_enabled:
+          safetyGuardrailsEnabled,
         ...(reactivateSubscription
           ? {
               status: 'active',
               stripe_subscription_id: null,
+              current_period_start:
+                periodStart.toISOString(),
+              current_period_end:
+                periodEnd.toISOString(),
+              next_billing_date:
+                periodEnd.toISOString(),
             }
           : {}),
       })
@@ -309,7 +393,17 @@ export default async (request: Request) => {
         monthly_minutes:
           Math.floor(monthlyMinutes),
         ai_model_id: aiModelId,
+        pii_redaction_enabled:
+          piiRedactionEnabled,
+        safety_guardrails_enabled:
+          safetyGuardrailsEnabled,
         status: 'active',
+        current_period_start:
+          periodStart.toISOString(),
+        current_period_end:
+          periodEnd.toISOString(),
+        next_billing_date:
+          periodEnd.toISOString(),
       })
 
     if (error) {
@@ -381,7 +475,34 @@ export default async (request: Request) => {
     })
   }
 
+  if (retellAgentId) {
+    if (!retellApiKey) {
+      return json(500, {
+        error: 'RETELL_API_KEY is missing.',
+      })
+    }
+
+    try {
+      await syncRetellSubscription({
+        apiKey: retellApiKey,
+        agentId: retellAgentId,
+        phoneNumber,
+        active: subscriptionIsActive,
+        piiRedactionEnabled,
+        safetyGuardrailsEnabled,
+      })
+    } catch (error) {
+      return json(502, {
+        error:
+          error instanceof Error
+            ? `Client saved, but Retell sync failed: ${error.message}`
+            : 'Client saved, but Retell sync failed.',
+      })
+    }
+  }
+
   return json(200, {
     success: true,
+    monthlyPrice,
   })
 }

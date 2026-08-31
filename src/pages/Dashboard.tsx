@@ -13,6 +13,8 @@ type Subscription = {
   plan_name: string | null
   monthly_price: number | null
   monthly_minutes: number | null
+  current_period_start: string | null
+  current_period_end: string | null
   status: string | null
 }
 
@@ -24,6 +26,7 @@ type Agent = {
 type Call = {
   duration_seconds: number
   appointment_booked: boolean
+  started_at: string
 }
 
 type Appointment = {
@@ -69,14 +72,16 @@ export default function Dashboard() {
         supabase
           .from('subscriptions')
           .select(
-            'plan_name, monthly_price, monthly_minutes, status'
+            'plan_name, monthly_price, monthly_minutes, current_period_start, current_period_end, status'
           )
           .eq('client_id', user.id)
           .maybeSingle(),
 
         supabase
           .from('calls')
-          .select('duration_seconds, appointment_booked')
+          .select(
+            'duration_seconds, appointment_booked, started_at'
+          )
           .eq('client_id', user.id),
 
         supabase
@@ -123,6 +128,18 @@ export default function Dashboard() {
     }
 
     loadDashboard()
+
+    const refreshInterval =
+      window.setInterval(
+        loadDashboard,
+        5000
+      )
+
+    return () => {
+      window.clearInterval(
+        refreshInterval
+      )
+    }
   }, [])
 
   const isSubscriptionCancelled =
@@ -147,16 +164,34 @@ export default function Dashboard() {
         : agent?.status || client?.status || 'setup'
 
   const stats = useMemo(() => {
-    const callsAnswered = calls.length
+    const periodStart =
+      subscription?.current_period_start
+        ? new Date(
+            subscription.current_period_start
+          ).getTime()
+        : 0
 
-    const totalSeconds = calls.reduce(
+    const periodCalls = calls.filter((call) => {
+      const callStartedAt = new Date(
+        call.started_at
+      ).getTime()
+
+      return (
+        Number.isFinite(callStartedAt) &&
+        callStartedAt >= periodStart
+      )
+    })
+
+    const callsAnswered = periodCalls.length
+
+    const totalSeconds = periodCalls.reduce(
       (total, call) =>
         total + (call.duration_seconds || 0),
       0
     )
 
     const minutesTalked =
-      Math.round(totalSeconds / 60)
+      Math.ceil(totalSeconds / 60)
 
     const monthlyMinutes =
       subscription?.monthly_minutes ?? 300
@@ -227,6 +262,19 @@ export default function Dashboard() {
   }, [calls, appointments, subscription])
 
   const getStatusInfo = () => {
+    if (
+      subscription?.status === 'active' &&
+      stats.monthlyMinutes > 0 &&
+      stats.minutesRemaining === 0
+    ) {
+      return {
+        label: 'Minute Limit Reached',
+        color: '#ffb020',
+        background:
+          'rgba(255, 176, 32, 0.10)',
+      }
+    }
+
     switch (effectiveAgentStatus) {
       case 'live':
         return {

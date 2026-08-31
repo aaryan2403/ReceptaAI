@@ -1,6 +1,10 @@
 
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import {
+  syncRetellPhoneBinding,
+  syncRetellSubscription,
+} from '../lib/retell'
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -21,6 +25,8 @@ export default async (request: Request) => {
     process.env.STRIPE_SECRET_KEY
   const webhookSecret =
     process.env.STRIPE_WEBHOOK_SECRET
+  const retellApiKey =
+    process.env.RETELL_API_KEY
 
   if (
     !supabaseUrl ||
@@ -105,6 +111,11 @@ export default async (request: Request) => {
             session.metadata
               ?.base_price_cad
           )
+        const monthlyTotal =
+          Number(
+            session.metadata
+              ?.monthly_total_cad
+          )
         const piiRedactionEnabled =
           session.metadata
             ?.pii_redaction_enabled ===
@@ -138,19 +149,31 @@ export default async (request: Request) => {
           Number.isFinite(monthlyMinutes) &&
           monthlyMinutes > 0 &&
           Number.isFinite(basePrice) &&
+          Number.isFinite(monthlyTotal) &&
+          monthlyTotal >= basePrice &&
           Number.isInteger(
             extraPhoneNumbers
           ) &&
           extraPhoneNumbers >= 0 &&
           extraPhoneNumbers <= 20
         ) {
+          const periodStart = new Date(
+            (session.created ||
+              Math.floor(Date.now() / 1000)) *
+              1000
+          )
+          const periodEnd = new Date(periodStart)
+          periodEnd.setUTCMonth(
+            periodEnd.getUTCMonth() + 1
+          )
+
           const {
             error: updateError,
           } = await supabaseAdmin
             .from('subscriptions')
             .update({
               plan_name: planName,
-              monthly_price: basePrice,
+              monthly_price: monthlyTotal,
               monthly_minutes:
                 Math.floor(
                   monthlyMinutes
@@ -163,6 +186,12 @@ export default async (request: Request) => {
               extra_phone_numbers:
                 extraPhoneNumbers,
               status: 'active',
+              current_period_start:
+                periodStart.toISOString(),
+              current_period_end:
+                periodEnd.toISOString(),
+              next_billing_date:
+                periodEnd.toISOString(),
               stripe_subscription_id:
                 subscriptionId || null,
               stripe_customer_id:
@@ -180,28 +209,215 @@ export default async (request: Request) => {
           const { data: assignedAgent } =
             await supabaseAdmin
               .from('agents')
-              .select('retell_agent_id')
+              .select(
+                'retell_agent_id, phone_number'
+              )
               .eq('client_id', clientId)
               .maybeSingle()
+
+          if (
+            assignedAgent?.retell_agent_id
+          ) {
+            if (!retellApiKey) {
+              throw new Error(
+                'RETELL_API_KEY is missing.'
+              )
+            }
+
+            await syncRetellSubscription({
+              apiKey: retellApiKey,
+              agentId:
+                assignedAgent.retell_agent_id,
+              phoneNumber:
+                assignedAgent.phone_number,
+              active: true,
+              piiRedactionEnabled,
+              safetyGuardrailsEnabled,
+            })
+          }
 
           const restoredStatus =
             assignedAgent?.retell_agent_id
               ? 'live'
               : 'setup'
 
-          await supabaseAdmin
-            .from('clients')
-            .update({
-              status: restoredStatus,
-            })
-            .eq('id', clientId)
+          const [
+            clientRestore,
+            agentRestore,
+          ] = await Promise.all([
+            supabaseAdmin
+              .from('clients')
+              .update({
+                status: restoredStatus,
+              })
+              .eq('id', clientId),
+            supabaseAdmin
+              .from('agents')
+              .update({
+                status: restoredStatus,
+              })
+              .eq('client_id', clientId),
+          ])
 
-          await supabaseAdmin
-            .from('agents')
+          if (clientRestore.error) {
+            throw clientRestore.error
+          }
+
+          if (agentRestore.error) {
+            throw agentRestore.error
+          }
+        }
+      }
+    }
+
+    if (
+      event.type === 'invoice.paid'
+    ) {
+      const invoice =
+        event.data.object as unknown as {
+          subscription?:
+            | string
+            | { id?: string }
+            | null
+          parent?: {
+            subscription_details?: {
+              subscription?:
+                | string
+                | { id?: string }
+                | null
+            }
+          }
+        }
+
+      const subscriptionReference =
+        invoice.subscription ??
+        invoice.parent?.subscription_details
+          ?.subscription
+      const stripeSubscriptionId =
+        typeof subscriptionReference ===
+        'string'
+          ? subscriptionReference
+          : subscriptionReference?.id
+
+      if (stripeSubscriptionId) {
+        const stripeSubscription =
+          (await stripe.subscriptions.retrieve(
+            stripeSubscriptionId
+          )) as unknown as {
+            items?: {
+              data?: Array<{
+                current_period_start?: number
+                current_period_end?: number
+              }>
+            }
+          }
+
+        const subscriptionItem =
+          stripeSubscription.items?.data?.[0]
+        const periodStartSeconds =
+          subscriptionItem?.current_period_start
+        const periodEndSeconds =
+          subscriptionItem?.current_period_end
+
+        if (
+          typeof periodStartSeconds === 'number' &&
+          typeof periodEndSeconds === 'number'
+        ) {
+          const {
+            data: renewedSubscription,
+            error: renewalError,
+          } = await supabaseAdmin
+            .from('subscriptions')
             .update({
-              status: restoredStatus,
+              status: 'active',
+              current_period_start: new Date(
+                periodStartSeconds * 1000
+              ).toISOString(),
+              current_period_end: new Date(
+                periodEndSeconds * 1000
+              ).toISOString(),
+              next_billing_date: new Date(
+                periodEndSeconds * 1000
+              ).toISOString(),
             })
-            .eq('client_id', clientId)
+            .eq(
+              'stripe_subscription_id',
+              stripeSubscriptionId
+            )
+            .select(
+              'client_id, pii_redaction_enabled, safety_guardrails_enabled'
+            )
+            .maybeSingle()
+
+          if (renewalError) {
+            throw renewalError
+          }
+
+          if (renewedSubscription?.client_id) {
+            const { data: assignedAgent } =
+              await supabaseAdmin
+                .from('agents')
+                .select(
+                  'retell_agent_id, phone_number'
+                )
+                .eq(
+                  'client_id',
+                  renewedSubscription.client_id
+                )
+                .maybeSingle()
+
+            const restoredStatus =
+              assignedAgent?.retell_agent_id
+                ? 'live'
+                : 'setup'
+
+            const [clientRestore, agentRestore] =
+              await Promise.all([
+                supabaseAdmin
+                  .from('clients')
+                  .update({
+                    status: restoredStatus,
+                  })
+                  .eq(
+                    'id',
+                    renewedSubscription.client_id
+                  ),
+                supabaseAdmin
+                  .from('agents')
+                  .update({
+                    status: restoredStatus,
+                  })
+                  .eq(
+                    'client_id',
+                    renewedSubscription.client_id
+                  ),
+              ])
+
+            if (clientRestore.error) {
+              throw clientRestore.error
+            }
+
+            if (agentRestore.error) {
+              throw agentRestore.error
+            }
+
+            if (assignedAgent?.retell_agent_id) {
+              if (!retellApiKey) {
+                throw new Error(
+                  'RETELL_API_KEY is missing.'
+                )
+              }
+
+              await syncRetellPhoneBinding({
+                apiKey: retellApiKey,
+                agentId:
+                  assignedAgent.retell_agent_id,
+                phoneNumber:
+                  assignedAgent.phone_number,
+                active: true,
+              })
+            }
+          }
         }
       }
     }
@@ -214,7 +430,10 @@ export default async (request: Request) => {
         event.data.object as
           Stripe.Subscription
 
-      const { error } =
+      const {
+        data: cancelledSubscription,
+        error,
+      } =
         await supabaseAdmin
           .from('subscriptions')
           .update({
@@ -224,9 +443,64 @@ export default async (request: Request) => {
             'stripe_subscription_id',
             subscription.id
           )
+          .select('client_id')
+          .maybeSingle()
 
       if (error) {
         throw error
+      }
+
+      if (cancelledSubscription?.client_id) {
+        const clientId =
+          cancelledSubscription.client_id
+
+        const [clientPause, agentPause] =
+          await Promise.all([
+            supabaseAdmin
+              .from('clients')
+              .update({ status: 'paused' })
+              .eq('id', clientId),
+            supabaseAdmin
+              .from('agents')
+              .update({ status: 'paused' })
+              .eq('client_id', clientId),
+          ])
+
+        if (clientPause.error) {
+          throw clientPause.error
+        }
+
+        if (agentPause.error) {
+          throw agentPause.error
+        }
+
+        const { data: assignedAgent } =
+          await supabaseAdmin
+            .from('agents')
+            .select(
+              'retell_agent_id, phone_number'
+            )
+            .eq('client_id', clientId)
+            .maybeSingle()
+
+        if (assignedAgent?.retell_agent_id) {
+          if (!retellApiKey) {
+            throw new Error(
+              'RETELL_API_KEY is missing.'
+            )
+          }
+
+          await syncRetellSubscription({
+            apiKey: retellApiKey,
+            agentId:
+              assignedAgent.retell_agent_id,
+            phoneNumber:
+              assignedAgent.phone_number,
+            active: false,
+            piiRedactionEnabled: false,
+            safetyGuardrailsEnabled: false,
+          })
+        }
       }
     }
 

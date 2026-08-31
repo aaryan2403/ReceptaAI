@@ -10,6 +10,10 @@ import type {
 import { supabase } from '../lib/supabase'
 
 const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
+const MAX_MONTHLY_MINUTES = 100_000_000
+const PII_RATE_CAD = 0.014
+const GUARDRAIL_RATE_CAD = 0.007
+const EXTRA_NUMBER_MONTHLY_CAD = 20
 
 type PlanName = 'Recepta Standard' | 'Recepta Pro'
 type SubscriptionStatus =
@@ -31,6 +35,11 @@ type SubscriptionRecord = {
   monthly_price: number | null
   monthly_minutes: number | null
   ai_model_id: string | null
+  pii_redaction_enabled: boolean
+  safety_guardrails_enabled: boolean
+  extra_phone_numbers: number
+  current_period_start: string | null
+  current_period_end: string | null
   status: SubscriptionStatus
 }
 
@@ -40,6 +49,7 @@ type AIModel = {
   provider: string
   tier_name: string
   sort_order: number
+  customer_price_per_minute_cad: number | null
 }
 
 type AgentRecord = {
@@ -52,6 +62,43 @@ type AgentRecord = {
 type ClientWithSubscription = ClientRecord & {
   subscription: SubscriptionRecord | null
   agent: AgentRecord | null
+}
+
+const calculateTotal = (
+  models: AIModel[],
+  selectedPlan: PlanName,
+  minutesValue: string,
+  selectedModelId: string,
+  piiEnabled: boolean,
+  guardrailsEnabled: boolean,
+  extraPhoneNumbers = 0
+) => {
+  const minutes = Math.max(
+    0,
+    Math.floor(Number(minutesValue) || 0)
+  )
+  const model = models.find(
+    (row) => row.id === selectedModelId
+  )
+  const modelRate = Math.max(
+    0,
+    Number(
+      model?.customer_price_per_minute_cad ?? 0
+    ) || 0
+  )
+  const base =
+    selectedPlan === 'Recepta Pro' ? 300 : 200
+
+  return (
+    base +
+    minutes * modelRate +
+    (piiEnabled ? minutes * PII_RATE_CAD : 0) +
+    (guardrailsEnabled
+      ? minutes * GUARDRAIL_RATE_CAD
+      : 0) +
+    Math.max(0, extraPhoneNumbers) *
+      EXTRA_NUMBER_MONTHLY_CAD
+  )
 }
 
 export default function Admin() {
@@ -90,6 +137,10 @@ export default function Admin() {
     useState('')
   const [phoneNumber, setPhoneNumber] =
     useState('')
+  const [piiRedaction, setPiiRedaction] =
+    useState(false)
+  const [safetyGuardrails, setSafetyGuardrails] =
+    useState(false)
   const [creating, setCreating] =
     useState(false)
   const [createError, setCreateError] =
@@ -123,12 +174,61 @@ export default function Admin() {
     useState('')
   const [editPhoneNumber, setEditPhoneNumber] =
     useState('')
+  const [editPiiRedaction, setEditPiiRedaction] =
+    useState(false)
+  const [
+    editSafetyGuardrails,
+    setEditSafetyGuardrails,
+  ] = useState(false)
   const [editPassword, setEditPassword] =
     useState('')
   const [savingEdit, setSavingEdit] =
     useState(false)
   const [editError, setEditError] =
     useState('')
+
+  const createMonthlyTotal = useMemo(
+    () =>
+      calculateTotal(
+        models,
+        planName,
+        monthlyMinutes,
+        aiModelId,
+        piiRedaction,
+        safetyGuardrails
+      ),
+    [
+      planName,
+      monthlyMinutes,
+      aiModelId,
+      piiRedaction,
+      safetyGuardrails,
+      models,
+    ]
+  )
+
+  const editMonthlyTotal = useMemo(
+    () =>
+      calculateTotal(
+        models,
+        editPlanName,
+        editMonthlyMinutes,
+        editAiModelId,
+        editPiiRedaction,
+        editSafetyGuardrails,
+        editingClient?.subscription
+          ?.extra_phone_numbers ?? 0
+      ),
+    [
+      editPlanName,
+      editMonthlyMinutes,
+      editAiModelId,
+      editPiiRedaction,
+      editSafetyGuardrails,
+      editingClient,
+      models,
+    ]
+  )
 
   const loadData = async () => {
     setLoading(true)
@@ -330,10 +430,11 @@ export default function Admin() {
 
       if (
         !Number.isFinite(minutes) ||
-        minutes < 1
+        minutes < 1 ||
+        minutes > MAX_MONTHLY_MINUTES
       ) {
         throw new Error(
-          'Monthly minutes must be at least 1.'
+          'Monthly minutes must be between 1 and 100,000,000.'
         )
       }
 
@@ -391,6 +492,10 @@ export default function Admin() {
               normalizedRetellId || null,
             phoneNumber:
               phoneNumber.trim() || null,
+            piiRedactionEnabled:
+              piiRedaction,
+            safetyGuardrailsEnabled:
+              safetyGuardrails,
           }),
         }
       )
@@ -423,6 +528,8 @@ export default function Admin() {
       )
       setRetellAgentId('')
       setPhoneNumber('')
+      setPiiRedaction(false)
+      setSafetyGuardrails(false)
 
       await loadData()
     } catch (error) {
@@ -469,6 +576,14 @@ export default function Admin() {
     setEditPhoneNumber(
       client.agent?.phone_number || ''
     )
+    setEditPiiRedaction(
+      client.subscription
+        ?.pii_redaction_enabled === true
+    )
+    setEditSafetyGuardrails(
+      client.subscription
+        ?.safety_guardrails_enabled === true
+    )
     setEditPassword('')
     setEditError('')
   }
@@ -489,10 +604,11 @@ export default function Admin() {
 
       if (
         !Number.isFinite(minutes) ||
-        minutes < 1
+        minutes < 1 ||
+        minutes > MAX_MONTHLY_MINUTES
       ) {
         throw new Error(
-          'Monthly minutes must be at least 1.'
+          'Monthly minutes must be between 1 and 100,000,000.'
         )
       }
 
@@ -562,6 +678,10 @@ export default function Admin() {
             newPassword:
               editPassword || null,
             reactivateSubscription,
+            piiRedactionEnabled:
+              editPiiRedaction,
+            safetyGuardrailsEnabled:
+              editSafetyGuardrails,
           }),
         }
       )
@@ -1069,6 +1189,7 @@ export default function Admin() {
               <input
                 type="number"
                 min="1"
+                max={MAX_MONTHLY_MINUTES}
                 step="1"
                 value={monthlyMinutes}
                 onChange={(
@@ -1151,6 +1272,86 @@ export default function Admin() {
                 placeholder="+1 416 555 0123"
               />
             </label>
+
+            <div
+              style={{
+                gridColumn: '1 / -1',
+                display: 'grid',
+                gap: '12px',
+                padding: '16px',
+                border:
+                  '1px solid rgba(255,255,255,0.12)',
+                borderRadius: '14px',
+              }}
+            >
+              <strong>Paid add-ons</strong>
+
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  style={{
+                    width: '18px',
+                    minHeight: '18px',
+                    padding: 0,
+                    flex: '0 0 18px',
+                  }}
+                  checked={piiRedaction}
+                  onChange={(event) =>
+                    setPiiRedaction(
+                      event.target.checked
+                    )
+                  }
+                />
+                <span>
+                  PII Redaction — C$0.014 per
+                  selected minute
+                </span>
+              </label>
+
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  style={{
+                    width: '18px',
+                    minHeight: '18px',
+                    padding: 0,
+                    flex: '0 0 18px',
+                  }}
+                  checked={safetyGuardrails}
+                  onChange={(event) =>
+                    setSafetyGuardrails(
+                      event.target.checked
+                    )
+                  }
+                />
+                <span>
+                  Safety Guardrails — C$0.007
+                  per selected minute
+                </span>
+              </label>
+
+              <strong
+                style={{
+                  color: '#00e676',
+                  fontSize: '1.15rem',
+                }}
+              >
+                Total monthly billing: C$
+                {createMonthlyTotal.toFixed(2)}
+              </strong>
+            </div>
 
             <div className="adminCreateAction">
               <button
@@ -1356,6 +1557,35 @@ export default function Admin() {
                     </div>
 
                     <div>
+                      <small>MONTHLY BILLING</small>
+                      <div>
+                        C$
+                        {Number(
+                          client.subscription
+                            ?.monthly_price ?? 0
+                        ).toFixed(2)}
+                      </div>
+                    </div>
+
+                    <div>
+                      <small>ADD-ONS</small>
+                      <div>
+                        {[
+                          client.subscription
+                            ?.pii_redaction_enabled
+                            ? 'PII Redaction'
+                            : null,
+                          client.subscription
+                            ?.safety_guardrails_enabled
+                            ? 'Safety Guardrails'
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(', ') || 'None'}
+                      </div>
+                    </div>
+
+                    <div>
                       <small>AI MODEL</small>
                       <div>
                         {modelName(
@@ -1527,6 +1757,7 @@ export default function Admin() {
                   <input
                     type="number"
                     min="1"
+                    max={MAX_MONTHLY_MINUTES}
                     step="1"
                     value={editMonthlyMinutes}
                     onChange={(event) =>
@@ -1586,6 +1817,88 @@ export default function Admin() {
                     placeholder="+1 416 555 0123"
                   />
                 </label>
+
+                <div
+                  style={{
+                    gridColumn: '1 / -1',
+                    display: 'grid',
+                    gap: '12px',
+                    padding: '16px',
+                    border:
+                      '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: '14px',
+                  }}
+                >
+                  <strong>Paid add-ons</strong>
+
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      style={{
+                        width: '18px',
+                        minHeight: '18px',
+                        padding: 0,
+                        flex: '0 0 18px',
+                      }}
+                      checked={editPiiRedaction}
+                      onChange={(event) =>
+                        setEditPiiRedaction(
+                          event.target.checked
+                        )
+                      }
+                    />
+                    <span>
+                      PII Redaction — C$0.014 per
+                      selected minute
+                    </span>
+                  </label>
+
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      style={{
+                        width: '18px',
+                        minHeight: '18px',
+                        padding: 0,
+                        flex: '0 0 18px',
+                      }}
+                      checked={
+                        editSafetyGuardrails
+                      }
+                      onChange={(event) =>
+                        setEditSafetyGuardrails(
+                          event.target.checked
+                        )
+                      }
+                    />
+                    <span>
+                      Safety Guardrails — C$0.007
+                      per selected minute
+                    </span>
+                  </label>
+
+                  <strong
+                    style={{
+                      color: '#00e676',
+                      fontSize: '1.15rem',
+                    }}
+                  >
+                    Total monthly billing: C$
+                    {editMonthlyTotal.toFixed(2)}
+                  </strong>
+                </div>
 
                 <label
                   style={{

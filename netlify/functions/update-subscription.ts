@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { syncRetellSubscription } from '../lib/retell'
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -19,6 +20,8 @@ export default async (request: Request) => {
       process.env.SUPABASE_SECRET_KEY
     const stripeSecretKey =
       process.env.STRIPE_SECRET_KEY
+    const retellApiKey =
+      process.env.RETELL_API_KEY
 
     if (
       !supabaseUrl ||
@@ -179,24 +182,76 @@ export default async (request: Request) => {
       )
     }
 
-    await supabaseAdmin
-      .from('agents')
-      .update({
-        status: 'paused',
-      })
-      .eq('client_id', user.id)
+    const [agentPause, clientPause] =
+      await Promise.all([
+        supabaseAdmin
+          .from('agents')
+          .update({
+            status: 'paused',
+          })
+          .eq('client_id', user.id),
+        supabaseAdmin
+          .from('clients')
+          .update({
+            status: 'paused',
+          })
+          .eq('id', user.id),
+      ])
 
-    await supabaseAdmin
-      .from('clients')
-      .update({
-        status: 'paused',
-      })
-      .eq('id', user.id)
+    if (agentPause.error) {
+      throw agentPause.error
+    }
+
+    if (clientPause.error) {
+      throw clientPause.error
+    }
+
+    const { data: assignedAgent } =
+      await supabaseAdmin
+        .from('agents')
+        .select(
+          'retell_agent_id, phone_number'
+        )
+        .eq('client_id', user.id)
+        .maybeSingle()
+
+    let retellSyncWarning: string | null = null
+
+    if (assignedAgent?.retell_agent_id) {
+      if (!retellApiKey) {
+        retellSyncWarning =
+          'RETELL_API_KEY is missing.'
+      } else {
+        try {
+          await syncRetellSubscription({
+            apiKey: retellApiKey,
+            agentId:
+              assignedAgent.retell_agent_id,
+            phoneNumber:
+              assignedAgent.phone_number,
+            active: false,
+            piiRedactionEnabled: false,
+            safetyGuardrailsEnabled: false,
+          })
+        } catch (error) {
+          retellSyncWarning =
+            error instanceof Error
+              ? error.message
+              : 'Retell cancellation sync failed.'
+
+          console.error(
+            'Retell cancellation sync error:',
+            error
+          )
+        }
+      }
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
         status: 'cancelled',
+        retellSyncWarning,
       }),
       {
         status: 200,

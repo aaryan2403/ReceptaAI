@@ -19,10 +19,13 @@ type Subscription = {
   extra_phone_numbers: number
   status: SubscriptionStatus
   next_billing_date: string | null
+  current_period_start: string | null
+  current_period_end: string | null
 }
 
 type CallRecord = {
   duration_seconds: number
+  started_at: string
 }
 
 type AIModel = {
@@ -116,7 +119,9 @@ export default function Billing() {
             safety_guardrails_enabled,
             extra_phone_numbers,
             status,
-            next_billing_date
+            next_billing_date,
+            current_period_start,
+            current_period_end
             `
           )
           .eq('client_id', user.id)
@@ -124,7 +129,7 @@ export default function Billing() {
 
         supabase
           .from('calls')
-          .select('duration_seconds')
+          .select('duration_seconds, started_at')
           .eq('client_id', user.id),
 
         supabase
@@ -384,14 +389,32 @@ export default function Billing() {
   }, [subscription])
 
   const minutesUsed = useMemo(() => {
-    const totalSeconds = calls.reduce(
+    const periodStart =
+      subscription?.current_period_start
+        ? new Date(
+            subscription.current_period_start
+          ).getTime()
+        : 0
+
+    const periodCalls = calls.filter((call) => {
+      const callStartedAt = new Date(
+        call.started_at
+      ).getTime()
+
+      return (
+        Number.isFinite(callStartedAt) &&
+        callStartedAt >= periodStart
+      )
+    })
+
+    const totalSeconds = periodCalls.reduce(
       (total, call) =>
         total + (call.duration_seconds || 0),
       0
     )
 
-    return Math.round(totalSeconds / 60)
-  }, [calls])
+    return Math.ceil(totalSeconds / 60)
+  }, [calls, subscription])
 
   const minuteAllowance =
     subscription?.monthly_minutes ?? 0

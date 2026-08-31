@@ -156,6 +156,11 @@ export default async (request: Request) => {
           monthly_price,
           monthly_minutes,
           ai_model_id,
+          pii_redaction_enabled,
+          safety_guardrails_enabled,
+          extra_phone_numbers,
+          current_period_start,
+          current_period_end,
           status
           `
         ),
@@ -169,7 +174,7 @@ export default async (request: Request) => {
       supabaseAdmin
         .from('ai_models')
         .select(
-          'id, display_name'
+          'id, display_name, provider, tier_name, sort_order, customer_price_per_minute_cad'
         )
         .eq('is_active', true),
     ])

@@ -1,8 +1,8 @@
-import {
-  createHmac,
-  timingSafeEqual,
-} from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
+import {
+  syncRetellPhoneBinding,
+  verifyRetellSignature,
+} from '../lib/retell'
 
 type RetellEvent =
   | 'call_started'
@@ -44,53 +44,6 @@ const json = (
       'Content-Type': 'application/json',
     },
   })
-
-const verifyRetellSignature = (
-  rawBody: string,
-  signature: string | null,
-  apiKey: string
-) => {
-  if (!signature) return false
-
-  const match =
-    /^v=(\d+),d=([a-fA-F0-9]+)$/.exec(
-      signature.trim()
-    )
-
-  if (!match) return false
-
-  const timestamp = Number(match[1])
-  const suppliedDigest = match[2]
-
-  if (
-    !Number.isFinite(timestamp) ||
-    Math.abs(Date.now() - timestamp) >
-      5 * 60 * 1000
-  ) {
-    return false
-  }
-
-  const expectedDigest = createHmac(
-    'sha256',
-    apiKey
-  )
-    .update(`${rawBody}${timestamp}`)
-    .digest('hex')
-
-  const expected = Buffer.from(
-    expectedDigest,
-    'hex'
-  )
-  const supplied = Buffer.from(
-    suppliedDigest,
-    'hex'
-  )
-
-  return (
-    expected.length === supplied.length &&
-    timingSafeEqual(expected, supplied)
-  )
-}
 
 const timestampToIso = (
   timestamp?: number
@@ -248,7 +201,7 @@ export default async (
     error: agentError,
   } = await supabaseAdmin
     .from('agents')
-    .select('client_id')
+    .select('client_id, phone_number')
     .eq('retell_agent_id', agentId)
     .maybeSingle()
 
@@ -276,11 +229,20 @@ export default async (
 
   const {
     data: subscription,
+    error: subscriptionError,
   } = await supabaseAdmin
     .from('subscriptions')
-    .select('pii_redaction_enabled')
+    .select(
+      'status, monthly_minutes, current_period_start, pii_redaction_enabled'
+    )
     .eq('client_id', agent.client_id)
     .maybeSingle()
+
+  if (subscriptionError) {
+    return json(500, {
+      error: 'Could not load client subscription.',
+    })
+  }
 
   const piiRedactionEnabled =
     subscription?.pii_redaction_enabled ===
@@ -398,6 +360,109 @@ export default async (
     return json(500, {
       error: 'Could not save Retell call.',
     })
+  }
+
+  if (
+    payload.event === 'call_ended' ||
+    payload.event === 'call_analyzed'
+  ) {
+    const reservationId = getString(
+      metadata.recepta_reservation_id
+    )
+
+    if (reservationId) {
+      const { error: reservationError } =
+        await supabaseAdmin
+          .from('call_minute_reservations')
+          .update({
+            status: 'completed',
+            used_seconds:
+              getDurationSeconds(call),
+            completed_at:
+              new Date().toISOString(),
+          })
+          .eq('id', reservationId)
+          .eq('client_id', agent.client_id)
+
+      if (reservationError) {
+        console.error(
+          'Could not finalize minute reservation:',
+          reservationError
+        )
+      }
+    }
+
+    const periodStart =
+      subscription?.current_period_start
+
+    const monthlyMinutes = Number(
+      subscription?.monthly_minutes ?? 0
+    )
+
+    if (
+      subscription?.status === 'active' &&
+      periodStart &&
+      Number.isFinite(monthlyMinutes) &&
+      monthlyMinutes > 0
+    ) {
+      const {
+        data: periodCalls,
+        error: periodCallsError,
+      } = await supabaseAdmin
+        .from('calls')
+        .select('duration_seconds')
+        .eq('client_id', agent.client_id)
+        .gte('started_at', periodStart)
+
+      if (periodCallsError) {
+        return json(500, {
+          error: 'Could not calculate minute usage.',
+        })
+      }
+
+      const usedSeconds =
+        periodCalls?.reduce(
+          (total, row) =>
+            total +
+            Math.max(
+              0,
+              Number(row.duration_seconds) || 0
+            ),
+          0
+        ) ?? 0
+
+      if (
+        usedSeconds >=
+        Math.floor(monthlyMinutes) * 60
+      ) {
+        const [agentPause, clientPause] =
+          await Promise.all([
+            supabaseAdmin
+              .from('agents')
+              .update({ status: 'paused' })
+              .eq('client_id', agent.client_id),
+            supabaseAdmin
+              .from('clients')
+              .update({ status: 'paused' })
+              .eq('id', agent.client_id),
+          ])
+
+        if (agentPause.error) {
+          throw agentPause.error
+        }
+
+        if (clientPause.error) {
+          throw clientPause.error
+        }
+
+        await syncRetellPhoneBinding({
+          apiKey: retellApiKey,
+          agentId,
+          phoneNumber: agent.phone_number,
+          active: false,
+        })
+      }
+    }
   }
 
   return new Response(null, {
