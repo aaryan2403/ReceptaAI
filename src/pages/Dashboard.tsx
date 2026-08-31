@@ -16,6 +16,11 @@ type Subscription = {
   status: string | null
 }
 
+type Agent = {
+  retell_agent_id: string | null
+  status: ClientStatus
+}
+
 type Call = {
   duration_seconds: number
   appointment_booked: boolean
@@ -31,6 +36,8 @@ export default function Dashboard() {
   const [client, setClient] = useState<Client | null>(null)
   const [subscription, setSubscription] =
     useState<Subscription | null>(null)
+  const [agent, setAgent] =
+    useState<Agent | null>(null)
   const [calls, setCalls] = useState<Call[]>([])
   const [appointments, setAppointments] =
     useState<Appointment[]>([])
@@ -51,6 +58,7 @@ export default function Dashboard() {
         { data: clientData },
         { data: subscriptionData },
         { data: callsData },
+        { data: agentData },
       ] = await Promise.all([
         supabase
           .from('clients')
@@ -70,6 +78,12 @@ export default function Dashboard() {
           .from('calls')
           .select('duration_seconds, appointment_booked')
           .eq('client_id', user.id),
+
+        supabase
+          .from('agents')
+          .select('retell_agent_id, status')
+          .eq('client_id', user.id)
+          .maybeSingle(),
       ])
 
       if (clientData) {
@@ -82,6 +96,10 @@ export default function Dashboard() {
 
       if (callsData) {
         setCalls(callsData)
+      }
+
+      if (agentData) {
+        setAgent(agentData)
       }
 
       const isPro =
@@ -119,6 +137,14 @@ export default function Dashboard() {
 
   const isStandard =
     subscription?.plan_name === 'Recepta Standard'
+
+  const effectiveAgentStatus: ClientStatus =
+    isSubscriptionCancelled
+      ? 'paused'
+      : agent?.retell_agent_id &&
+          agent.status === 'setup'
+        ? 'live'
+        : agent?.status || client?.status || 'setup'
 
   const stats = useMemo(() => {
     const callsAnswered = calls.length
@@ -201,7 +227,7 @@ export default function Dashboard() {
   }, [calls, appointments, subscription])
 
   const getStatusInfo = () => {
-    switch (client?.status) {
+    switch (effectiveAgentStatus) {
       case 'live':
         return {
           label: 'Agent Live',
@@ -562,7 +588,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {client?.status !== 'live' && (
+        {effectiveAgentStatus !== 'live' && (
           <div className="onboardingProgressCard">
             <div className="onboardingProgressHead">
               <div>
@@ -589,7 +615,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {client?.status === 'live' && (
+        {effectiveAgentStatus === 'live' && (
           <div className="dashboardEmptyState">
             <h2>
               {calls.length === 0

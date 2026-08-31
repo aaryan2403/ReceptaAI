@@ -148,6 +148,7 @@ export default async (request: Request) => {
       monthlyMinutes,
       aiModelId,
       retellAgentId,
+      phoneNumber,
     } = await request.json()
 
     if (
@@ -252,6 +253,12 @@ export default async (request: Request) => {
         'string' &&
       retellAgentId.trim()
         ? retellAgentId.trim()
+        : null
+
+    const normalizedPhoneNumber =
+      typeof phoneNumber === 'string' &&
+      phoneNumber.trim()
+        ? phoneNumber.trim()
         : null
 
     if (
@@ -395,7 +402,9 @@ export default async (request: Request) => {
             normalizedCompany,
           contact_email:
             normalizedEmail,
-          status: 'setup',
+          status: normalizedRetellId
+            ? 'live'
+            : 'setup',
           role: 'client',
         })
 
@@ -416,7 +425,11 @@ export default async (request: Request) => {
             `${normalizedCompany} Receptionist`,
           business_hours:
             'Not configured',
-          status: 'setup',
+          phone_number:
+            normalizedPhoneNumber,
+          status: normalizedRetellId
+            ? 'live'
+            : 'setup',
           retell_agent_id:
             normalizedRetellId,
         })
@@ -474,7 +487,9 @@ export default async (request: Request) => {
           aiModelId,
         },
         aiConfigurationStatus:
-          'pending',
+          normalizedRetellId
+            ? 'live'
+            : 'pending',
       }),
       {
         status: 200,

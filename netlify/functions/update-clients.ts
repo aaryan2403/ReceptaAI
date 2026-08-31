@@ -4,18 +4,18 @@ import { createClient } from '@supabase/supabase-js'
 type PlanName = 'Recepta Standard' | 'Recepta Pro'
 
 const json = (
-  statusCode: number,
+  status: number,
   body: Record<string, unknown>
-) => ({
-  statusCode,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify(body),
-})
+) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
 
-export const handler: Handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
+export default async (request: Request) => {
+  if (request.method !== 'POST') {
     return json(405, {
       error: 'Method not allowed.',
     })
@@ -40,8 +40,7 @@ export const handler: Handler = async (event) => {
   }
 
   const authHeader =
-    event.headers.authorization ||
-    event.headers.Authorization
+    request.headers.get('authorization')
 
   if (!authHeader?.startsWith('Bearer ')) {
     return json(401, {
@@ -89,11 +88,13 @@ export const handler: Handler = async (event) => {
     monthlyMinutes?: number
     aiModelId?: string
     retellAgentId?: string | null
+    phoneNumber?: string | null
     newPassword?: string | null
+    reactivateSubscription?: boolean
   }
 
   try {
-    body = JSON.parse(event.body || '{}')
+    body = await request.json()
   } catch {
     return json(400, {
       error: 'Invalid request body.',
@@ -114,8 +115,12 @@ export const handler: Handler = async (event) => {
     body.aiModelId?.trim()
   const retellAgentId =
     body.retellAgentId?.trim() || null
+  const phoneNumber =
+    body.phoneNumber?.trim() || null
   const newPassword =
     body.newPassword || null
+  const reactivateSubscription =
+    body.reactivateSubscription === true
 
   if (
     !clientId ||
@@ -238,7 +243,7 @@ export const handler: Handler = async (event) => {
     error: subscriptionLookupError,
   } = await supabaseAdmin
     .from('subscriptions')
-    .select('client_id')
+    .select('client_id, status')
     .eq('client_id', clientId)
     .maybeSingle()
 
@@ -249,6 +254,28 @@ export const handler: Handler = async (event) => {
     })
   }
 
+  if (
+    reactivateSubscription &&
+    existingSubscription?.status !== 'cancelled'
+  ) {
+    return json(409, {
+      error:
+        'Only a cancelled subscription can be reactivated.',
+    })
+  }
+
+  const subscriptionIsActive =
+    reactivateSubscription ||
+    !existingSubscription ||
+    existingSubscription.status === 'active'
+
+  const nextAgentStatus =
+    subscriptionIsActive
+      ? retellAgentId
+        ? 'live'
+        : 'setup'
+      : 'paused'
+
   if (existingSubscription) {
     const { error } = await supabaseAdmin
       .from('subscriptions')
@@ -258,6 +285,12 @@ export const handler: Handler = async (event) => {
         monthly_minutes:
           Math.floor(monthlyMinutes),
         ai_model_id: aiModelId,
+        ...(reactivateSubscription
+          ? {
+              status: 'active',
+              stripe_subscription_id: null,
+            }
+          : {}),
       })
       .eq('client_id', clientId)
 
@@ -306,9 +339,8 @@ export const handler: Handler = async (event) => {
       .from('agents')
       .update({
         retell_agent_id: retellAgentId,
-        status: retellAgentId
-          ? 'live'
-          : 'setup',
+        phone_number: phoneNumber,
+        status: nextAgentStatus,
       })
       .eq('client_id', clientId)
 
@@ -323,9 +355,8 @@ export const handler: Handler = async (event) => {
       .insert({
         client_id: clientId,
         retell_agent_id: retellAgentId,
-        status: retellAgentId
-          ? 'live'
-          : 'setup',
+        phone_number: phoneNumber,
+        status: nextAgentStatus,
       })
 
     if (error) {
@@ -333,6 +364,21 @@ export const handler: Handler = async (event) => {
         error: error.message,
       })
     }
+  }
+
+
+  const { error: clientStatusError } =
+    await supabaseAdmin
+      .from('clients')
+      .update({
+        status: nextAgentStatus,
+      })
+      .eq('id', clientId)
+
+  if (clientStatusError) {
+    return json(400, {
+      error: clientStatusError.message,
+    })
   }
 
   return json(200, {

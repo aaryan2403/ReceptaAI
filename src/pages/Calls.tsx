@@ -10,6 +10,9 @@ type CallRecord = {
   outcome: string | null
   summary: string | null
   appointment_booked: boolean
+  call_status: string | null
+  transcript: string | null
+  recording_url: string | null
 }
 
 type Subscription = {
@@ -53,7 +56,10 @@ export default function Calls() {
             duration_seconds,
             outcome,
             summary,
-            appointment_booked
+            appointment_booked,
+            call_status,
+            transcript,
+            recording_url
             `
           )
           .eq('client_id', user.id)
@@ -68,12 +74,49 @@ export default function Calls() {
           .maybeSingle(),
       ])
 
-      if (!callsError && callsData) {
-        setCalls(callsData)
+      let resolvedCalls = callsData
 
-        if (callsData.length > 0) {
-          setSelectedCall(callsData[0])
-        }
+      if (callsError) {
+        const { data: legacyCalls } =
+          await supabase
+            .from('calls')
+            .select(
+              `
+              id,
+              caller_name,
+              caller_number,
+              started_at,
+              duration_seconds,
+              outcome,
+              summary,
+              appointment_booked
+              `
+            )
+            .eq('client_id', user.id)
+            .order('started_at', {
+              ascending: false,
+            })
+
+        resolvedCalls =
+          legacyCalls?.map((call) => ({
+            ...call,
+            call_status: null,
+            transcript: null,
+            recording_url: null,
+          })) ?? null
+      }
+
+      if (resolvedCalls) {
+        setCalls(resolvedCalls)
+
+        setSelectedCall((current) =>
+          current
+            ? resolvedCalls.find(
+                (call) =>
+                  call.id === current.id
+              ) ?? resolvedCalls[0] ?? null
+            : resolvedCalls[0] ?? null
+        )
       }
 
       if (subscriptionData) {
@@ -84,10 +127,28 @@ export default function Calls() {
     }
 
     loadCalls()
+
+    const refreshInterval =
+      window.setInterval(
+        loadCalls,
+        5000
+      )
+
+    return () => {
+      window.clearInterval(
+        refreshInterval
+      )
+    }
   }, [])
 
   const isPro =
     subscription?.plan_name === 'Recepta Pro'
+
+  const activeCall = calls.find(
+    (call) =>
+      call.call_status === 'ongoing' ||
+      call.call_status === 'registered'
+  )
 
   const formatDuration = (seconds: number) => {
     const safeSeconds = seconds || 0
@@ -306,7 +367,7 @@ export default function Calls() {
 
             <span className="callsIdleBadge">
               <span />
-              Idle
+              {activeCall ? 'Live' : 'Idle'}
             </span>
           </div>
 
@@ -317,14 +378,19 @@ export default function Calls() {
 
             <div>
               <strong>
-                No active call
+                {activeCall
+                  ? activeCall.caller_name ||
+                    activeCall.caller_number ||
+                    'Demo call in progress'
+                  : 'No active call'}
               </strong>
 
               <p>
-                When your receptionist is
-                speaking with a customer,
-                the live call will appear
-                here.
+                {activeCall
+                  ? `Started ${new Date(
+                      activeCall.started_at
+                    ).toLocaleTimeString()}. Live status refreshes automatically.`
+                  : 'When your receptionist is speaking with a customer, the live call will appear here.'}
               </p>
             </div>
           </div>
@@ -557,10 +623,20 @@ export default function Calls() {
                       Transcript
                     </span>
 
-                    <strong>
-                      Available after Retell
-                      integration
-                    </strong>
+                    {selectedCall.transcript ? (
+                      <p
+                        style={{
+                          whiteSpace: 'pre-wrap',
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        {selectedCall.transcript}
+                      </p>
+                    ) : (
+                      <strong>
+                        Not available for this call
+                      </strong>
+                    )}
                   </div>
 
                   <div>
@@ -568,10 +644,20 @@ export default function Calls() {
                       Recording
                     </span>
 
-                    <strong>
-                      Available after Retell
-                      integration
-                    </strong>
+                    {selectedCall.recording_url ? (
+                      <a
+                        href={selectedCall.recording_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btnOutline"
+                      >
+                        Open Recording
+                      </a>
+                    ) : (
+                      <strong>
+                        Not available for this call
+                      </strong>
+                    )}
                   </div>
                 </div>
               </div>

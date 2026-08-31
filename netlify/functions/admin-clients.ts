@@ -163,7 +163,7 @@ export default async (request: Request) => {
       supabaseAdmin
         .from('agents')
         .select(
-          'client_id, retell_agent_id, status'
+          'client_id, retell_agent_id, phone_number, status'
         ),
 
       supabaseAdmin

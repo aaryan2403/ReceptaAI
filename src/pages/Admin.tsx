@@ -45,6 +45,7 @@ type AIModel = {
 type AgentRecord = {
   client_id: string
   retell_agent_id: string | null
+  phone_number: string | null
   status: string | null
 }
 
@@ -87,6 +88,8 @@ export default function Admin() {
     useState('')
   const [retellAgentId, setRetellAgentId] =
     useState('')
+  const [phoneNumber, setPhoneNumber] =
+    useState('')
   const [creating, setCreating] =
     useState(false)
   const [createError, setCreateError] =
@@ -117,6 +120,8 @@ export default function Admin() {
   const [editAiModelId, setEditAiModelId] =
     useState('')
   const [editRetellAgentId, setEditRetellAgentId] =
+    useState('')
+  const [editPhoneNumber, setEditPhoneNumber] =
     useState('')
   const [editPassword, setEditPassword] =
     useState('')
@@ -384,6 +389,8 @@ export default function Admin() {
             aiModelId,
             retellAgentId:
               normalizedRetellId || null,
+            phoneNumber:
+              phoneNumber.trim() || null,
           }),
         }
       )
@@ -415,6 +422,7 @@ export default function Admin() {
         models[0]?.id || ''
       )
       setRetellAgentId('')
+      setPhoneNumber('')
 
       await loadData()
     } catch (error) {
@@ -458,15 +466,16 @@ export default function Admin() {
     setEditRetellAgentId(
       client.agent?.retell_agent_id || ''
     )
+    setEditPhoneNumber(
+      client.agent?.phone_number || ''
+    )
     setEditPassword('')
     setEditError('')
   }
 
-  const handleSaveClientEdit = async (
-    event: FormEvent<HTMLFormElement>
+  const updateClient = async (
+    reactivateSubscription = false
   ) => {
-    event.preventDefault()
-
     if (!editingClient) return
 
     setSavingEdit(true)
@@ -548,8 +557,11 @@ export default function Admin() {
             aiModelId: editAiModelId,
             retellAgentId:
               normalizedRetellId || null,
+            phoneNumber:
+              editPhoneNumber.trim() || null,
             newPassword:
               editPassword || null,
+            reactivateSubscription,
           }),
         }
       )
@@ -567,7 +579,9 @@ export default function Admin() {
       }
 
       setActionSuccess(
-        `${editCompanyName.trim()} updated.`
+        reactivateSubscription
+          ? `${editCompanyName.trim()} subscription reactivated.`
+          : `${editCompanyName.trim()} updated.`
       )
       setEditingClient(null)
       setEditPassword('')
@@ -581,6 +595,25 @@ export default function Admin() {
     } finally {
       setSavingEdit(false)
     }
+  }
+
+  const handleSaveClientEdit = async (
+    event: FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault()
+    await updateClient(false)
+  }
+
+  const handleReactivateSubscription = async () => {
+    if (
+      !window.confirm(
+        'Reactivate this client and restore dashboard access? This admin action does not create a new Stripe charge.'
+      )
+    ) {
+      return
+    }
+
+    await updateClient(true)
   }
 
   const handleDeleteClient = async (
@@ -1100,6 +1133,25 @@ export default function Admin() {
               />
             </label>
 
+            <label>
+              <span>
+                Recepta phone number{' '}
+                <small>(optional)</small>
+              </span>
+              <input
+                type="tel"
+                value={phoneNumber}
+                onChange={(
+                  event: ChangeEvent<HTMLInputElement>
+                ) =>
+                  setPhoneNumber(
+                    event.target.value
+                  )
+                }
+                placeholder="+1 416 555 0123"
+              />
+            </label>
+
             <div className="adminCreateAction">
               <button
                 className="btn btnPrimary"
@@ -1521,6 +1573,20 @@ export default function Admin() {
                   />
                 </label>
 
+                <label>
+                  <span>Recepta phone number</span>
+                  <input
+                    type="tel"
+                    value={editPhoneNumber}
+                    onChange={(event) =>
+                      setEditPhoneNumber(
+                        event.target.value
+                      )
+                    }
+                    placeholder="+1 416 555 0123"
+                  />
+                </label>
+
                 <label
                   style={{
                     gridColumn: '1 / -1',
@@ -1573,6 +1639,20 @@ export default function Admin() {
                     gap: '10px',
                   }}
                 >
+                  {editingClient.subscription?.status ===
+                    'cancelled' && (
+                    <button
+                      type="button"
+                      className="btn btnPrimary"
+                      disabled={savingEdit}
+                      onClick={handleReactivateSubscription}
+                    >
+                      {savingEdit
+                        ? 'Reactivating...'
+                        : 'Reactivate Subscription'}
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     className="btn btnOutline"

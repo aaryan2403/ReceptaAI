@@ -177,17 +177,29 @@ export default async (request: Request) => {
             throw updateError
           }
 
+          const { data: assignedAgent } =
+            await supabaseAdmin
+              .from('agents')
+              .select('retell_agent_id')
+              .eq('client_id', clientId)
+              .maybeSingle()
+
+          const restoredStatus =
+            assignedAgent?.retell_agent_id
+              ? 'live'
+              : 'setup'
+
           await supabaseAdmin
             .from('clients')
             .update({
-              status: 'setup',
+              status: restoredStatus,
             })
             .eq('id', clientId)
 
           await supabaseAdmin
             .from('agents')
             .update({
-              status: 'setup',
+              status: restoredStatus,
             })
             .eq('client_id', clientId)
         }
