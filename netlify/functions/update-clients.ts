@@ -307,7 +307,7 @@ export const handler: Handler = async (event) => {
       .update({
         retell_agent_id: retellAgentId,
         status: retellAgentId
-          ? 'active'
+          ? 'live'
           : 'setup',
       })
       .eq('client_id', clientId)
@@ -324,7 +324,7 @@ export const handler: Handler = async (event) => {
         client_id: clientId,
         retell_agent_id: retellAgentId,
         status: retellAgentId
-          ? 'active'
+          ? 'live'
           : 'setup',
       })
 
