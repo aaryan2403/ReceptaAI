@@ -678,7 +678,7 @@ export default function Settings() {
 
               <a
                 className="btn btnPrimary"
-                href="mailto:receptahelp02@gmail.com?subject=Upgrade%20to%20Recepta%20Pro"
+                href="/dashboard/billing"
               >
                 Upgrade to Pro
               </a>
@@ -753,7 +753,9 @@ export default function Settings() {
 
           <a
             className="btn btnPrimary"
-            href="mailto:receptahelp02@gmail.com?subject=Recepta%20Support%20Request"
+            href="https://mail.google.com/mail/?view=cm&fs=1&to=receptahelp02@gmail.com&su=Recepta%20Support%20Request"
+            target="_blank"
+            rel="noopener noreferrer"
           >
             Contact Recepta
           </a>
