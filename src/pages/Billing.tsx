@@ -39,6 +39,8 @@ const ADD_ON_PRICES = {
   extraPhoneNumberMonthlyCad: 20,
 }
 
+const MAX_MONTHLY_MINUTES = 100_000_000
+
 export default function Billing() {
   const [subscription, setSubscription] =
     useState<Subscription | null>(null)
@@ -521,10 +523,11 @@ export default function Billing() {
 
       if (
         !Number.isFinite(minutes) ||
-        minutes < 1
+        minutes < 1 ||
+        minutes > MAX_MONTHLY_MINUTES
       ) {
         setCheckoutError(
-          'Monthly minutes must be at least 1.'
+          'Monthly minutes must be between 1 and 100,000,000.'
         )
         return
       }
@@ -1615,6 +1618,7 @@ export default function Billing() {
                         <input
                           type="number"
                           min="1"
+                          max={MAX_MONTHLY_MINUTES}
                           step="1"
                           value={selectedMinutes}
                           onChange={(event) =>

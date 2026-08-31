@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 
+const MAX_MONTHLY_MINUTES = 100_000_000
+
 export default async (request: Request) => {
   if (request.method !== 'POST') {
     return new Response(
@@ -103,11 +105,13 @@ export default async (request: Request) => {
 
     if (
       !Number.isFinite(minutes) ||
-      minutes < 1
+      minutes < 1 ||
+      minutes > MAX_MONTHLY_MINUTES
     ) {
       return new Response(
         JSON.stringify({
-          error: 'Invalid monthly minutes.',
+          error:
+            'Monthly minutes must be between 1 and 100,000,000.',
         }),
         {
           status: 400,
