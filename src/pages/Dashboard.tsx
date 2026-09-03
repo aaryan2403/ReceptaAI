@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchClientCalls } from '../lib/clientCalls'
 
 type ClientStatus = 'setup' | 'testing' | 'live' | 'paused'
 
@@ -20,6 +21,7 @@ type Subscription = {
 
 type Agent = {
   retell_agent_id: string | null
+  phone_number: string | null
   status: ClientStatus
 }
 
@@ -27,12 +29,155 @@ type Call = {
   duration_seconds: number
   appointment_booked: boolean
   started_at: string
+  call_status: string | null
+  caller_name?: string | null
+  caller_number?: string | null
 }
 
 type Appointment = {
   id: string
   appointment_time: string | null
   status: 'booked' | 'cancelled' | 'completed'
+}
+
+type ChartPoint = {
+  label: string
+  value: number
+}
+
+function CompanyStatisticsChart({
+  title,
+  points,
+}: {
+  title: string
+  points: ChartPoint[]
+}) {
+  const width = 760
+  const height = 250
+  const paddingLeft = 42
+  const paddingRight = 22
+  const paddingTop = 22
+  const paddingBottom = 42
+  const plotWidth = width - paddingLeft - paddingRight
+  const plotHeight = height - paddingTop - paddingBottom
+  const maximum = Math.max(1, ...points.map((point) => point.value))
+  const coordinates = points.map((point, index) => ({
+    ...point,
+    x:
+      paddingLeft +
+      (points.length === 1
+        ? plotWidth / 2
+        : (index / (points.length - 1)) * plotWidth),
+    y: paddingTop + plotHeight - (point.value / maximum) * plotHeight,
+  }))
+  const linePath = coordinates
+    .map((point, index) =>
+      `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`
+    )
+    .join(' ')
+  const areaPath = `${linePath} L ${
+    coordinates[coordinates.length - 1]?.x ?? paddingLeft
+  } ${paddingTop + plotHeight} L ${
+    coordinates[0]?.x ?? paddingLeft
+  } ${paddingTop + plotHeight} Z`
+  const total = points.reduce((sum, point) => sum + point.value, 0)
+
+  return (
+    <section className="dashboardCompanyChart">
+      <div className="dashboardCompanyChartHeader">
+        <div>
+          <p className="dashboardEyebrow">COMPANY STATISTICS</p>
+          <h2>{title}</h2>
+          <p>Daily activity over the last seven days.</p>
+        </div>
+
+        <div className="dashboardCompanyChartTotal">
+          <span>7-day total</span>
+          <strong>{total}</strong>
+        </div>
+      </div>
+
+      <div className="dashboardCompanyChartCanvas">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          role="img"
+          aria-label={`${title} line graph for the last seven days`}
+        >
+          <defs>
+            <linearGradient
+              id="dashboardChartArea"
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="1"
+            >
+              <stop offset="0%" stopColor="#00e676" stopOpacity="0.3" />
+              <stop offset="100%" stopColor="#00e676" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+
+          {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+            const y = paddingTop + plotHeight * ratio
+            const value = Math.round(maximum * (1 - ratio))
+
+            return (
+              <g key={ratio}>
+                <line
+                  x1={paddingLeft}
+                  y1={y}
+                  x2={width - paddingRight}
+                  y2={y}
+                  stroke="rgba(255,255,255,0.09)"
+                  strokeWidth="1"
+                />
+                <text
+                  x={paddingLeft - 10}
+                  y={y + 4}
+                  textAnchor="end"
+                  fill="rgba(235,244,238,0.45)"
+                  fontSize="11"
+                >
+                  {value}
+                </text>
+              </g>
+            )
+          })}
+
+          <path d={areaPath} fill="url(#dashboardChartArea)" />
+          <path
+            d={linePath}
+            fill="none"
+            stroke="#00e676"
+            strokeWidth="4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+
+          {coordinates.map((point) => (
+            <g key={point.label}>
+              <circle
+                cx={point.x}
+                cy={point.y}
+                r="5"
+                fill="#07140d"
+                stroke="#00e676"
+                strokeWidth="3"
+              />
+              <text
+                x={point.x}
+                y={height - 15}
+                textAnchor="middle"
+                fill="rgba(235,244,238,0.58)"
+                fontSize="11"
+              >
+                {point.label}
+              </text>
+            </g>
+          ))}
+        </svg>
+      </div>
+    </section>
+  )
 }
 
 export default function Dashboard() {
@@ -44,6 +189,8 @@ export default function Dashboard() {
   const [calls, setCalls] = useState<Call[]>([])
   const [appointments, setAppointments] =
     useState<Appointment[]>([])
+  const [phoneNumbers, setPhoneNumbers] =
+    useState<string[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -60,8 +207,8 @@ export default function Dashboard() {
       const [
         { data: clientData },
         { data: subscriptionData },
-        { data: callsData },
         { data: agentData },
+        { data: phoneNumberData },
       ] = await Promise.all([
         supabase
           .from('clients')
@@ -78,17 +225,17 @@ export default function Dashboard() {
           .maybeSingle(),
 
         supabase
-          .from('calls')
-          .select(
-            'duration_seconds, appointment_booked, started_at'
-          )
-          .eq('client_id', user.id),
-
-        supabase
           .from('agents')
-          .select('retell_agent_id, status')
+          .select('retell_agent_id, phone_number, status')
           .eq('client_id', user.id)
           .maybeSingle(),
+
+        supabase
+          .from('agent_phone_numbers')
+          .select('phone_number')
+          .eq('client_id', user.id)
+          .order('is_primary', { ascending: false })
+          .order('created_at', { ascending: true }),
       ])
 
       if (clientData) {
@@ -99,12 +246,27 @@ export default function Dashboard() {
         setSubscription(subscriptionData)
       }
 
-      if (callsData) {
-        setCalls(callsData)
+      try {
+        const callsResult = await fetchClientCalls()
+        setCalls(callsResult.calls)
+      } catch (error) {
+        console.error('Dashboard call sync failed:', error)
       }
 
       if (agentData) {
         setAgent(agentData)
+
+        const assignedPhoneNumbers = (phoneNumberData ?? []).map(
+          (row) => row.phone_number
+        )
+
+        setPhoneNumbers(
+          assignedPhoneNumbers.length > 0
+            ? assignedPhoneNumbers
+            : agentData.phone_number
+              ? [agentData.phone_number]
+              : []
+        )
       }
 
       const isPro =
@@ -162,6 +324,12 @@ export default function Dashboard() {
           agent.status === 'setup'
         ? 'live'
         : agent?.status || client?.status || 'setup'
+
+  const activeCall = calls.find(
+    (call) =>
+      call.call_status === 'ongoing' ||
+      call.call_status === 'registered'
+  )
 
   const stats = useMemo(() => {
     const periodStart =
@@ -260,6 +428,50 @@ export default function Dashboard() {
           : '0m 00s',
     }
   }, [calls, appointments, subscription])
+
+  const companyChart = useMemo(() => {
+    const now = new Date()
+    const days = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(now)
+      date.setHours(0, 0, 0, 0)
+      date.setDate(date.getDate() - (6 - index))
+
+      return {
+        date,
+        key: `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`,
+        label: date.toLocaleDateString(undefined, {
+          weekday: 'short',
+        }),
+      }
+    })
+
+    const toLocalDateKey = (value: string | null) => {
+      if (!value) return null
+      const date = new Date(value)
+
+      if (!Number.isFinite(date.getTime())) return null
+
+      return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+    }
+
+    const points = days.map((day) => ({
+      label: day.label,
+      value: isPro
+        ? appointments.filter(
+            (appointment) =>
+              appointment.status !== 'cancelled' &&
+              toLocalDateKey(appointment.appointment_time) === day.key
+          ).length
+        : calls.filter(
+            (call) => toLocalDateKey(call.started_at) === day.key
+          ).length,
+    }))
+
+    return {
+      title: isPro ? 'Appointments Booked' : 'Calls Picked Up',
+      points,
+    }
+  }, [appointments, calls, isPro])
 
   const getStatusInfo = () => {
     if (
@@ -432,14 +644,12 @@ export default function Dashboard() {
             </a>
           )}
 
-          {isPro && (
-            <a
-              href="/dashboard/employees"
-              className="dashboardNavItem"
-            >
-              Employees
-            </a>
-          )}
+          <a
+            href="/dashboard/employees"
+            className="dashboardNavItem"
+          >
+            Employees
+          </a>
 
           <a
             href="/dashboard/agent"
@@ -527,6 +737,37 @@ export default function Dashboard() {
         ) : (
         <>
 
+        <a
+          href="/dashboard/calls"
+          className={
+            activeCall
+              ? 'dashboardActiveCall dashboardActiveCall--live'
+              : 'dashboardActiveCall'
+          }
+        >
+          <span className="dashboardActiveCallDot" />
+
+          <div>
+            <strong>
+              {activeCall
+                ? 'Active call in progress'
+                : 'No active calls'}
+            </strong>
+
+            <small>
+              {activeCall
+                ? activeCall.caller_name ||
+                  activeCall.caller_number ||
+                  'Retell audio test is connected now.'
+                : 'The Calls page will update automatically when a conversation starts.'}
+            </small>
+          </div>
+
+          <span className="dashboardActiveCallLink">
+            View Calls
+          </span>
+        </a>
+
         <div className="dashboardStats">
           <div className="dashboardStatCard">
             <span>Calls Answered</span>
@@ -602,6 +843,35 @@ export default function Dashboard() {
             </strong>
           </div>
         </div>
+
+        <section className="dashboardPhoneNumbersPanel">
+          <div>
+            <p className="dashboardEyebrow">ASSIGNED NUMBERS</p>
+            <h2>
+              {phoneNumbers.length === 1
+                ? 'Your Recepta phone number'
+                : 'Your Recepta phone numbers'}
+            </h2>
+          </div>
+
+          <div className="dashboardPhoneNumbersList">
+            {phoneNumbers.length > 0 ? (
+              phoneNumbers.map((phoneNumber, index) => (
+                <span key={phoneNumber}>
+                  {phoneNumber}
+                  {index === 0 && <small>Primary</small>}
+                </span>
+              ))
+            ) : (
+              <span>Numbers have not been assigned yet.</span>
+            )}
+          </div>
+        </section>
+
+        <CompanyStatisticsChart
+          title={companyChart.title}
+          points={companyChart.points}
+        />
 
         {isPro && (
           <div className="dashboardTodayCard">

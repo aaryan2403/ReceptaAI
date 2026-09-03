@@ -127,15 +127,17 @@ export default function Landing() {
       monthly: '$300/month',
       summary: [
         'Appointment booking + full call handling',
+        'Employee availability schedules',
         '24/7 availability',
-        '+$50/month per additional number',
+        '+C$20/month per additional number',
       ],
       details: [
         'Appointment booking + full call information handling',
+        'Employee availability schedules',
         'Ongoing maintenance and support included',
         '24/7 availability',
         'Call transfer functionality',
-        'Additional phone number integration: $50/month per number',
+        'Additional phone number integration: C$20/month per number',
         'Perfect for: Service-oriented businesses managing calls and schedules',
       ],
     },
@@ -144,15 +146,17 @@ export default function Landing() {
       monthly: '$200/month',
       summary: [
         'Call handling and information calls',
+        'Employee availability schedules',
         '24/7 availability',
-        '+$50/month per additional number',
+        '+C$20/month per additional number',
       ],
       details: [
         'Handles information and general calls',
+        'Employee availability schedules',
         'Ongoing maintenance and support included',
         '24/7 availability',
         'Call transfer functionality',
-        'Additional phone number integration: $50/month per number',
+        'Additional phone number integration: C$20/month per number',
         'Perfect for: Businesses that want around-the-clock call coverage without booking',
       ],
     },
@@ -470,7 +474,7 @@ export default function Landing() {
               ))}
             </div>
             <p className="sectionSubtitle" style={{ marginTop: '24px', textAlign: 'center' }}>
-              Need more phone numbers? Add any number to your plan for $50/month each.
+              Need more phone numbers? Add up to 20 additional numbers for C$20/month each.
             </p>
           </div>
         </section>

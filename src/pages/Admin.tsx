@@ -56,6 +56,7 @@ type AgentRecord = {
   client_id: string
   retell_agent_id: string | null
   phone_number: string | null
+  phone_numbers?: string[]
   status: string | null
 }
 
@@ -101,6 +102,16 @@ const calculateTotal = (
   )
 }
 
+const parsePhoneNumberInput = (value: string) =>
+  Array.from(
+    new Set(
+      value
+        .split(/[\n,;]+/)
+        .map((phoneNumber) => phoneNumber.trim())
+        .filter(Boolean)
+    )
+  )
+
 export default function Admin() {
   const [clients, setClients] =
     useState<ClientWithSubscription[]>([])
@@ -137,6 +148,12 @@ export default function Admin() {
     useState('')
   const [phoneNumber, setPhoneNumber] =
     useState('')
+  const [purchasePhoneNumbers, setPurchasePhoneNumbers] =
+    useState('0')
+  const [phoneCountryCode, setPhoneCountryCode] =
+    useState<'CA' | 'US'>('CA')
+  const [phoneAreaCode, setPhoneAreaCode] =
+    useState('')
   const [piiRedaction, setPiiRedaction] =
     useState(false)
   const [safetyGuardrails, setSafetyGuardrails] =
@@ -154,6 +171,8 @@ export default function Admin() {
     useState('')
   const [actionSuccess, setActionSuccess] =
     useState('')
+  const [syncingRetellContexts, setSyncingRetellContexts] =
+    useState(false)
 
   const [search, setSearch] =
     useState('')
@@ -182,6 +201,14 @@ export default function Admin() {
   ] = useState(false)
   const [editPassword, setEditPassword] =
     useState('')
+  const [editPurchaseQuantity, setEditPurchaseQuantity] =
+    useState('1')
+  const [editPhoneCountry, setEditPhoneCountry] =
+    useState<'CA' | 'US'>('CA')
+  const [editPhoneAreaCode, setEditPhoneAreaCode] =
+    useState('')
+  const [purchasingPhoneNumbers, setPurchasingPhoneNumbers] =
+    useState(false)
   const [savingEdit, setSavingEdit] =
     useState(false)
   const [editError, setEditError] =
@@ -195,7 +222,13 @@ export default function Admin() {
         monthlyMinutes,
         aiModelId,
         piiRedaction,
-        safetyGuardrails
+        safetyGuardrails,
+        Math.max(
+          0,
+          parsePhoneNumberInput(phoneNumber).length +
+            Math.max(0, Math.floor(Number(purchasePhoneNumbers) || 0)) -
+            1
+        )
       ),
     [
       planName,
@@ -203,6 +236,8 @@ export default function Admin() {
       aiModelId,
       piiRedaction,
       safetyGuardrails,
+      phoneNumber,
+      purchasePhoneNumbers,
       models,
     ]
   )
@@ -216,8 +251,10 @@ export default function Admin() {
         editAiModelId,
         editPiiRedaction,
         editSafetyGuardrails,
-        editingClient?.subscription
-          ?.extra_phone_numbers ?? 0
+        Math.max(
+          0,
+          parsePhoneNumberInput(editPhoneNumber).length - 1
+        )
       ),
     [
       editPlanName,
@@ -225,7 +262,7 @@ export default function Admin() {
       editAiModelId,
       editPiiRedaction,
       editSafetyGuardrails,
-      editingClient,
+      editPhoneNumber,
       models,
     ]
   )
@@ -446,6 +483,22 @@ export default function Admin() {
 
       const normalizedRetellId =
         retellAgentId.trim()
+      const requestedPurchaseCount = Number(
+        purchasePhoneNumbers
+      )
+      const existingPhoneNumbers =
+        parsePhoneNumberInput(phoneNumber)
+
+      if (
+        !Number.isInteger(requestedPurchaseCount) ||
+        requestedPurchaseCount < 0 ||
+        requestedPurchaseCount > 21 ||
+        existingPhoneNumbers.length + requestedPurchaseCount > 21
+      ) {
+        throw new Error(
+          'A client can have at most 21 phone numbers, including the primary number.'
+        )
+      }
 
       if (
         normalizedRetellId &&
@@ -455,6 +508,12 @@ export default function Admin() {
       ) {
         throw new Error(
           'Retell Agent ID must start with agent_.'
+        )
+      }
+
+      if (requestedPurchaseCount > 0 && !normalizedRetellId) {
+        throw new Error(
+          'Enter the Retell Agent ID before purchasing phone numbers.'
         )
       }
 
@@ -490,8 +549,15 @@ export default function Admin() {
             aiModelId,
             retellAgentId:
               normalizedRetellId || null,
-            phoneNumber:
-              phoneNumber.trim() || null,
+            phoneNumbers:
+              existingPhoneNumbers,
+            purchasePhoneNumbers:
+              requestedPurchaseCount,
+            phoneCountryCode,
+            phoneAreaCode:
+              phoneCountryCode === 'US'
+                ? phoneAreaCode.trim() || null
+                : null,
             piiRedactionEnabled:
               piiRedaction,
             safetyGuardrailsEnabled:
@@ -528,6 +594,9 @@ export default function Admin() {
       )
       setRetellAgentId('')
       setPhoneNumber('')
+      setPurchasePhoneNumbers('0')
+      setPhoneCountryCode('CA')
+      setPhoneAreaCode('')
       setPiiRedaction(false)
       setSafetyGuardrails(false)
 
@@ -574,7 +643,13 @@ export default function Admin() {
       client.agent?.retell_agent_id || ''
     )
     setEditPhoneNumber(
-      client.agent?.phone_number || ''
+      (
+        client.agent?.phone_numbers?.length
+          ? client.agent.phone_numbers
+          : client.agent?.phone_number
+            ? [client.agent.phone_number]
+            : []
+      ).join('\n')
     )
     setEditPiiRedaction(
       client.subscription
@@ -585,7 +660,25 @@ export default function Admin() {
         ?.safety_guardrails_enabled === true
     )
     setEditPassword('')
+    setEditPurchaseQuantity('1')
+    setEditPhoneCountry('CA')
+    setEditPhoneAreaCode('')
     setEditError('')
+  }
+
+  const openPhoneNumberManager = (
+    client: ClientWithSubscription
+  ) => {
+    openEditClient(client)
+
+    window.setTimeout(() => {
+      document
+        .getElementById('adminPhonePurchasePanel')
+        ?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        })
+    }, 0)
   }
 
   const updateClient = async (
@@ -620,6 +713,14 @@ export default function Admin() {
 
       const normalizedRetellId =
         editRetellAgentId.trim()
+      const editedPhoneNumbers =
+        parsePhoneNumberInput(editPhoneNumber)
+
+      if (editedPhoneNumbers.length > 21) {
+        throw new Error(
+          'A client can have at most 21 phone numbers, including the primary number.'
+        )
+      }
 
       if (
         normalizedRetellId &&
@@ -673,8 +774,8 @@ export default function Admin() {
             aiModelId: editAiModelId,
             retellAgentId:
               normalizedRetellId || null,
-            phoneNumber:
-              editPhoneNumber.trim() || null,
+            phoneNumbers:
+              editedPhoneNumbers,
             newPassword:
               editPassword || null,
             reactivateSubscription,
@@ -734,6 +835,92 @@ export default function Admin() {
     }
 
     await updateClient(true)
+  }
+
+  const handlePurchasePhoneNumbers = async () => {
+    if (!editingClient) return
+
+    const quantity = Number(editPurchaseQuantity)
+    const currentPhoneCount =
+      editingClient.agent?.phone_numbers?.length ||
+      (editingClient.agent?.phone_number ? 1 : 0)
+
+    if (
+      !Number.isInteger(quantity) ||
+      quantity < 1 ||
+      currentPhoneCount + quantity > 21
+    ) {
+      setEditError(
+        'Choose a valid quantity without exceeding 21 total phone numbers.'
+      )
+      return
+    }
+
+    if (
+      !window.confirm(
+        `Purchase ${quantity} real Retell phone ${
+          quantity === 1 ? 'number' : 'numbers'
+        } for this client now?`
+      )
+    ) {
+      return
+    }
+
+    setPurchasingPhoneNumbers(true)
+    setEditError('')
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error('Admin session expired. Sign in again.')
+      }
+
+      const response = await fetch(
+        '/.netlify/functions/admin-purchase-phone-numbers',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            clientId: editingClient.id,
+            quantity,
+            countryCode: editPhoneCountry,
+            areaCode:
+              editPhoneCountry === 'US'
+                ? editPhoneAreaCode.trim() || null
+                : null,
+          }),
+        }
+      )
+      const result = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error || 'Could not purchase phone numbers.'
+        )
+      }
+
+      setActionSuccess(
+        `${quantity} phone ${
+          quantity === 1 ? 'number was' : 'numbers were'
+        } purchased and assigned to ${editingClient.company_name || 'the client'}.`
+      )
+      setEditingClient(null)
+      await loadData()
+    } catch (error) {
+      setEditError(
+        error instanceof Error
+          ? error.message
+          : 'Could not purchase phone numbers.'
+      )
+    } finally {
+      setPurchasingPhoneNumbers(false)
+    }
   }
 
   const handleDeleteClient = async (
@@ -808,6 +995,88 @@ export default function Admin() {
       )
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  const handleSyncAllRetellContexts = async () => {
+    if (
+      !window.confirm(
+        'Publish the latest store hours and employee schedules to every connected Retell agent?'
+      )
+    ) {
+      return
+    }
+
+    setSyncingRetellContexts(true)
+    setActionError('')
+    setActionSuccess('')
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error('Admin session expired. Sign in again.')
+      }
+
+      const response = await fetch(
+        '/.netlify/functions/admin-sync-retell-context',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      )
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string
+        total?: number
+        synced?: number
+        failed?: number
+        testAgent?: {
+          synced?: boolean
+          error?: string
+        } | null
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          result.error || 'Could not synchronize Retell agents.'
+        )
+      }
+
+      if (!result.testAgent) {
+        throw new Error(
+          `Synchronized ${result.synced ?? 0} agents, but the Recepta test account was not found with a connected Retell Agent ID.`
+        )
+      }
+
+      if (result.testAgent.synced !== true) {
+        throw new Error(
+          `The Recepta test agent failed to synchronize: ${
+            result.testAgent.error || 'Unknown Retell error.'
+          }`
+        )
+      }
+
+      if ((result.failed ?? 0) > 0) {
+        setActionError(
+          `Recepta test agent synchronized successfully, but ${result.failed} of ${result.total} connected agents failed.`
+        )
+      } else {
+        setActionSuccess(
+          `All ${result.synced ?? 0} connected Retell agents synchronized successfully, including receptahelp02@gmail.com.`
+        )
+      }
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : 'Could not synchronize Retell agents.'
+      )
+    } finally {
+      setSyncingRetellContexts(false)
     }
   }
 
@@ -1091,9 +1360,8 @@ export default function Admin() {
 
               <p>
                 Standard gets Overview,
-                Calls, Agent, Billing and
-                Settings. Pro also gets
-                Appointments and Employees.
+                Calls, Employees, Agent, Billing and
+                Settings. Pro also gets Appointments.
               </p>
             </div>
           </div>
@@ -1256,22 +1524,86 @@ export default function Admin() {
 
             <label>
               <span>
-                Recepta phone number{' '}
+                Existing Recepta phone numbers{' '}
                 <small>(optional)</small>
               </span>
-              <input
-                type="tel"
+              <textarea
                 value={phoneNumber}
                 onChange={(
-                  event: ChangeEvent<HTMLInputElement>
+                  event: ChangeEvent<HTMLTextAreaElement>
                 ) =>
                   setPhoneNumber(
                     event.target.value
                   )
                 }
-                placeholder="+1 416 555 0123"
+                placeholder={"+14165550123\n+16475550123"}
               />
+              <small>
+                Paste any numbers already owned in Retell, one per line.
+              </small>
             </label>
+
+            <label>
+              <span>Buy new Retell numbers now</span>
+              <input
+                type="number"
+                min="0"
+                max="21"
+                step="1"
+                value={purchasePhoneNumbers}
+                onChange={(event) =>
+                  setPurchasePhoneNumbers(event.target.value)
+                }
+              />
+              <small>
+                The first number is included. Each number after the first adds C$20/month.
+              </small>
+            </label>
+
+            <label>
+              <span>Number country</span>
+              <select
+                value={phoneCountryCode}
+                onChange={(event) =>
+                  setPhoneCountryCode(
+                    event.target.value === 'US' ? 'US' : 'CA'
+                  )
+                }
+              >
+                <option value="CA">Canada</option>
+                <option value="US">United States</option>
+              </select>
+            </label>
+
+            {phoneCountryCode === 'US' && (
+              <label>
+                <span>
+                  US area code <small>(optional)</small>
+                </span>
+                <input
+                  inputMode="numeric"
+                  maxLength={3}
+                  value={phoneAreaCode}
+                  onChange={(event) =>
+                    setPhoneAreaCode(event.target.value)
+                  }
+                  placeholder="415"
+                />
+              </label>
+            )}
+
+            {Number(purchasePhoneNumbers) > 0 && (
+              <p
+                style={{
+                  gridColumn: '1 / -1',
+                  margin: 0,
+                  color: '#ffcf66',
+                }}
+              >
+                Creating this client will purchase {Math.floor(Number(purchasePhoneNumbers) || 0)}
+                {' '}number{Math.floor(Number(purchasePhoneNumbers) || 0) === 1 ? '' : 's'} from Retell.
+              </p>
+            )}
 
             <div
               style={{
@@ -1403,19 +1735,40 @@ export default function Admin() {
               <h2>Current clients</h2>
             </div>
 
-            <div className="adminSearch">
-              <input
-                type="search"
-                value={search}
-                onChange={(
-                  event: ChangeEvent<HTMLInputElement>
-                ) =>
-                  setSearch(
-                    event.target.value
-                  )
-                }
-                placeholder="Search clients..."
-              />
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                flexWrap: 'wrap',
+                gap: '10px',
+              }}
+            >
+              <button
+                type="button"
+                className="btn btnPrimary"
+                disabled={syncingRetellContexts}
+                onClick={handleSyncAllRetellContexts}
+              >
+                {syncingRetellContexts
+                  ? 'Syncing Retell Agents...'
+                  : 'Sync All Retell Agents'}
+              </button>
+
+              <div className="adminSearch">
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(
+                    event: ChangeEvent<HTMLInputElement>
+                  ) =>
+                    setSearch(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Search clients..."
+                />
+              </div>
             </div>
           </div>
 
@@ -1517,6 +1870,16 @@ export default function Admin() {
 
                       <button
                         type="button"
+                        className="btn btnPrimary"
+                        onClick={() =>
+                          openPhoneNumberManager(client)
+                        }
+                      >
+                        Add Phone Numbers
+                      </button>
+
+                      <button
+                        type="button"
                         className="btn btnOutline employeeDeleteButton"
                         disabled={
                           deletingId === client.id
@@ -1579,6 +1942,14 @@ export default function Admin() {
                             ?.safety_guardrails_enabled
                             ? 'Safety Guardrails'
                             : null,
+                          (client.subscription
+                            ?.extra_phone_numbers ?? 0) > 0
+                            ? `${client.subscription?.extra_phone_numbers} extra phone ${
+                                client.subscription?.extra_phone_numbers === 1
+                                  ? 'number'
+                                  : 'numbers'
+                              }`
+                            : null,
                         ]
                           .filter(Boolean)
                           .join(', ') || 'None'}
@@ -1600,6 +1971,15 @@ export default function Admin() {
                       <div>
                         {client.agent?.retell_agent_id ||
                           'Not connected'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <small>PHONE NUMBERS</small>
+                      <div>
+                        {client.agent?.phone_numbers?.length
+                          ? client.agent.phone_numbers.join(', ')
+                          : client.agent?.phone_number || 'Not assigned'}
                       </div>
                     </div>
 
@@ -1805,18 +2185,113 @@ export default function Admin() {
                 </label>
 
                 <label>
-                  <span>Recepta phone number</span>
-                  <input
-                    type="tel"
+                  <span>Recepta phone numbers</span>
+                  <textarea
                     value={editPhoneNumber}
                     onChange={(event) =>
                       setEditPhoneNumber(
                         event.target.value
                       )
                     }
-                    placeholder="+1 416 555 0123"
+                    placeholder={"+14165550123\n+16475550123"}
                   />
+                  <small>
+                    One E.164 number per line. The first number is primary.
+                  </small>
                 </label>
+
+                <div
+                  id="adminPhonePurchasePanel"
+                  style={{
+                    gridColumn: '1 / -1',
+                    display: 'grid',
+                    gridTemplateColumns:
+                      'repeat(auto-fit, minmax(180px, 1fr))',
+                    gap: '14px',
+                    padding: '16px',
+                    border: '1px solid rgba(0,230,118,0.18)',
+                    borderRadius: '14px',
+                    background: 'rgba(0,230,118,0.035)',
+                  }}
+                >
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <strong>Purchase additional Retell numbers</strong>
+                    <p style={{ margin: '6px 0 0', opacity: 0.65 }}>
+                      Admin only. Purchase several numbers at once and assign
+                      them to this client’s connected Retell agent.
+                    </p>
+                  </div>
+
+                  <label>
+                    <span>Numbers to purchase</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max={Math.max(
+                        1,
+                        21 -
+                          (editingClient.agent?.phone_numbers?.length ||
+                            (editingClient.agent?.phone_number ? 1 : 0))
+                      )}
+                      step="1"
+                      value={editPurchaseQuantity}
+                      onChange={(event) =>
+                        setEditPurchaseQuantity(event.target.value)
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    <span>Number country</span>
+                    <select
+                      value={editPhoneCountry}
+                      onChange={(event) =>
+                        setEditPhoneCountry(
+                          event.target.value === 'US' ? 'US' : 'CA'
+                        )
+                      }
+                    >
+                      <option value="CA">Canada</option>
+                      <option value="US">United States</option>
+                    </select>
+                  </label>
+
+                  {editPhoneCountry === 'US' && (
+                    <label>
+                      <span>Preferred US area code</span>
+                      <input
+                        inputMode="numeric"
+                        maxLength={3}
+                        value={editPhoneAreaCode}
+                        onChange={(event) =>
+                          setEditPhoneAreaCode(event.target.value)
+                        }
+                        placeholder="415"
+                      />
+                    </label>
+                  )}
+
+                  <button
+                    type="button"
+                    className="btn btnPrimary"
+                    disabled={
+                      purchasingPhoneNumbers ||
+                      editingClient.subscription?.status !== 'active' ||
+                      !editingClient.agent?.retell_agent_id
+                    }
+                    onClick={handlePurchasePhoneNumbers}
+                  >
+                    {purchasingPhoneNumbers
+                      ? 'Purchasing...'
+                      : 'Purchase & Assign Numbers'}
+                  </button>
+
+                  <small style={{ gridColumn: '1 / -1' }}>
+                    This makes a real Retell purchase. The first account number
+                    is included; every additional number adds C$20/month to the
+                    Recepta bill.
+                  </small>
+                </div>
 
                 <div
                   style={{

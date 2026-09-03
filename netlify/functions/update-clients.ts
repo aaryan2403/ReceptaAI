@@ -1,9 +1,13 @@
 
 import { createClient } from '@supabase/supabase-js'
 import {
-  normalizeE164,
+  syncRetellPhoneBindings,
   syncRetellSubscription,
 } from '../lib/retell'
+import {
+  MAX_TOTAL_PHONE_NUMBERS,
+  normalizePhoneNumberList,
+} from '../lib/phoneNumbers'
 import {
   calculateMonthlyPriceCad,
   MAX_MONTHLY_MINUTES,
@@ -99,6 +103,7 @@ export default async (request: Request) => {
     aiModelId?: string
     retellAgentId?: string | null
     phoneNumber?: string | null
+    phoneNumbers?: string[] | null
     newPassword?: string | null
     reactivateSubscription?: boolean
     piiRedactionEnabled?: boolean
@@ -127,10 +132,9 @@ export default async (request: Request) => {
     body.aiModelId?.trim()
   const retellAgentId =
     body.retellAgentId?.trim() || null
-  const rawPhoneNumber =
-    body.phoneNumber?.trim() || null
-  const phoneNumber =
-    normalizeE164(rawPhoneNumber)
+  const normalizedPhoneList = normalizePhoneNumberList(
+    body.phoneNumbers ?? body.phoneNumber
+  )
   const newPassword =
     body.newPassword || null
   const reactivateSubscription =
@@ -154,10 +158,19 @@ export default async (request: Request) => {
     })
   }
 
-  if (rawPhoneNumber && !phoneNumber) {
+  if (normalizedPhoneList.invalid.length > 0) {
     return json(400, {
       error:
-        'Phone number must include the country code, for example +14165550123.',
+        `Every phone number must include its country code, for example +14165550123. Invalid: ${normalizedPhoneList.invalid.join(', ')}`,
+    })
+  }
+
+  if (
+    normalizedPhoneList.phoneNumbers.length >
+    MAX_TOTAL_PHONE_NUMBERS
+  ) {
+    return json(400, {
+      error: `A client can have at most ${MAX_TOTAL_PHONE_NUMBERS} phone numbers, including the primary number.`,
     })
   }
 
@@ -327,6 +340,34 @@ export default async (request: Request) => {
         : 'setup'
       : 'paused'
 
+  const { data: existingPhoneRows, error: phoneLookupError } =
+    await supabaseAdmin
+      .from('agent_phone_numbers')
+      .select('phone_number, source')
+      .eq('client_id', clientId)
+
+  if (phoneLookupError) {
+    return json(400, { error: phoneLookupError.message })
+  }
+
+  const purchasedPhoneNumbers = (existingPhoneRows ?? [])
+    .filter((row) => row.source === 'retell')
+    .map((row) => row.phone_number)
+  const phoneNumbers = Array.from(
+    new Set([
+      ...normalizedPhoneList.phoneNumbers,
+      ...purchasedPhoneNumbers,
+    ])
+  )
+
+  if (phoneNumbers.length > MAX_TOTAL_PHONE_NUMBERS) {
+    return json(400, {
+      error: `A client can have at most ${MAX_TOTAL_PHONE_NUMBERS} phone numbers, including the primary number.`,
+    })
+  }
+
+  const phoneNumber = phoneNumbers[0] ?? null
+
   const monthlyPrice =
     calculateMonthlyPriceCad({
       planName,
@@ -335,13 +376,7 @@ export default async (request: Request) => {
         modelMinutePrice,
       piiRedactionEnabled,
       safetyGuardrailsEnabled,
-      extraPhoneNumbers: Math.max(
-        0,
-        Number(
-          existingSubscription?.extra_phone_numbers ??
-            0
-        ) || 0
-      ),
+      extraPhoneNumbers: Math.max(0, phoneNumbers.length - 1),
     })
 
   const periodStart = new Date()
@@ -363,6 +398,10 @@ export default async (request: Request) => {
           piiRedactionEnabled,
         safety_guardrails_enabled:
           safetyGuardrailsEnabled,
+        extra_phone_numbers: Math.max(
+          0,
+          phoneNumbers.length - 1
+        ),
         ...(reactivateSubscription
           ? {
               status: 'active',
@@ -397,6 +436,10 @@ export default async (request: Request) => {
           piiRedactionEnabled,
         safety_guardrails_enabled:
           safetyGuardrailsEnabled,
+        extra_phone_numbers: Math.max(
+          0,
+          phoneNumbers.length - 1
+        ),
         status: 'active',
         current_period_start:
           periodStart.toISOString(),
@@ -410,6 +453,43 @@ export default async (request: Request) => {
       return json(400, {
         error: error.message,
       })
+    }
+  }
+
+  const removedManualPhoneNumbers = (existingPhoneRows ?? [])
+    .filter(
+      (row) =>
+        row.source !== 'retell' &&
+        !phoneNumbers.includes(row.phone_number)
+    )
+    .map((row) => row.phone_number)
+
+  const { error: clearPhoneNumbersError } = await supabaseAdmin
+    .from('agent_phone_numbers')
+    .delete()
+    .eq('client_id', clientId)
+
+  if (clearPhoneNumbersError) {
+    return json(400, { error: clearPhoneNumbersError.message })
+  }
+
+  if (phoneNumbers.length > 0) {
+    const purchasedSet = new Set(purchasedPhoneNumbers)
+    const { error: savePhoneNumbersError } = await supabaseAdmin
+      .from('agent_phone_numbers')
+      .insert(
+        phoneNumbers.map((assignedPhoneNumber, index) => ({
+          client_id: clientId,
+          phone_number: assignedPhoneNumber,
+          is_primary: index === 0,
+          source: purchasedSet.has(assignedPhoneNumber)
+            ? 'retell'
+            : 'manual',
+        }))
+      )
+
+    if (savePhoneNumbersError) {
+      return json(400, { error: savePhoneNumbersError.message })
     }
   }
 
@@ -487,10 +567,21 @@ export default async (request: Request) => {
         apiKey: retellApiKey,
         agentId: retellAgentId,
         phoneNumber,
+        phoneNumbers,
         active: subscriptionIsActive,
         piiRedactionEnabled,
         safetyGuardrailsEnabled,
+        aiModelId,
       })
+
+      if (removedManualPhoneNumbers.length > 0) {
+        await syncRetellPhoneBindings({
+          apiKey: retellApiKey,
+          agentId: retellAgentId,
+          phoneNumbers: removedManualPhoneNumbers,
+          active: false,
+        })
+      }
     } catch (error) {
       return json(502, {
         error:
@@ -504,5 +595,6 @@ export default async (request: Request) => {
   return json(200, {
     success: true,
     monthlyPrice,
+    phoneNumbers,
   })
 }

@@ -136,6 +136,7 @@ export default async (request: Request) => {
       clientsResult,
       subscriptionsResult,
       agentsResult,
+      phoneNumbersResult,
       modelsResult,
     ] = await Promise.all([
       supabaseAdmin
@@ -172,6 +173,14 @@ export default async (request: Request) => {
         ),
 
       supabaseAdmin
+        .from('agent_phone_numbers')
+        .select(
+          'client_id, phone_number, is_primary, created_at'
+        )
+        .order('is_primary', { ascending: false })
+        .order('created_at', { ascending: true }),
+
+      supabaseAdmin
         .from('ai_models')
         .select(
           'id, display_name, provider, tier_name, sort_order, customer_price_per_minute_cad'
@@ -183,6 +192,7 @@ export default async (request: Request) => {
       clientsResult.error ||
       subscriptionsResult.error ||
       agentsResult.error ||
+      phoneNumbersResult.error ||
       modelsResult.error
 
     if (queryError) {
@@ -214,7 +224,14 @@ export default async (request: Request) => {
         subscriptions:
           subscriptionsResult.data || [],
         agents:
-          agentsResult.data || [],
+          (agentsResult.data || []).map((agent) => ({
+            ...agent,
+            phone_numbers: (phoneNumbersResult.data || [])
+              .filter(
+                (row) => row.client_id === agent.client_id
+              )
+              .map((row) => row.phone_number),
+          })),
         models:
           modelsResult.data || [],
       }),

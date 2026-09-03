@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import {
-  syncRetellPhoneBinding,
+  syncRetellPhoneBindings,
   verifyRetellSignature,
 } from '../lib/retell'
 
@@ -185,6 +185,13 @@ export default async (
     })
   }
 
+  console.info('Retell lifecycle event received:', {
+    event: payload.event,
+    callId,
+    agentId,
+    callStatus: call.call_status ?? null,
+  })
+
   const supabaseAdmin = createClient(
     supabaseUrl,
     supabaseSecretKey,
@@ -217,13 +224,14 @@ export default async (
   }
 
   if (!agent?.client_id) {
-    console.warn(
-      'Ignoring call for an unassigned Retell agent:',
+    console.error(
+      'Retell agent is not assigned to a Recepta client:',
       agentId
     )
 
-    return new Response(null, {
-      status: 204,
+    return json(409, {
+      error:
+        'This Retell Agent ID is not assigned to a Recepta client.',
     })
   }
 
@@ -270,11 +278,16 @@ export default async (
       call.start_timestamp
     ) ?? new Date().toISOString()
 
+  const reportedStatus = getString(
+    call.call_status
+  )
+
   const callStatus =
-    getString(call.call_status) ??
-    (payload.event === 'call_started'
-      ? 'ongoing'
-      : 'ended')
+    payload.event === 'call_started'
+      ? reportedStatus === 'registered'
+        ? 'registered'
+        : 'ongoing'
+      : 'ended'
 
   const record: Record<string, unknown> = {
     client_id: agent.client_id,
@@ -361,6 +374,13 @@ export default async (
       error: 'Could not save Retell call.',
     })
   }
+
+  console.info('Retell call saved for Recepta client:', {
+    event: payload.event,
+    callId,
+    clientId: agent.client_id,
+    callStatus,
+  })
 
   if (
     payload.event === 'call_ended' ||
@@ -455,10 +475,28 @@ export default async (
           throw clientPause.error
         }
 
-        await syncRetellPhoneBinding({
+        const { data: phoneRows, error: phoneRowsError } =
+          await supabaseAdmin
+            .from('agent_phone_numbers')
+            .select('phone_number')
+            .eq('client_id', agent.client_id)
+            .order('is_primary', { ascending: false })
+            .order('created_at', { ascending: true })
+
+        if (phoneRowsError) throw phoneRowsError
+
+        const phoneNumbers = (phoneRows ?? []).map(
+          (row) => row.phone_number
+        )
+
+        if (phoneNumbers.length === 0 && agent.phone_number) {
+          phoneNumbers.push(agent.phone_number)
+        }
+
+        await syncRetellPhoneBindings({
           apiKey: retellApiKey,
           agentId,
-          phoneNumber: agent.phone_number,
+          phoneNumbers,
           active: false,
         })
       }

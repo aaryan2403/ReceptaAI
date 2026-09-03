@@ -18,7 +18,7 @@ create table if not exists public.call_minute_reservations (
   id uuid primary key default gen_random_uuid(),
   client_id uuid not null references public.clients(id) on delete cascade,
   period_start timestamptz not null,
-  reserved_seconds integer not null check (reserved_seconds >= 180),
+  reserved_seconds integer not null check (reserved_seconds >= 60),
   used_seconds integer,
   status text not null default 'active'
     check (status in ('active', 'completed', 'expired')),
@@ -90,13 +90,13 @@ begin
       0
     );
 
-  if v_remaining_seconds < 180 then
+  if v_remaining_seconds < 60 then
     return;
   end if;
 
   v_seconds_to_reserve := least(
     v_remaining_seconds,
-    7200
+    180
   )::integer;
 
   insert into public.call_minute_reservations (

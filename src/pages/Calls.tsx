@@ -1,19 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import {
+  fetchClientCalls,
+  saveSchedulePreference,
+} from '../lib/clientCalls'
+import type { ClientCallRecord } from '../lib/clientCalls'
 
-type CallRecord = {
-  id: string
-  caller_name: string | null
-  caller_number: string | null
-  started_at: string
-  duration_seconds: number
-  outcome: string | null
-  summary: string | null
-  appointment_booked: boolean
-  call_status: string | null
-  transcript: string | null
-  recording_url: string | null
-}
+type CallRecord = ClientCallRecord
 
 type Subscription = {
   plan_name: string | null
@@ -29,6 +22,12 @@ export default function Calls() {
 
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [callWarning, setCallWarning] = useState('')
+  const [scheduleMode, setScheduleMode] =
+    useState<'24/7' | 'custom' | null>(null)
+  const [savingSchedule, setSavingSchedule] = useState(false)
+  const [scheduleMessage, setScheduleMessage] = useState('')
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     const loadCalls = async () => {
@@ -41,73 +40,19 @@ export default function Calls() {
         return
       }
 
-      const [
-        { data: callsData, error: callsError },
-        { data: subscriptionData },
-      ] = await Promise.all([
-        supabase
-          .from('calls')
-          .select(
-            `
-            id,
-            caller_name,
-            caller_number,
-            started_at,
-            duration_seconds,
-            outcome,
-            summary,
-            appointment_booked,
-            call_status,
-            transcript,
-            recording_url
-            `
-          )
-          .eq('client_id', user.id)
-          .order('started_at', {
-            ascending: false,
-          }),
-
-        supabase
+      const { data: subscriptionData } = await supabase
           .from('subscriptions')
           .select('plan_name')
           .eq('client_id', user.id)
-          .maybeSingle(),
-      ])
+          .maybeSingle()
 
-      let resolvedCalls = callsData
+      try {
+        const result = await fetchClientCalls()
+        const resolvedCalls = result.calls
 
-      if (callsError) {
-        const { data: legacyCalls } =
-          await supabase
-            .from('calls')
-            .select(
-              `
-              id,
-              caller_name,
-              caller_number,
-              started_at,
-              duration_seconds,
-              outcome,
-              summary,
-              appointment_booked
-              `
-            )
-            .eq('client_id', user.id)
-            .order('started_at', {
-              ascending: false,
-            })
-
-        resolvedCalls =
-          legacyCalls?.map((call) => ({
-            ...call,
-            call_status: null,
-            transcript: null,
-            recording_url: null,
-          })) ?? null
-      }
-
-      if (resolvedCalls) {
         setCalls(resolvedCalls)
+        setCallWarning(result.warning || '')
+        setScheduleMode(result.scheduleMode)
 
         setSelectedCall((current) =>
           current
@@ -116,6 +61,12 @@ export default function Calls() {
                   call.id === current.id
               ) ?? resolvedCalls[0] ?? null
             : resolvedCalls[0] ?? null
+        )
+      } catch (error) {
+        setCallWarning(
+          error instanceof Error
+            ? error.message
+            : 'Could not load Retell calls.'
         )
       }
 
@@ -134,10 +85,16 @@ export default function Calls() {
         5000
       )
 
+    const clockInterval = window.setInterval(
+      () => setNow(Date.now()),
+      1000
+    )
+
     return () => {
       window.clearInterval(
         refreshInterval
       )
+      window.clearInterval(clockInterval)
     }
   }, [])
 
@@ -149,6 +106,42 @@ export default function Calls() {
       call.call_status === 'ongoing' ||
       call.call_status === 'registered'
   )
+
+  const activeCallSeconds = activeCall
+    ? Math.max(
+        0,
+        Math.floor(
+          (now - new Date(activeCall.started_at).getTime()) /
+            1000
+        )
+      )
+    : 0
+
+  const chooseSchedule = async (
+    mode: '24/7' | 'custom'
+  ) => {
+    setSavingSchedule(true)
+    setScheduleMessage('')
+
+    try {
+      const result = await saveSchedulePreference(mode)
+
+      setScheduleMode(result.scheduleMode)
+      setScheduleMessage(
+        result.scheduleMode === 'custom'
+          ? 'Custom hours synchronized with Retell. Set or edit the hours on the Agent page.'
+          : '24/7 availability synchronized with Retell.'
+      )
+    } catch (error) {
+      setScheduleMessage(
+        error instanceof Error
+          ? error.message
+          : 'Could not save your schedule choice.'
+      )
+    } finally {
+      setSavingSchedule(false)
+    }
+  }
 
   const formatDuration = (seconds: number) => {
     const safeSeconds = seconds || 0
@@ -287,22 +280,20 @@ export default function Calls() {
           </a>
 
           {isPro && (
-            <>
-              <a
-                href="/dashboard/appointments"
-                className="dashboardNavItem"
-              >
-                Appointments
-              </a>
-
-              <a
-                href="/dashboard/employees"
-                className="dashboardNavItem"
-              >
-                Employees
-              </a>
-            </>
+            <a
+              href="/dashboard/appointments"
+              className="dashboardNavItem"
+            >
+              Appointments
+            </a>
           )}
+
+          <a
+            href="/dashboard/employees"
+            className="dashboardNavItem"
+          >
+            Employees
+          </a>
 
           <a
             href="/dashboard/agent"
@@ -351,6 +342,92 @@ export default function Calls() {
           </div>
         </div>
 
+        {/* OPTIONAL COMPANY SCHEDULE */}
+
+        <section className="callsScheduleCard">
+          <div>
+            <span className="callsSectionLabel">
+              COMPANY SCHEDULE
+            </span>
+
+            <h2>When should your receptionist answer?</h2>
+
+            <p>
+              Choose 24/7 availability or set custom weekly hours.
+              Your choice is saved to Recepta and synchronized with
+              your assigned Retell agent.
+            </p>
+          </div>
+
+          <div className="callsScheduleChoice">
+            <strong>
+              {scheduleMode === '24/7'
+                ? '24/7 availability selected'
+                : scheduleMode === 'custom'
+                  ? 'Custom hours selected'
+                  : 'Choose an availability option'}
+            </strong>
+
+            <p>
+              {scheduleMode === '24/7'
+                ? 'Your receptionist can answer at any time, every day.'
+                : scheduleMode === 'custom'
+                  ? 'Calls outside your saved weekly hours will not be connected to the receptionist.'
+                  : 'Select one option to configure the assigned agent.'}
+            </p>
+
+            <div className="callsScheduleActions">
+              <button
+                type="button"
+                className={
+                  scheduleMode === '24/7'
+                    ? 'btn btnPrimary'
+                    : 'btn btnOutline'
+                }
+                disabled={savingSchedule}
+                onClick={() => chooseSchedule('24/7')}
+              >
+                24/7
+              </button>
+
+              <button
+                type="button"
+                className={
+                  scheduleMode === 'custom'
+                    ? 'btn btnPrimary'
+                    : 'btn btnOutline'
+                }
+                disabled={savingSchedule}
+                onClick={() => chooseSchedule('custom')}
+              >
+                Custom
+              </button>
+
+              {scheduleMode === 'custom' && (
+                <a
+                  href="/dashboard/agent"
+                  className="btn btnOutline"
+                >
+                  Edit custom hours
+                </a>
+              )}
+            </div>
+          </div>
+
+          {scheduleMessage && (
+            <p className="callsScheduleMessage" role="status">
+              {scheduleMessage}
+            </p>
+          )}
+        </section>
+
+        {callWarning && (
+          <div className="callsIntegrationWarning" role="status">
+            <strong>Call sync notice</strong>
+            <span>{callWarning}</span>
+          </div>
+        )}
+
         {/* LIVE MONITOR */}
 
         <section className="callsLiveCard">
@@ -365,7 +442,14 @@ export default function Calls() {
               </h2>
             </div>
 
-            <span className="callsIdleBadge">
+            <span
+              className={
+                activeCall
+                  ? 'callsIdleBadge callsIdleBadge--live'
+                  : 'callsIdleBadge'
+              }
+              aria-live="polite"
+            >
               <span />
               {activeCall ? 'Live' : 'Idle'}
             </span>
@@ -381,15 +465,17 @@ export default function Calls() {
                 {activeCall
                   ? activeCall.caller_name ||
                     activeCall.caller_number ||
-                    'Demo call in progress'
+                    'Retell test call in progress'
                   : 'No active call'}
               </strong>
 
               <p>
                 {activeCall
-                  ? `Started ${new Date(
+                  ? `Live for ${formatDuration(
+                      activeCallSeconds
+                    )}. Started ${new Date(
                       activeCall.started_at
-                    ).toLocaleTimeString()}. Live status refreshes automatically.`
+                    ).toLocaleTimeString()}.`
                   : 'When your receptionist is speaking with a customer, the live call will appear here.'}
               </p>
             </div>

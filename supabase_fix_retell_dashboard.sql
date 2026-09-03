@@ -1,3 +1,6 @@
+-- Run this entire file once in Supabase SQL Editor.
+-- It is safe to run more than once.
+
 alter table public.calls
   add column if not exists retell_call_id text,
   add column if not exists call_status text,
@@ -8,10 +11,9 @@ alter table public.calls
   add column if not exists call_successful boolean,
   add column if not exists updated_at timestamptz not null default now();
 
--- PostgREST's upsert uses `on conflict (retell_call_id)`. A partial
--- unique index cannot be inferred by that statement, so the previous
--- partial index caused every Retell call upsert to fail. PostgreSQL
--- already permits multiple NULL values in a regular unique index.
+-- Keep an existing unique constraint. If this database only has the
+-- older partial standalone index, replace that index with a regular
+-- unique index that PostgREST can use for upserts.
 do $$
 begin
   if not exists (
@@ -32,15 +34,6 @@ create unique index if not exists agents_retell_agent_id_key
   on public.agents (retell_agent_id)
   where retell_agent_id is not null;
 
-comment on column public.calls.retell_call_id is
-  'Retell call identifier used for webhook deduplication.';
-
-comment on column public.calls.call_status is
-  'Latest Retell lifecycle status for the call.';
-
--- The dashboard reads calls with the signed-in customer's Supabase
--- session. Without this policy, RLS returns an empty array even when
--- the webhook successfully stored calls.
 alter table public.calls enable row level security;
 
 drop policy if exists recepta_clients_read_own_calls
@@ -51,3 +44,9 @@ create policy recepta_clients_read_own_calls
   for select
   to authenticated
   using (client_id = auth.uid());
+
+comment on column public.calls.retell_call_id is
+  'Retell call identifier used for webhook deduplication.';
+
+comment on column public.calls.call_status is
+  'Latest Retell lifecycle status for the call.';

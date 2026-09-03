@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { normalizePhonePurchase } from '../lib/phoneNumbers'
 
 const MAX_MONTHLY_MINUTES = 100_000_000
 
@@ -20,11 +21,14 @@ export default async (request: Request) => {
       process.env.SUPABASE_SECRET_KEY
     const stripeSecretKey =
       process.env.STRIPE_SECRET_KEY
+    const retellApiKey =
+      process.env.RETELL_API_KEY
 
     if (
       !supabaseUrl ||
       !supabaseSecretKey ||
-      !stripeSecretKey
+      !stripeSecretKey ||
+      !retellApiKey
     ) {
       return new Response(
         JSON.stringify({
@@ -86,6 +90,8 @@ export default async (request: Request) => {
       aiModelId,
       monthlyMinutes,
       addOns,
+      phoneNumberCountry,
+      phoneNumberAreaCode,
     } = await request.json()
 
     if (
@@ -154,6 +160,36 @@ export default async (request: Request) => {
         }),
         {
           status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const { data: assignedAgent, error: agentError } =
+      await supabaseAdmin
+        .from('agents')
+        .select('retell_agent_id')
+        .eq('client_id', user.id)
+        .maybeSingle()
+
+    if (agentError) {
+      return new Response(
+        JSON.stringify({ error: agentError.message }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    if (!assignedAgent?.retell_agent_id) {
+      return new Response(
+        JSON.stringify({
+          error:
+            'Your Retell agent must be connected before buying a subscription and phone numbers.',
+        }),
+        {
+          status: 409,
           headers: { 'Content-Type': 'application/json' },
         }
       )
@@ -240,6 +276,29 @@ export default async (request: Request) => {
       )
     }
 
+    let phonePurchase: ReturnType<typeof normalizePhonePurchase>
+
+    try {
+      phonePurchase = normalizePhonePurchase({
+        count: extraPhoneNumbers + 1,
+        countryCode: phoneNumberCountry,
+        areaCode: phoneNumberAreaCode,
+      })
+    } catch (error) {
+      return new Response(
+        JSON.stringify({
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Invalid phone-number request.',
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
     const piiRedactionRateCad = 0.014
     const safetyGuardrailsRateCad = 0.007
     const extraPhoneNumberMonthlyCad = 20
@@ -315,6 +374,12 @@ export default async (request: Request) => {
         String(extraPhoneNumbers),
       extra_phone_number_monthly_cad:
         String(extraPhoneNumberMonthlyCad),
+      phone_number_country:
+        phonePurchase.countryCode,
+      phone_number_area_code:
+        phonePurchase.areaCode === null
+          ? ''
+          : String(phonePurchase.areaCode),
       add_ons_monthly_cad:
         addOnsMonthlyCost.toFixed(2),
       monthly_total_cad:

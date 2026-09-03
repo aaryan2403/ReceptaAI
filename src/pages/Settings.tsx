@@ -40,6 +40,7 @@ export default function Settings() {
 
   const [client, setClient] = useState<Client | null>(null)
   const [agent, setAgent] = useState<Agent | null>(null)
+  const [phoneNumbers, setPhoneNumbers] = useState<string[]>([])
   const [subscription, setSubscription] =
     useState<Subscription | null>(null)
   const [onboarding, setOnboarding] =
@@ -49,6 +50,59 @@ export default function Settings() {
   const [resettingPassword, setResettingPassword] =
     useState(false)
   const [message, setMessage] = useState('')
+
+  const operatingHoursLabel = () => {
+    const businessHours = agent?.business_hours?.trim()
+
+    if (!businessHours || businessHours.toLowerCase() === 'not configured') {
+      return 'Choose in Calls'
+    }
+
+    if (
+      businessHours.toLowerCase() === 'not required' ||
+      businessHours.toLowerCase() === '24/7'
+    ) {
+      return '24/7'
+    }
+
+    try {
+      const parsed = JSON.parse(businessHours) as
+        | Array<{
+            open?: boolean
+            start?: string
+            end?: string
+          }>
+        | {
+            mode?: '24/7' | 'custom'
+            hours?: Array<{
+              open?: boolean
+              start?: string
+              end?: string
+            }>
+          }
+
+      if (!Array.isArray(parsed) && parsed.mode === '24/7') {
+        return '24/7'
+      }
+
+      const hours = Array.isArray(parsed) ? parsed : parsed.hours ?? []
+      const openDays = hours.filter((day) => day.open)
+
+      if (openDays.length === 0) return 'Closed all week'
+
+      const first = openDays[0]
+      const sameHours = openDays.every(
+        (day) =>
+          day.start === first.start && day.end === first.end
+      )
+
+      return sameHours
+        ? `${openDays.length} days · ${first.start}–${first.end}`
+        : `${openDays.length} days configured`
+    } catch {
+      return businessHours
+    }
+  }
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -66,6 +120,7 @@ export default function Settings() {
         { data: agentData },
         { data: subscriptionData },
         { data: onboardingData },
+        { data: phoneNumberData },
       ] = await Promise.all([
         supabase
           .from('clients')
@@ -98,6 +153,13 @@ export default function Settings() {
           )
           .eq('client_id', user.id)
           .maybeSingle(),
+
+        supabase
+          .from('agent_phone_numbers')
+          .select('phone_number')
+          .eq('client_id', user.id)
+          .order('is_primary', { ascending: false })
+          .order('created_at', { ascending: true }),
       ])
 
       if (clientData) {
@@ -106,6 +168,18 @@ export default function Settings() {
 
       if (agentData) {
         setAgent(agentData)
+
+        const assignedPhoneNumbers = (phoneNumberData ?? []).map(
+          (row) => row.phone_number
+        )
+
+        setPhoneNumbers(
+          assignedPhoneNumbers.length > 0
+            ? assignedPhoneNumbers
+            : agentData.phone_number
+              ? [agentData.phone_number]
+              : []
+        )
       }
 
       if (subscriptionData) {
@@ -257,22 +331,20 @@ export default function Settings() {
           </a>
 
           {isPro && (
-            <>
-              <a
-                href="/dashboard/appointments"
-                className="dashboardNavItem"
-              >
-                Appointments
-              </a>
-
-              <a
-                href="/dashboard/employees"
-                className="dashboardNavItem"
-              >
-                Employees
-              </a>
-            </>
+            <a
+              href="/dashboard/appointments"
+              className="dashboardNavItem"
+            >
+              Appointments
+            </a>
           )}
+
+          <a
+            href="/dashboard/employees"
+            className="dashboardNavItem"
+          >
+            Employees
+          </a>
 
           <a
             href="/dashboard/agent"
@@ -526,12 +598,15 @@ export default function Settings() {
 
             <div>
               <span>
-                Agent phone
+                {phoneNumbers.length === 1
+                  ? 'Agent phone'
+                  : 'Agent phones'}
               </span>
 
               <strong>
-                {agent?.phone_number ||
-                  'Not assigned'}
+                {phoneNumbers.length > 0
+                  ? phoneNumbers.join(', ')
+                  : 'Not assigned'}
               </strong>
             </div>
 
@@ -541,8 +616,7 @@ export default function Settings() {
               </span>
 
               <strong>
-                {agent?.business_hours ||
-                  'Not configured'}
+                {operatingHoursLabel()}
               </strong>
             </div>
 
@@ -671,8 +745,9 @@ export default function Settings() {
 
                 <p>
                   Recepta Pro adds AI appointment
-                  booking, employee schedules and
-                  appointment management.
+                  booking and appointment management
+                  using the employee availability included
+                  with both plans.
                 </p>
               </div>
 

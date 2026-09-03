@@ -1,9 +1,15 @@
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import {
-  normalizeE164,
+  purchaseRetellPhoneNumber,
+  releaseRetellPhoneNumber,
   syncRetellSubscription,
 } from '../lib/retell'
+import {
+  MAX_TOTAL_PHONE_NUMBERS,
+  normalizePhoneNumberList,
+  normalizePhonePurchase,
+} from '../lib/phoneNumbers'
 import {
   calculateMonthlyPriceCad,
   MAX_MONTHLY_MINUTES,
@@ -159,6 +165,10 @@ export default async (request: Request) => {
       aiModelId,
       retellAgentId,
       phoneNumber,
+      phoneNumbers,
+      purchasePhoneNumbers,
+      phoneCountryCode,
+      phoneAreaCode,
       piiRedactionEnabled,
       safetyGuardrailsEnabled,
     } = await request.json()
@@ -270,22 +280,15 @@ export default async (request: Request) => {
         ? retellAgentId.trim()
         : null
 
-    const normalizedPhoneNumber =
-      normalizeE164(
-        typeof phoneNumber === 'string'
-          ? phoneNumber
-          : null
-      )
+    const normalizedPhoneList = normalizePhoneNumberList(
+      phoneNumbers ?? phoneNumber
+    )
 
-    if (
-      typeof phoneNumber === 'string' &&
-      phoneNumber.trim() &&
-      !normalizedPhoneNumber
-    ) {
+    if (normalizedPhoneList.invalid.length > 0) {
       return new Response(
         JSON.stringify({
           error:
-            'Phone number must include the country code, for example +14165550123.',
+            `Every phone number must include its country code, for example +14165550123. Invalid: ${normalizedPhoneList.invalid.join(', ')}`,
         }),
         {
           status: 400,
@@ -293,6 +296,45 @@ export default async (request: Request) => {
             'Content-Type':
               'application/json',
           },
+        }
+      )
+    }
+
+    let phonePurchase: ReturnType<typeof normalizePhonePurchase>
+
+    try {
+      phonePurchase = normalizePhonePurchase({
+        count: purchasePhoneNumbers,
+        countryCode: phoneCountryCode,
+        areaCode: phoneAreaCode,
+      })
+    } catch (error) {
+      return new Response(
+        JSON.stringify({
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Invalid phone-number purchase request.',
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const requestedPhoneNumberTotal =
+      normalizedPhoneList.phoneNumbers.length +
+      phonePurchase.purchaseCount
+
+    if (requestedPhoneNumberTotal > MAX_TOTAL_PHONE_NUMBERS) {
+      return new Response(
+        JSON.stringify({
+          error: `A client can have at most ${MAX_TOTAL_PHONE_NUMBERS} phone numbers, including the primary number.`,
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
@@ -314,6 +356,22 @@ export default async (request: Request) => {
             'Content-Type':
               'application/json',
           },
+        }
+      )
+    }
+
+    if (
+      phonePurchase.purchaseCount > 0 &&
+      (!normalizedRetellId || !retellApiKey)
+    ) {
+      return new Response(
+        JSON.stringify({
+          error:
+            'Assign a valid Retell Agent ID and configure RETELL_API_KEY before purchasing phone numbers.',
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
         }
       )
     }
@@ -382,8 +440,22 @@ export default async (request: Request) => {
     let stripeCustomerId:
       | string
       | null = null
+    const purchasedPhoneNumbers: string[] = []
 
     const rollback = async () => {
+      if (retellApiKey) {
+        for (const purchasedPhoneNumber of purchasedPhoneNumbers) {
+          try {
+            await releaseRetellPhoneNumber({
+              apiKey: retellApiKey,
+              phoneNumber: purchasedPhoneNumber,
+            })
+          } catch {
+            // Best effort rollback for externally purchased numbers.
+          }
+        }
+      }
+
       await supabaseAdmin
         .from('subscriptions')
         .delete()
@@ -480,7 +552,7 @@ export default async (request: Request) => {
           business_hours:
             'Not configured',
           phone_number:
-            normalizedPhoneNumber,
+            normalizedPhoneList.phoneNumbers[0] ?? null,
           status: normalizedRetellId
             ? 'live'
             : 'setup',
@@ -520,6 +592,10 @@ export default async (request: Request) => {
         piiRedactionEnabled: piiEnabled,
         safetyGuardrailsEnabled:
           guardrailsEnabled,
+        extraPhoneNumbers: Math.max(
+          0,
+          requestedPhoneNumberTotal - 1
+        ),
       })
 
     const periodStart = new Date()
@@ -548,6 +624,10 @@ export default async (request: Request) => {
             piiEnabled,
           safety_guardrails_enabled:
             guardrailsEnabled,
+          extra_phone_numbers: Math.max(
+            0,
+            requestedPhoneNumberTotal - 1
+          ),
           status: 'active',
           current_period_start:
             periodStart.toISOString(),
@@ -567,6 +647,77 @@ export default async (request: Request) => {
     }
 
     if (
+      phonePurchase.purchaseCount > 0 &&
+      normalizedRetellId &&
+      retellApiKey
+    ) {
+      try {
+        for (
+          let index = 0;
+          index < phonePurchase.purchaseCount;
+          index += 1
+        ) {
+          const purchasedPhoneNumber =
+            await purchaseRetellPhoneNumber({
+              apiKey: retellApiKey,
+              agentId: normalizedRetellId,
+              countryCode: phonePurchase.countryCode,
+              areaCode: phonePurchase.areaCode,
+              nickname: `${normalizedCompany} ${
+                normalizedPhoneList.phoneNumbers.length + index + 1
+              }`,
+            })
+
+          purchasedPhoneNumbers.push(purchasedPhoneNumber)
+        }
+      } catch (error) {
+        await rollback()
+        throw new Error(
+          error instanceof Error
+            ? `Retell phone-number purchase failed: ${error.message}`
+            : 'Retell phone-number purchase failed.'
+        )
+      }
+    }
+
+    const allPhoneNumbers = Array.from(
+      new Set([
+        ...normalizedPhoneList.phoneNumbers,
+        ...purchasedPhoneNumbers,
+      ])
+    )
+
+    if (allPhoneNumbers.length > 0) {
+      const { error: phoneNumbersError } = await supabaseAdmin
+        .from('agent_phone_numbers')
+        .insert(
+          allPhoneNumbers.map((assignedPhoneNumber, index) => ({
+            client_id: newUser.id,
+            phone_number: assignedPhoneNumber,
+            is_primary: index === 0,
+            source: purchasedPhoneNumbers.includes(assignedPhoneNumber)
+              ? 'retell'
+              : 'manual',
+          }))
+        )
+
+      if (phoneNumbersError) {
+        await rollback()
+        throw phoneNumbersError
+      }
+
+      const { error: primaryPhoneError } = await supabaseAdmin
+        .from('agents')
+        .update({ phone_number: allPhoneNumbers[0] })
+        .eq('client_id', newUser.id)
+
+      if (primaryPhoneError) {
+        await rollback()
+        throw primaryPhoneError
+      }
+    }
+
+    if (
       normalizedRetellId &&
       retellApiKey
     ) {
@@ -575,11 +726,13 @@ export default async (request: Request) => {
           apiKey: retellApiKey,
           agentId: normalizedRetellId,
           phoneNumber:
-            normalizedPhoneNumber,
+            allPhoneNumbers[0] ?? null,
+          phoneNumbers: allPhoneNumbers,
           active: true,
           piiRedactionEnabled: piiEnabled,
           safetyGuardrailsEnabled:
             guardrailsEnabled,
+          aiModelId,
         })
       } catch (error) {
         await rollback()
@@ -607,6 +760,7 @@ export default async (request: Request) => {
           piiRedactionEnabled: piiEnabled,
           safetyGuardrailsEnabled:
             guardrailsEnabled,
+          phoneNumbers: allPhoneNumbers,
         },
         aiConfigurationStatus:
           normalizedRetellId

@@ -278,7 +278,8 @@ export default function Appointments() {
             <h2>Appointments requires Recepta Pro</h2>
             <p>
               Upgrade to the C$300 Pro plan to unlock
-              appointments and employee scheduling.
+              AI appointment booking and appointment
+              management.
             </p>
             <a
               href="/dashboard/billing"

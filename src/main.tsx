@@ -78,14 +78,14 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
-        {/* ACTIVE PRO ONLY */}
+        {/* ACTIVE STANDARD + ACTIVE PRO */}
         <Route
           path="/dashboard/employees"
           element={
             <ProtectedRoute>
-              <ProRoute>
+              <ActiveSubscriptionRoute>
                 <Employees />
-              </ProRoute>
+              </ActiveSubscriptionRoute>
             </ProtectedRoute>
           }
         />

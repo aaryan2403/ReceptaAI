@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchClientCalls } from '../lib/clientCalls'
 
 type PlanName = 'Recepta Standard' | 'Recepta Pro'
 
@@ -78,6 +79,15 @@ export default function Billing() {
   const [checkoutError, setCheckoutError] =
     useState('')
 
+  const [modelSwitching, setModelSwitching] =
+    useState(false)
+
+  const [modelSwitchError, setModelSwitchError] =
+    useState('')
+
+  const [modelSwitchSuccess, setModelSwitchSuccess] =
+    useState('')
+
   const [piiRedaction, setPiiRedaction] =
     useState(false)
 
@@ -90,6 +100,12 @@ export default function Billing() {
     extraPhoneNumbers,
     setExtraPhoneNumbers,
   ] = useState(0)
+
+  const [phoneNumberCountry, setPhoneNumberCountry] =
+    useState<'CA' | 'US'>('CA')
+
+  const [phoneNumberAreaCode, setPhoneNumberAreaCode] =
+    useState('')
 
   useEffect(() => {
     const loadBilling = async () => {
@@ -104,7 +120,6 @@ export default function Billing() {
 
       const [
         subscriptionResult,
-        callsResult,
         modelsResult,
       ] = await Promise.all([
         supabase
@@ -126,11 +141,6 @@ export default function Billing() {
           )
           .eq('client_id', user.id)
           .maybeSingle(),
-
-        supabase
-          .from('calls')
-          .select('duration_seconds, started_at')
-          .eq('client_id', user.id),
 
         supabase
           .from('ai_models')
@@ -175,10 +185,11 @@ export default function Billing() {
         )
       }
 
-      if (callsResult.data) {
-        setCalls(
-          callsResult.data as CallRecord[]
-        )
+      try {
+        const callsResult = await fetchClientCalls()
+        setCalls(callsResult.calls)
+      } catch (error) {
+        console.error('Billing call sync failed:', error)
       }
 
       if (modelsResult.data) {
@@ -223,13 +234,6 @@ export default function Billing() {
         console.error(
           'Subscription error:',
           subscriptionResult.error
-        )
-      }
-
-      if (callsResult.error) {
-        console.error(
-          'Calls error:',
-          callsResult.error
         )
       }
 
@@ -595,6 +599,11 @@ export default function Billing() {
                 safetyGuardrails,
                 extraPhoneNumbers,
               },
+              phoneNumberCountry,
+              phoneNumberAreaCode:
+                phoneNumberCountry === 'US'
+                  ? phoneNumberAreaCode.trim() || null
+                  : null,
             }),
           }
         )
@@ -630,6 +639,109 @@ export default function Billing() {
         setCheckoutLoading(false)
       }
     }
+
+  const handleChangeModel = async () => {
+    setModelSwitchError('')
+    setModelSwitchSuccess('')
+
+    if (!subscriptionIsActive) {
+      setModelSwitchError(
+        'Your subscription must be active to change models.'
+      )
+      return
+    }
+
+    if (!selectedModelId || !selectedModel) {
+      setModelSwitchError(
+        'Choose an AI model.'
+      )
+      return
+    }
+
+    if (
+      selectedModelId === subscription.ai_model_id
+    ) {
+      setModelSwitchError(
+        'That model is already assigned to your receptionist.'
+      )
+      return
+    }
+
+    if (
+      !window.confirm(
+        `Change your receptionist to ${selectedModel.display_name}? Your new monthly total will be C$${selectedMonthlyTotal.toFixed(2)}.`
+      )
+    ) {
+      return
+    }
+
+    setModelSwitching(true)
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error(
+          'Your session has expired. Please sign in again.'
+        )
+      }
+
+      const response = await fetch(
+        '/.netlify/functions/update-subscription',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization:
+              `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            action: 'change_model',
+            aiModelId: selectedModelId,
+          }),
+        }
+      )
+
+      const result =
+        await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error ||
+            'Unable to change the AI model.'
+        )
+      }
+
+      setSubscription((current) =>
+        current
+          ? {
+              ...current,
+              ai_model_id:
+                result.aiModelId ||
+                selectedModelId,
+              monthly_price: Number(
+                result.monthlyPrice ??
+                  selectedMonthlyTotal
+              ),
+            }
+          : current
+      )
+
+      setModelSwitchSuccess(
+        `${result.aiModelName || selectedModel.display_name} is now powering your Retell receptionist.`
+      )
+    } catch (error) {
+      setModelSwitchError(
+        error instanceof Error
+          ? error.message
+          : 'Unable to change the AI model.'
+      )
+    } finally {
+      setModelSwitching(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -674,22 +786,20 @@ export default function Billing() {
               </a>
 
               {currentIsPro && (
-                <>
-                  <a
-                    href="/dashboard/appointments"
-                    className="dashboardNavItem"
-                  >
-                    Appointments
-                  </a>
-
-                  <a
-                    href="/dashboard/employees"
-                    className="dashboardNavItem"
-                  >
-                    Employees
-                  </a>
-                </>
+                <a
+                  href="/dashboard/appointments"
+                  className="dashboardNavItem"
+                >
+                  Appointments
+                </a>
               )}
+
+              <a
+                href="/dashboard/employees"
+                className="dashboardNavItem"
+              >
+                Employees
+              </a>
 
               <a
                 href="/dashboard/agent"
@@ -974,11 +1084,177 @@ export default function Billing() {
                   </div>
 
                   <p>
-                    Your plan, AI model and
-                    monthly minute allowance
-                    are currently locked while
-                    this subscription is active.
+                    Change the AI model powering
+                    your existing Retell
+                    receptionist. Your voice,
+                    prompt, knowledge base, phone
+                    number and other settings stay
+                    the same.
                   </p>
+
+                  <div
+                    style={{
+                      marginTop: '20px',
+                      padding: '20px',
+                      display: 'grid',
+                      gap: '16px',
+                      borderRadius: '18px',
+                      border:
+                        '1px solid rgba(255,255,255,0.10)',
+                      background:
+                        'rgba(255,255,255,0.025)',
+                    }}
+                  >
+                    <label
+                      style={{
+                        display: 'grid',
+                        gap: '8px',
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: '12px',
+                          fontWeight: 800,
+                          letterSpacing: '0.08em',
+                          opacity: 0.62,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Select a new AI model
+                      </span>
+
+                      <select
+                        value={selectedModelId}
+                        onChange={(event) => {
+                          setSelectedModelId(
+                            event.target.value
+                          )
+                          setModelSwitchError('')
+                          setModelSwitchSuccess('')
+                        }}
+                        disabled={modelSwitching}
+                        style={{
+                          width: '100%',
+                          minHeight: '52px',
+                          padding: '0 14px',
+                          color: '#fff',
+                          borderRadius: '12px',
+                          border:
+                            '1px solid rgba(255,255,255,0.14)',
+                          background: '#08140d',
+                          fontSize: '16px',
+                        }}
+                      >
+                        {models.map((model) => (
+                          <option
+                            key={model.id}
+                            value={model.id}
+                          >
+                            {model.display_name} — C$
+                            {Number(
+                              model.customer_price_per_minute_cad ??
+                                0
+                            ).toFixed(3)}
+                            /min
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent:
+                          'space-between',
+                        gap: '18px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div>
+                        <span
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            opacity: 0.58,
+                          }}
+                        >
+                          New monthly total
+                        </span>
+
+                        <strong
+                          style={{
+                            display: 'block',
+                            marginTop: '4px',
+                            color: '#00e676',
+                            fontSize: '22px',
+                          }}
+                        >
+                          C$
+                          {selectedMonthlyTotal.toFixed(
+                            2
+                          )}
+                        </strong>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="btn btnPrimary"
+                        onClick={handleChangeModel}
+                        disabled={
+                          modelSwitching ||
+                          !selectedModelId ||
+                          selectedModelId ===
+                            subscription.ai_model_id
+                        }
+                      >
+                        {modelSwitching
+                          ? 'Updating Retell...'
+                          : selectedModelId ===
+                              subscription.ai_model_id
+                            ? 'Current Model'
+                            : 'Change AI Model'}
+                      </button>
+                    </div>
+
+                    <small
+                      style={{
+                        opacity: 0.62,
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      The Retell model changes after
+                      confirmation. If your account
+                      has a Stripe subscription, the
+                      new total applies to the next
+                      invoice without an immediate
+                      prorated charge.
+                    </small>
+
+                    {modelSwitchSuccess && (
+                      <p
+                        role="status"
+                        style={{
+                          margin: 0,
+                          color: '#00e676',
+                        }}
+                      >
+                        {modelSwitchSuccess}
+                      </p>
+                    )}
+
+                    {modelSwitchError && (
+                      <p
+                        role="alert"
+                        style={{
+                          margin: 0,
+                          color: '#ff6b6b',
+                        }}
+                      >
+                        {modelSwitchError}
+                      </p>
+                    )}
+                  </div>
 
                   <button
                     type="button"
@@ -1190,8 +1466,8 @@ export default function Billing() {
                                 }}
                               >
                                 {isProPlan
-                                  ? 'Everything in Standard, plus appointments and employee availability.'
-                                  : 'Core AI receptionist with calls, agent, billing and settings.'}
+                                  ? 'Everything in Standard, plus AI appointment booking and appointment management.'
+                                  : 'Core AI receptionist with calls, employee schedules, agent, billing and settings.'}
                               </p>
                             </button>
                           )
@@ -1576,8 +1852,8 @@ export default function Billing() {
                         </div>
 
                         <p>
-                          Adds another dedicated business number connected to the
-                          same Recepta account.
+                          Your plan includes one primary number. Choose up to 20
+                          additional numbers connected to the same Recepta agent.
                         </p>
 
                         <div className="billingCustomMinutes">
@@ -1597,7 +1873,44 @@ export default function Billing() {
                               }
                             />
                           </label>
+
+                          <label>
+                            Number country
+
+                            <select
+                              value={phoneNumberCountry}
+                              onChange={(event) =>
+                                setPhoneNumberCountry(
+                                  event.target.value === 'US' ? 'US' : 'CA'
+                                )
+                              }
+                            >
+                              <option value="CA">Canada</option>
+                              <option value="US">United States</option>
+                            </select>
+                          </label>
+
+                          {phoneNumberCountry === 'US' && (
+                            <label>
+                              Preferred US area code
+
+                              <input
+                                inputMode="numeric"
+                                maxLength={3}
+                                value={phoneNumberAreaCode}
+                                onChange={(event) =>
+                                  setPhoneNumberAreaCode(event.target.value)
+                                }
+                                placeholder="415"
+                              />
+                            </label>
+                          )}
                         </div>
+
+                        <p>
+                          Checkout will provision {extraPhoneNumbers + 1}{' '}
+                          dedicated {extraPhoneNumbers === 0 ? 'number' : 'numbers'}.
+                        </p>
                       </div>
                     </div>
                   </div>

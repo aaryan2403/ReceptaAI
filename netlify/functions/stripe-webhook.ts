@@ -2,9 +2,12 @@
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import {
-  syncRetellPhoneBinding,
+  purchaseRetellPhoneNumber,
+  releaseRetellPhoneNumber,
+  syncRetellPhoneBindings,
   syncRetellSubscription,
 } from '../lib/retell'
+import { normalizePhonePurchase } from '../lib/phoneNumbers'
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -86,6 +89,46 @@ export default async (request: Request) => {
         }
       )
 
+    const loadPhoneRows = async (
+      clientId: string,
+      legacyPhoneNumber?: string | null
+    ) => {
+      const { data, error } = await supabaseAdmin
+        .from('agent_phone_numbers')
+        .select('phone_number, is_primary, source, created_at')
+        .eq('client_id', clientId)
+        .order('is_primary', { ascending: false })
+        .order('created_at', { ascending: true })
+
+      if (error) throw error
+
+      const rows = data ?? []
+
+      if (rows.length === 0 && legacyPhoneNumber) {
+        const { error: backfillError } = await supabaseAdmin
+          .from('agent_phone_numbers')
+          .insert({
+            client_id: clientId,
+            phone_number: legacyPhoneNumber,
+            is_primary: true,
+            source: 'manual',
+          })
+
+        if (backfillError) throw backfillError
+
+        return [
+          {
+            phone_number: legacyPhoneNumber,
+            is_primary: true,
+            source: 'manual',
+            created_at: new Date().toISOString(),
+          },
+        ]
+      }
+
+      return rows
+    }
+
     if (
       event.type ===
       'checkout.session.completed'
@@ -129,6 +172,12 @@ export default async (request: Request) => {
             session.metadata
               ?.extra_phone_numbers ?? 0
           )
+        const phoneNumberCountry =
+          session.metadata?.phone_number_country === 'US'
+            ? 'US'
+            : 'CA'
+        const phoneNumberAreaCode =
+          session.metadata?.phone_number_area_code || null
 
         const subscriptionId =
           typeof session.subscription ===
@@ -224,15 +273,82 @@ export default async (request: Request) => {
               )
             }
 
+            const phonePurchase = normalizePhonePurchase({
+              count: extraPhoneNumbers + 1,
+              countryCode: phoneNumberCountry,
+              areaCode: phoneNumberAreaCode,
+            })
+            const phoneRows = await loadPhoneRows(
+              clientId,
+              assignedAgent.phone_number
+            )
+            const phoneNumbers = phoneRows.map(
+              (row) => row.phone_number
+            )
+            const numbersToPurchase = Math.max(
+              0,
+              phonePurchase.purchaseCount - phoneNumbers.length
+            )
+
+            for (let index = 0; index < numbersToPurchase; index += 1) {
+              const purchasedPhoneNumber =
+                await purchaseRetellPhoneNumber({
+                  apiKey: retellApiKey,
+                  agentId: assignedAgent.retell_agent_id,
+                  countryCode: phonePurchase.countryCode,
+                  areaCode: phonePurchase.areaCode,
+                  nickname: `Recepta ${clientId.slice(0, 8)} ${
+                    phoneNumbers.length + 1
+                  }`,
+                })
+
+              const { error: saveNumberError } = await supabaseAdmin
+                .from('agent_phone_numbers')
+                .insert({
+                  client_id: clientId,
+                  phone_number: purchasedPhoneNumber,
+                  is_primary: phoneNumbers.length === 0,
+                  source: 'retell',
+                })
+
+              if (saveNumberError) {
+                try {
+                  await releaseRetellPhoneNumber({
+                    apiKey: retellApiKey,
+                    phoneNumber: purchasedPhoneNumber,
+                  })
+                } catch (releaseError) {
+                  console.error(
+                    'Could not roll back an untracked Retell number:',
+                    releaseError
+                  )
+                }
+
+                throw saveNumberError
+              }
+
+              phoneNumbers.push(purchasedPhoneNumber)
+            }
+
+            const primaryPhoneNumber = phoneNumbers[0] ?? null
+
+            const { error: primaryPhoneError } = await supabaseAdmin
+              .from('agents')
+              .update({ phone_number: primaryPhoneNumber })
+              .eq('client_id', clientId)
+
+            if (primaryPhoneError) throw primaryPhoneError
+
             await syncRetellSubscription({
               apiKey: retellApiKey,
               agentId:
                 assignedAgent.retell_agent_id,
-              phoneNumber:
-                assignedAgent.phone_number,
+              phoneNumber: primaryPhoneNumber,
+              phoneNumbers,
               active: true,
               piiRedactionEnabled,
               safetyGuardrailsEnabled,
+              aiModelId,
             })
           }
 
@@ -408,12 +524,18 @@ export default async (request: Request) => {
                 )
               }
 
-              await syncRetellPhoneBinding({
+              const phoneRows = await loadPhoneRows(
+                renewedSubscription.client_id,
+                assignedAgent.phone_number
+              )
+
+              await syncRetellPhoneBindings({
                 apiKey: retellApiKey,
                 agentId:
                   assignedAgent.retell_agent_id,
-                phoneNumber:
-                  assignedAgent.phone_number,
+                phoneNumbers: phoneRows.map(
+                  (row) => row.phone_number
+                ),
                 active: true,
               })
             }
@@ -483,6 +605,14 @@ export default async (request: Request) => {
             .eq('client_id', clientId)
             .maybeSingle()
 
+        const phoneRows = await loadPhoneRows(
+          clientId,
+          assignedAgent?.phone_number
+        )
+        const allPhoneNumbers = phoneRows.map(
+          (row) => row.phone_number
+        )
+
         if (assignedAgent?.retell_agent_id) {
           if (!retellApiKey) {
             throw new Error(
@@ -494,13 +624,59 @@ export default async (request: Request) => {
             apiKey: retellApiKey,
             agentId:
               assignedAgent.retell_agent_id,
-            phoneNumber:
-              assignedAgent.phone_number,
+            phoneNumber: allPhoneNumbers[0] ?? null,
+            phoneNumbers: allPhoneNumbers,
             active: false,
             piiRedactionEnabled: false,
             safetyGuardrailsEnabled: false,
           })
         }
+
+        const purchasedRows = phoneRows.filter(
+          (row) => row.source === 'retell'
+        )
+
+        if (purchasedRows.length > 0) {
+          if (!retellApiKey) {
+            throw new Error('RETELL_API_KEY is missing.')
+          }
+
+          for (const row of purchasedRows) {
+            await releaseRetellPhoneNumber({
+              apiKey: retellApiKey,
+              phoneNumber: row.phone_number,
+            })
+
+            const { error: deleteNumberError } = await supabaseAdmin
+              .from('agent_phone_numbers')
+              .delete()
+              .eq('client_id', clientId)
+              .eq('phone_number', row.phone_number)
+
+            if (deleteNumberError) throw deleteNumberError
+          }
+        }
+
+        const remainingNumbers = phoneRows
+          .filter((row) => row.source !== 'retell')
+          .map((row) => row.phone_number)
+
+        if (remainingNumbers[0]) {
+          const { error: primaryRowError } = await supabaseAdmin
+            .from('agent_phone_numbers')
+            .update({ is_primary: true })
+            .eq('client_id', clientId)
+            .eq('phone_number', remainingNumbers[0])
+
+          if (primaryRowError) throw primaryRowError
+        }
+
+        const { error: primaryPhoneError } = await supabaseAdmin
+          .from('agents')
+          .update({ phone_number: remainingNumbers[0] ?? null })
+          .eq('client_id', clientId)
+
+        if (primaryPhoneError) throw primaryPhoneError
       }
     }
 

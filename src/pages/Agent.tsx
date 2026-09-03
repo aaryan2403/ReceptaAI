@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import {
+  fetchClientCalls,
+  saveSchedulePreference,
+} from '../lib/clientCalls'
 
 type AgentStatus = 'setup' | 'testing' | 'live' | 'paused'
 
@@ -27,6 +31,7 @@ type CallRecord = {
 
 export default function Agent() {
   const [agent, setAgent] = useState<AgentRecord | null>(null)
+  const [phoneNumbers, setPhoneNumbers] = useState<string[]>([])
   const [calls, setCalls] = useState<CallRecord[]>([])
   const [isPro, setIsPro] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -42,6 +47,13 @@ export default function Agent() {
   ])
   const [savingHours, setSavingHours] = useState(false)
   const [hoursMessage, setHoursMessage] = useState('')
+  const [scheduleMode, setScheduleMode] =
+    useState<'24/7' | 'custom' | null>(null)
+  const [businessTimeZone, setBusinessTimeZone] = useState(
+    () =>
+      Intl.DateTimeFormat().resolvedOptions().timeZone ||
+      'America/Toronto'
+  )
 
   useEffect(() => {
     const loadAgent = async () => {
@@ -56,8 +68,8 @@ export default function Agent() {
 
       const [
         { data: agentData, error: agentError },
-        { data: callsData, error: callsError },
         { data: subscriptionData },
+        { data: phoneNumberData },
       ] = await Promise.all([
         supabase
           .from('agents')
@@ -68,29 +80,70 @@ export default function Agent() {
           .maybeSingle(),
 
         supabase
-          .from('calls')
-          .select(
-            'id, started_at, duration_seconds, appointment_booked, outcome'
-          )
-          .eq('client_id', user.id)
-          .order('started_at', { ascending: false }),
-
-        supabase
           .from('subscriptions')
           .select('plan_name, status')
           .eq('client_id', user.id)
           .maybeSingle(),
+
+        supabase
+          .from('agent_phone_numbers')
+          .select('phone_number')
+          .eq('client_id', user.id)
+          .order('is_primary', { ascending: false })
+          .order('created_at', { ascending: true }),
       ])
 
       if (!agentError && agentData) {
         setAgent(agentData)
 
+        const assignedPhoneNumbers = (phoneNumberData ?? []).map(
+          (row) => row.phone_number
+        )
+
+        setPhoneNumbers(
+          assignedPhoneNumbers.length > 0
+            ? assignedPhoneNumbers
+            : agentData.phone_number
+              ? [agentData.phone_number]
+              : []
+        )
+
+        const normalizedHours = agentData.business_hours
+          ?.trim()
+          .toLowerCase()
+
+        setScheduleMode(
+          !normalizedHours || normalizedHours === 'not configured'
+            ? null
+            : normalizedHours === 'not required' ||
+                normalizedHours === '24/7'
+              ? '24/7'
+              : 'custom'
+        )
+
         if (agentData.business_hours) {
           try {
             const parsed = JSON.parse(agentData.business_hours)
+            const parsedHours = Array.isArray(parsed)
+              ? parsed
+              : parsed?.hours
 
-            if (Array.isArray(parsed) && parsed.length === 7) {
-              setOperatingHours(parsed)
+            if (
+              parsed?.mode === '24/7' ||
+              parsed?.mode === 'custom'
+            ) {
+              setScheduleMode(parsed.mode)
+            }
+
+            if (
+              typeof parsed?.timeZone === 'string' &&
+              parsed.timeZone.trim()
+            ) {
+              setBusinessTimeZone(parsed.timeZone)
+            }
+
+            if (Array.isArray(parsedHours) && parsedHours.length === 7) {
+              setOperatingHours(parsedHours)
             }
           } catch {
             // Existing plain-text business hours are left as-is
@@ -99,8 +152,11 @@ export default function Agent() {
         }
       }
 
-      if (!callsError && callsData) {
-        setCalls(callsData)
+      try {
+        const callsResult = await fetchClientCalls()
+        setCalls(callsResult.calls)
+      } catch (error) {
+        console.error('Agent call sync failed:', error)
       }
 
       setIsPro(
@@ -141,19 +197,17 @@ export default function Agent() {
         return
       }
 
-      const serialized = JSON.stringify(operatingHours)
-
-      const { error } = await supabase
-        .from('agents')
-        .update({
-          business_hours: serialized,
+      const result = await saveSchedulePreference('custom', {
+        operatingHours,
+        timeZone: businessTimeZone,
+      })
+      const serialized =
+        result.businessHours ??
+        JSON.stringify({
+          mode: 'custom',
+          timeZone: businessTimeZone,
+          hours: operatingHours,
         })
-        .eq('client_id', user.id)
-
-      if (error) {
-        setHoursMessage(error.message)
-        return
-      }
 
       setAgent((current) =>
         current
@@ -164,9 +218,15 @@ export default function Agent() {
           : current
       )
 
-      setHoursMessage('Operating hours saved.')
-    } catch {
-      setHoursMessage('Could not save operating hours.')
+      setScheduleMode('custom')
+
+      setHoursMessage('Custom hours saved and synchronized with Retell.')
+    } catch (error) {
+      setHoursMessage(
+        error instanceof Error
+          ? error.message
+          : 'Could not save operating hours.'
+      )
     } finally {
       setSavingHours(false)
     }
@@ -192,6 +252,13 @@ export default function Agent() {
 
     return `${openDays.length} days configured`
   }, [operatingHours])
+
+  const scheduleSummary =
+    scheduleMode === '24/7'
+      ? '24/7'
+      : scheduleMode === null
+        ? 'Choose in Calls'
+        : operatingHoursSummary
 
   const getStatusInfo = () => {
     switch (agent?.status) {
@@ -318,22 +385,20 @@ export default function Agent() {
           </a>
 
           {isPro && (
-            <>
-              <a
-                href="/dashboard/appointments"
-                className="dashboardNavItem"
-              >
-                Appointments
-              </a>
-
-              <a
-                href="/dashboard/employees"
-                className="dashboardNavItem"
-              >
-                Employees
-              </a>
-            </>
+            <a
+              href="/dashboard/appointments"
+              className="dashboardNavItem"
+            >
+              Appointments
+            </a>
           )}
+
+          <a
+            href="/dashboard/employees"
+            className="dashboardNavItem"
+          >
+            Employees
+          </a>
 
           <a
             href="/dashboard/agent"
@@ -424,8 +489,9 @@ export default function Agent() {
               </h2>
 
               <p>
-                {agent?.phone_number ||
-                  'Your Recepta phone number has not been assigned yet.'}
+                {phoneNumbers.length > 0
+                  ? phoneNumbers.join(' · ')
+                  : 'Your Recepta phone number has not been assigned yet.'}
               </p>
             </div>
           </div>
@@ -444,10 +510,16 @@ export default function Agent() {
             </div>
 
             <div>
-              <span>PHONE NUMBER</span>
+              <span>
+                {phoneNumbers.length === 1
+                  ? 'PHONE NUMBER'
+                  : 'PHONE NUMBERS'}
+              </span>
 
               <strong>
-                {agent?.phone_number || 'Pending'}
+                {phoneNumbers.length > 0
+                  ? phoneNumbers.join(', ')
+                  : 'Pending'}
               </strong>
             </div>
 
@@ -455,7 +527,7 @@ export default function Agent() {
               <span>BUSINESS HOURS</span>
 
               <strong>
-                {operatingHoursSummary}
+                {scheduleSummary}
               </strong>
             </div>
 
@@ -557,10 +629,16 @@ export default function Agent() {
             </div>
 
             <div>
-              <span>Phone number</span>
+              <span>
+                {phoneNumbers.length === 1
+                  ? 'Phone number'
+                  : 'Phone numbers'}
+              </span>
 
               <strong>
-                {agent?.phone_number || 'Pending'}
+                {phoneNumbers.length > 0
+                  ? phoneNumbers.join(', ')
+                  : 'Pending'}
               </strong>
             </div>
 
@@ -568,7 +646,7 @@ export default function Agent() {
               <span>Operating hours</span>
 
               <strong>
-                {operatingHoursSummary}
+                {scheduleSummary}
               </strong>
             </div>
 
@@ -608,6 +686,7 @@ export default function Agent() {
 
       {/* OPERATING HOURS */}
 
+        {scheduleMode === 'custom' ? (
         <section className="agentPanel">
           <div
             className="agentPanelHeading"
@@ -627,8 +706,58 @@ export default function Agent() {
 
               <p>
                 Set your normal weekly call-answering hours.
-                Closed days stay completely out of the way.
+                Calls outside these hours will not connect to the
+                receptionist.
               </p>
+
+              <label
+                style={{
+                  display: 'grid',
+                  gap: '8px',
+                  marginTop: '18px',
+                  maxWidth: '320px',
+                }}
+              >
+                <span>Business timezone</span>
+
+                <select
+                  value={businessTimeZone}
+                  onChange={(event) =>
+                    setBusinessTimeZone(event.target.value)
+                  }
+                >
+                  <option value="America/St_Johns">
+                    Newfoundland
+                  </option>
+                  <option value="America/Halifax">
+                    Atlantic
+                  </option>
+                  <option value="America/Toronto">
+                    Eastern
+                  </option>
+                  <option value="America/Winnipeg">
+                    Central
+                  </option>
+                  <option value="America/Edmonton">
+                    Mountain
+                  </option>
+                  <option value="America/Vancouver">
+                    Pacific
+                  </option>
+                  {![
+                    'America/St_Johns',
+                    'America/Halifax',
+                    'America/Toronto',
+                    'America/Winnipeg',
+                    'America/Edmonton',
+                    'America/Vancouver',
+                  ].includes(businessTimeZone) && (
+                    <option value={businessTimeZone}>
+                      {businessTimeZone}
+                    </option>
+                  )}
+                </select>
+              </label>
             </div>
 
             <div
@@ -810,6 +939,36 @@ export default function Agent() {
             )}
           </div>
         </section>
+        ) : (
+          <section className="agentPanel">
+            <div className="agentPanelHeading">
+              <div>
+                <span className="agentSectionLabel">
+                  OPERATING HOURS
+                </span>
+
+                <h2>
+                  {scheduleMode === '24/7'
+                    ? 'Available 24/7'
+                    : 'Choose your availability'}
+                </h2>
+
+                <p>
+                  {scheduleMode === '24/7'
+                    ? 'Your receptionist is configured to answer at any time, every day.'
+                    : 'Choose either 24/7 or Custom from the Calls page first.'}
+                </p>
+              </div>
+
+              <a
+                href="/dashboard/calls"
+                className="btn btnOutline"
+              >
+                Open Calls
+              </a>
+            </div>
+          </section>
+        )}
 
         {/* PERFORMANCE */}
 

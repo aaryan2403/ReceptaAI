@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { syncEmployeeScheduleWithRetell } from '../lib/employeeSchedule'
 
 type Employee = {
   id: string
@@ -46,7 +47,7 @@ export default function Employees() {
   const [role, setRole] = useState('')
 
   const [loading, setLoading] = useState(true)
-  const [hasProAccess, setHasProAccess] = useState(false)
+  const [isPro, setIsPro] = useState(false)
   const [savingEmployee, setSavingEmployee] = useState(false)
   const [savingSchedule, setSavingSchedule] = useState(false)
 
@@ -63,7 +64,7 @@ export default function Employees() {
     }
 
     loadSchedule(selectedEmployeeId)
-  }, [selectedEmployeeId, hasProAccess])
+  }, [selectedEmployeeId])
 
   const loadEmployees = async () => {
     setLoading(true)
@@ -86,18 +87,10 @@ export default function Employees() {
       .eq('client_id', user.id)
       .maybeSingle()
 
-    const allowed =
+    setIsPro(
       !subscriptionError &&
-      subscription?.status === 'active' &&
-      subscription?.plan_name === 'Recepta Pro'
-
-    if (!allowed) {
-      setHasProAccess(false)
-      setLoading(false)
-      return
-    }
-
-    setHasProAccess(true)
+        subscription?.plan_name === 'Recepta Pro'
+    )
 
     const { data, error } = await supabase
       .from('employees')
@@ -119,8 +112,6 @@ export default function Employees() {
   }
 
   const loadSchedule = async (employeeId: string) => {
-    if (!hasProAccess) return
-
     const { data, error } = await supabase
       .from('employee_schedules')
       .select(
@@ -156,6 +147,23 @@ export default function Employees() {
     })
 
     setSchedules(fullWeek)
+  }
+
+  const syncWithRetell = async (savedMessage: string) => {
+    try {
+      await syncEmployeeScheduleWithRetell()
+      setMessage(`${savedMessage} Retell has been synchronized.`)
+      return true
+    } catch (error) {
+      setMessage(
+        `${savedMessage} ${
+          error instanceof Error
+            ? error.message
+            : 'Retell synchronization failed.'
+        }`
+      )
+      return false
+    }
   }
 
 
@@ -210,7 +218,7 @@ export default function Employees() {
     setPhone('')
     setRole('')
 
-    setMessage('Employee added.')
+    await syncWithRetell('Employee added.')
     setSavingEmployee(false)
   }
 
@@ -239,6 +247,8 @@ export default function Employees() {
           : item
       )
     )
+
+    await syncWithRetell('Employee status updated.')
   }
 
   const handleDeleteEmployee = async (
@@ -271,6 +281,8 @@ export default function Employees() {
         remaining[0]?.id || null
       )
     }
+
+    await syncWithRetell('Employee deleted.')
   }
 
   const updateSchedule = (
@@ -334,9 +346,7 @@ export default function Employees() {
         'Could not save normal schedule.'
       )
     } else {
-      setMessage(
-        'Normal weekly schedule saved.'
-      )
+      await syncWithRetell('Normal weekly schedule saved.')
 
       await loadSchedule(
         selectedEmployeeId
@@ -375,61 +385,6 @@ export default function Employees() {
     )
   }
 
-  if (!hasProAccess) {
-    return (
-      <main className="dashboardPage">
-        <aside className="dashboardSidebar">
-          <a href="/" className="dashboardBrand">
-            <img
-              src="/components/logoR.png"
-              alt="Recepta"
-            />
-          </a>
-
-          <nav className="dashboardNav">
-            <a href="/dashboard" className="dashboardNavItem">
-              Overview
-            </a>
-
-            <a
-              href="/dashboard/billing"
-              className="dashboardNavItem dashboardNavItemActive"
-            >
-              Billing
-            </a>
-
-            <a
-              href="/dashboard/settings"
-              className="dashboardNavItem"
-            >
-              Settings
-            </a>
-          </nav>
-        </aside>
-
-        <section className="dashboardMain">
-          <div className="dashboardEmptyState">
-            <p className="dashboardEyebrow">RECEPTA PRO</p>
-
-            <h2>Employees requires Recepta Pro</h2>
-
-            <p>
-              Upgrade to the C$300 Pro plan to unlock
-              employee management and availability.
-            </p>
-
-            <a
-              href="/dashboard/billing"
-              className="btn btnPrimary"
-            >
-              View Pro Plan
-            </a>
-          </div>
-        </section>
-      </main>
-    )
-  }
-
   return (
     <main className="dashboardPage">
 
@@ -459,12 +414,14 @@ export default function Employees() {
             Calls
           </a>
 
-          <a
-            href="/dashboard/appointments"
-            className="dashboardNavItem"
-          >
-            Appointments
-          </a>
+          {isPro && (
+            <a
+              href="/dashboard/appointments"
+              className="dashboardNavItem"
+            >
+              Appointments
+            </a>
+          )}
 
           <a
             href="/dashboard/employees"
