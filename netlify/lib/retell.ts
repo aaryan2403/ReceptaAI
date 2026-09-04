@@ -453,14 +453,63 @@ const BUSINESS_HOURS_PROMPT_MARKER =
 const EMPLOYEE_SCHEDULE_PROMPT_MARKER =
   '[RECEPTA MANAGED EMPLOYEE AVAILABILITY]'
 
+const LEGACY_MANAGED_PROMPT_LINES: Record<string, string[][]> = {
+  [BUSINESS_HOURS_PROMPT_MARKER]: [
+    [
+      'The current store schedule mode is {{recepta_schedule_mode}}.',
+      'The current store hours are supplied in {{recepta_business_hours}} and use {{recepta_business_timezone}}.',
+      'Use these values when answering whether the business is open or describing store hours. Never invent hours.',
+    ],
+  ],
+  [EMPLOYEE_SCHEDULE_PROMPT_MARKER]: [
+    [
+      'The current active employee schedule is supplied in {{recepta_employee_schedule}}.',
+      'The business timezone is {{recepta_employee_schedule_timezone}}.',
+      'Use this information when answering employee-availability questions.',
+      'Do not expose private contact details, invent availability, or claim an appointment is booked unless an authorized booking tool confirms it.',
+    ],
+  ],
+}
+
 const appendManagedPrompt = (
   currentPrompt: string,
   marker: string,
   lines: string[]
-) =>
-  currentPrompt.includes(marker)
-    ? currentPrompt
-    : `${currentPrompt.trim()}\n\n${[marker, ...lines].join('\n')}`.trim()
+) => {
+  const managedBlock = [marker, ...lines].join('\n')
+
+  if (!currentPrompt.includes(marker)) {
+    return `${currentPrompt.trim()}\n\n${managedBlock}`.trim()
+  }
+
+  for (const legacyLines of LEGACY_MANAGED_PROMPT_LINES[marker] ?? []) {
+    const legacyBlock = [marker, ...legacyLines].join('\n')
+
+    if (currentPrompt.includes(legacyBlock)) {
+      return currentPrompt.replace(legacyBlock, managedBlock)
+    }
+  }
+
+  return currentPrompt
+}
+
+const formatBusinessHours = (schedule: RetellSchedule) => {
+  if (schedule.mode === '24/7') {
+    return `The business and AI receptionist are available 24 hours a day, 7 days a week. Timezone: ${schedule.timeZone}.`
+  }
+
+  const hours = schedule.hours.map((item) =>
+    item.open
+      ? `${item.day}: ${item.start}-${item.end}`
+      : `${item.day}: closed`
+  )
+
+  return [
+    `Business timezone: ${schedule.timeZone}.`,
+    'Current weekly store and AI receptionist hours:',
+    ...hours.map((item) => `- ${item}`),
+  ].join('\n')
+}
 
 export const syncRetellSchedule = async ({
   apiKey,
@@ -529,9 +578,12 @@ export const syncRetellSchedule = async ({
     currentLlm.general_prompt ?? '',
     BUSINESS_HOURS_PROMPT_MARKER,
     [
-      'The current store schedule mode is {{recepta_schedule_mode}}.',
-      'The current store hours are supplied in {{recepta_business_hours}} and use {{recepta_business_timezone}}.',
-      'Use these values when answering whether the business is open or describing store hours. Never invent hours.',
+      'The Recepta dashboard is the authoritative source for current store and call-answering hours.',
+      'Schedule mode: {{recepta_schedule_mode}}.',
+      'Current hours: {{recepta_business_hours}}',
+      'Use the timezone in {{recepta_business_timezone}} when answering.',
+      'If the mode is 24/7, clearly say the business and AI receptionist are available 24 hours a day, 7 days a week.',
+      'If the mode is custom, answer with the exact saved day and time. Never invent or assume hours.',
     ]
   )
 
@@ -540,9 +592,11 @@ export const syncRetellSchedule = async ({
       generalPrompt,
       EMPLOYEE_SCHEDULE_PROMPT_MARKER,
       [
-        'The current active employee schedule is supplied in {{recepta_employee_schedule}}.',
-        'The business timezone is {{recepta_employee_schedule_timezone}}.',
-        'Use this information when answering employee-availability questions.',
+        'The Recepta dashboard is the authoritative source for active employee availability.',
+        'Current active employee schedule: {{recepta_employee_schedule}}',
+        'Employee hours use timezone {{recepta_employee_schedule_timezone}}.',
+        'When asked when an employee such as Mark is available, answer with that employee\'s exact saved days and times.',
+        'If the employee or hours are not configured, say so clearly instead of guessing.',
         'Do not expose private contact details, invent availability, or claim an appointment is booked unless an authorized booking tool confirms it.',
       ]
     )
@@ -560,10 +614,7 @@ export const syncRetellSchedule = async ({
         default_dynamic_variables: {
           ...(currentLlm.default_dynamic_variables ?? {}),
           recepta_schedule_mode: schedule.mode,
-          recepta_business_hours:
-            schedule.mode === '24/7'
-              ? 'Available 24 hours a day, 7 days a week'
-              : JSON.stringify(schedule.hours),
+          recepta_business_hours: formatBusinessHours(schedule),
           recepta_business_timezone: schedule.timeZone,
           ...(employeeSchedule
             ? {
@@ -662,9 +713,11 @@ export const syncRetellEmployeeSchedule = async ({
     currentPrompt,
     EMPLOYEE_SCHEDULE_PROMPT_MARKER,
     [
-      'The current active employee schedule is supplied in {{recepta_employee_schedule}}.',
-      'The business timezone is {{recepta_employee_schedule_timezone}}.',
-      'Use this information when answering employee-availability questions.',
+      'The Recepta dashboard is the authoritative source for active employee availability.',
+      'Current active employee schedule: {{recepta_employee_schedule}}',
+      'Employee hours use timezone {{recepta_employee_schedule_timezone}}.',
+      'When asked when an employee such as Mark is available, answer with that employee\'s exact saved days and times.',
+      'If the employee or hours are not configured, say so clearly instead of guessing.',
       'Do not expose private contact details, invent availability, or claim an appointment is booked unless an authorized booking tool confirms it.',
     ]
   )

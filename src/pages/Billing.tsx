@@ -37,6 +37,17 @@ type AIModel = {
   customer_price_per_minute_cad: number | null
 }
 
+type CheckoutSelection = {
+  planName: PlanName
+  aiModelId: string
+  monthlyMinutes: number
+  piiRedaction: boolean
+  safetyGuardrails: boolean
+  extraPhoneNumbers: number
+  phoneNumberCountry: 'CA' | 'US'
+  phoneNumberAreaCode: string
+}
+
 const ADD_ON_PRICES = {
   piiRedactionPerMinuteCad: 0.014,
   safetyGuardrailsPerMinuteCad: 0.007,
@@ -541,12 +552,12 @@ export default function Billing() {
     }
   }
 
-  const handleStartNewSubscription =
-    async () => {
+  const startSubscriptionCheckout = async (
+    selection: CheckoutSelection
+  ) => {
       setCheckoutError('')
 
-      const minutes =
-        Number(selectedMinutes)
+      const minutes = Number(selection.monthlyMinutes)
 
       if (
         !Number.isFinite(minutes) ||
@@ -559,7 +570,7 @@ export default function Billing() {
         return
       }
 
-      if (!selectedModelId) {
+      if (!selection.aiModelId) {
         setCheckoutError(
           'Choose an AI model.'
         )
@@ -590,19 +601,23 @@ export default function Billing() {
                 `Bearer ${session.access_token}`,
             },
             body: JSON.stringify({
-              planName: selectedPlan,
-              aiModelId: selectedModelId,
+              planName: selection.planName,
+              aiModelId: selection.aiModelId,
               monthlyMinutes:
                 Math.floor(minutes),
               addOns: {
-                piiRedaction,
-                safetyGuardrails,
-                extraPhoneNumbers,
+                piiRedaction:
+                  selection.piiRedaction,
+                safetyGuardrails:
+                  selection.safetyGuardrails,
+                extraPhoneNumbers:
+                  selection.extraPhoneNumbers,
               },
-              phoneNumberCountry,
+              phoneNumberCountry:
+                selection.phoneNumberCountry,
               phoneNumberAreaCode:
-                phoneNumberCountry === 'US'
-                  ? phoneNumberAreaCode.trim() || null
+                selection.phoneNumberCountry === 'US'
+                  ? selection.phoneNumberAreaCode.trim() || null
                   : null,
             }),
           }
@@ -639,6 +654,48 @@ export default function Billing() {
         setCheckoutLoading(false)
       }
     }
+
+  const handleStartNewSubscription = () =>
+    startSubscriptionCheckout({
+      planName: selectedPlan,
+      aiModelId: selectedModelId,
+      monthlyMinutes: Number(selectedMinutes),
+      piiRedaction,
+      safetyGuardrails,
+      extraPhoneNumbers,
+      phoneNumberCountry,
+      phoneNumberAreaCode,
+    })
+
+  const handleRenewPreviousSubscription = () => {
+    if (
+      !subscription ||
+      !subscription.ai_model_id ||
+      !subscription.monthly_minutes
+    ) {
+      setCheckoutError(
+        'The previous subscription configuration is incomplete. Edit the options below before renewing.'
+      )
+      return
+    }
+
+    return startSubscriptionCheckout({
+      planName:
+        subscription.plan_name === 'Recepta Pro'
+          ? 'Recepta Pro'
+          : 'Recepta Standard',
+      aiModelId: subscription.ai_model_id,
+      monthlyMinutes: subscription.monthly_minutes,
+      piiRedaction:
+        subscription.pii_redaction_enabled,
+      safetyGuardrails:
+        subscription.safety_guardrails_enabled,
+      extraPhoneNumbers:
+        subscription.extra_phone_numbers,
+      phoneNumberCountry,
+      phoneNumberAreaCode,
+    })
+  }
 
   const handleChangeModel = async () => {
     setModelSwitchError('')
@@ -1300,7 +1357,7 @@ export default function Billing() {
                   }}
                 >
                   <span className="billingPremiumEyebrow">
-                    START A NEW SUBSCRIPTION
+                    RENEW SUBSCRIPTION
                   </span>
 
                   <h2
@@ -1310,7 +1367,7 @@ export default function Billing() {
                         'clamp(28px, 3vw, 40px)',
                     }}
                   >
-                    Choose your new Recepta plan
+                    Renew your Recepta subscription
                   </h2>
 
                   <p
@@ -1321,9 +1378,38 @@ export default function Billing() {
                       fontSize: '16px',
                     }}
                   >
-                    Pick your plan, choose the AI model powering your receptionist,
-                    set your monthly minutes, then continue to secure Stripe checkout.
+                    Renew the exact previous plan immediately, or edit the plan,
+                    AI model, monthly minutes and add-ons below before renewing.
                   </p>
+
+                  <div
+                    style={{
+                      marginTop: '24px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '14px',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="btn btnPrimary"
+                      onClick={handleRenewPreviousSubscription}
+                      disabled={
+                        checkoutLoading ||
+                        !subscription.ai_model_id ||
+                        !subscription.monthly_minutes
+                      }
+                    >
+                      {checkoutLoading
+                        ? 'Opening Stripe Checkout...'
+                        : 'Renew Subscription'}
+                    </button>
+
+                    <span style={{ opacity: 0.68 }}>
+                      Uses the same plan, minutes, AI model and add-ons shown above.
+                    </span>
+                  </div>
 
                   <div
                     style={{
@@ -2060,7 +2146,7 @@ export default function Billing() {
                   >
                     {checkoutLoading
                       ? 'Opening Stripe Checkout...'
-                      : 'Continue to Secure Checkout'}
+                      : 'Renew with Changes'}
                   </button>
 
                   {checkoutError && (

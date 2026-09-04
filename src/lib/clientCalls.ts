@@ -121,9 +121,7 @@ export const saveSchedulePreference = async (
       body: JSON.stringify({
         scheduleMode,
         operatingHours: options?.operatingHours,
-        timeZone:
-          options?.timeZone ??
-          Intl.DateTimeFormat().resolvedOptions().timeZone,
+        timeZone: options?.timeZone,
       }),
     }
   )

@@ -10,7 +10,7 @@ export default function Navbar({ onBook }: { onBook: () => void }) {
 
         <div className="navMinimalActions">
           <a className="btn btnGhost" href="/login">
-            Log in
+            Customer Login
           </a>
 
           <button className="btn btnPrimary" type="button" onClick={onBook}>

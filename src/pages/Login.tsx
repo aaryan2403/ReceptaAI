@@ -127,7 +127,7 @@ export default function Login() {
         </a>
 
         <div className="loginHeading">
-          <h1>Welcome back</h1>
+          <h1>Customer Login</h1>
 
           <p>
             Sign in to manage your Recepta AI
@@ -199,7 +199,7 @@ export default function Login() {
           >
             {loading
               ? 'Please wait...'
-              : 'Log in'}
+              : 'Customer Login'}
           </button>
         </form>
 

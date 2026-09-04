@@ -731,7 +731,7 @@ export default function Dashboard() {
               href="/dashboard/billing"
               className="btn btnPrimary"
             >
-              View Billing
+              Renew Subscription
             </a>
           </div>
         ) : (

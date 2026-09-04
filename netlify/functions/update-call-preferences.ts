@@ -4,7 +4,10 @@ import {
   type RetellOperatingDay,
   type RetellSchedule,
 } from '../lib/retell'
-import { buildEmployeeScheduleContext } from '../lib/employeeSchedule'
+import {
+  buildEmployeeScheduleContext,
+  getBusinessTimeZone,
+} from '../lib/employeeSchedule'
 
 const DAYS = [
   'Monday',
@@ -194,9 +197,15 @@ export default async (request: Request) => {
   let schedule: RetellSchedule
 
   try {
+    const storedTimeZone = getBusinessTimeZone(
+      agent.business_hours
+    )
+
     schedule = {
       mode: scheduleMode,
-      timeZone: normalizeTimeZone(body.timeZone),
+      timeZone: normalizeTimeZone(
+        body.timeZone ?? storedTimeZone
+      ),
       hours:
         scheduleMode === 'custom'
           ? body.operatingHours
