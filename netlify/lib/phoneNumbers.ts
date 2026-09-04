@@ -1,5 +1,14 @@
 import { normalizeE164 } from './retell'
 
+export const isMissingAgentPhoneNumbersTable = (
+  error: { code?: string; message?: string } | null | undefined
+) =>
+  error?.code === 'PGRST205' ||
+  error?.code === '42P01' ||
+  error?.message
+    ?.toLowerCase()
+    .includes('agent_phone_numbers') === true
+
 export const MAX_TOTAL_PHONE_NUMBERS = 21
 
 export const normalizePhoneNumberList = (value: unknown) => {
@@ -70,4 +79,3 @@ export const normalizePhonePurchase = ({
         : null,
   }
 }
-

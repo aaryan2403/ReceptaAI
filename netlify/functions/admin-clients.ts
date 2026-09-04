@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { isMissingAgentPhoneNumbersTable } from '../lib/phoneNumbers'
 
 const ADMIN_EMAIL =
   (process.env.ADMIN_EMAIL || '')
@@ -188,11 +189,16 @@ export default async (request: Request) => {
         .eq('is_active', true),
     ])
 
+    const phoneNumbersTableMissing =
+      isMissingAgentPhoneNumbersTable(phoneNumbersResult.error)
+
     const queryError =
       clientsResult.error ||
       subscriptionsResult.error ||
       agentsResult.error ||
-      phoneNumbersResult.error ||
+      (phoneNumbersTableMissing
+        ? null
+        : phoneNumbersResult.error) ||
       modelsResult.error
 
     if (queryError) {
@@ -219,11 +225,15 @@ export default async (request: Request) => {
         agents:
           (agentsResult.data || []).map((agent) => ({
             ...agent,
-            phone_numbers: (phoneNumbersResult.data || [])
-              .filter(
-                (row) => row.client_id === agent.client_id
-              )
-              .map((row) => row.phone_number),
+            phone_numbers: phoneNumbersTableMissing
+              ? agent.phone_number
+                ? [agent.phone_number]
+                : []
+              : (phoneNumbersResult.data || [])
+                  .filter(
+                    (row) => row.client_id === agent.client_id
+                  )
+                  .map((row) => row.phone_number),
           })),
         models:
           modelsResult.data || [],

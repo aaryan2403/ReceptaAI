@@ -8,6 +8,7 @@ import {
 } from '../lib/retell'
 import { loadClientScheduleContext } from '../lib/employeeSchedule'
 import {
+  isMissingAgentPhoneNumbersTable,
   MAX_TOTAL_PHONE_NUMBERS,
   normalizePhoneNumberList,
   normalizePhonePurchase,
@@ -704,8 +705,14 @@ export default async (request: Request) => {
         )
 
       if (phoneNumbersError) {
-        await rollback()
-        throw phoneNumbersError
+        const canUsePrimaryNumberFallback =
+          isMissingAgentPhoneNumbersTable(phoneNumbersError) &&
+          allPhoneNumbers.length === 1
+
+        if (!canUsePrimaryNumberFallback) {
+          await rollback()
+          throw phoneNumbersError
+        }
       }
 
       const { error: primaryPhoneError } = await supabaseAdmin

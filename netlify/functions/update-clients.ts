@@ -7,6 +7,7 @@ import {
 } from '../lib/retell'
 import { loadClientScheduleContext } from '../lib/employeeSchedule'
 import {
+  isMissingAgentPhoneNumbersTable,
   MAX_TOTAL_PHONE_NUMBERS,
   normalizePhoneNumberList,
 } from '../lib/phoneNumbers'
@@ -348,7 +349,10 @@ export default async (request: Request) => {
       .select('phone_number, source')
       .eq('client_id', clientId)
 
-  if (phoneLookupError) {
+  const phoneNumbersTableMissing =
+    isMissingAgentPhoneNumbersTable(phoneLookupError)
+
+  if (phoneLookupError && !phoneNumbersTableMissing) {
     return json(400, { error: phoneLookupError.message })
   }
 
@@ -466,32 +470,34 @@ export default async (request: Request) => {
     )
     .map((row) => row.phone_number)
 
-  const { error: clearPhoneNumbersError } = await supabaseAdmin
-    .from('agent_phone_numbers')
-    .delete()
-    .eq('client_id', clientId)
-
-  if (clearPhoneNumbersError) {
-    return json(400, { error: clearPhoneNumbersError.message })
-  }
-
-  if (phoneNumbers.length > 0) {
-    const purchasedSet = new Set(purchasedPhoneNumbers)
-    const { error: savePhoneNumbersError } = await supabaseAdmin
+  if (!phoneNumbersTableMissing) {
+    const { error: clearPhoneNumbersError } = await supabaseAdmin
       .from('agent_phone_numbers')
-      .insert(
-        phoneNumbers.map((assignedPhoneNumber, index) => ({
-          client_id: clientId,
-          phone_number: assignedPhoneNumber,
-          is_primary: index === 0,
-          source: purchasedSet.has(assignedPhoneNumber)
-            ? 'retell'
-            : 'manual',
-        }))
-      )
+      .delete()
+      .eq('client_id', clientId)
 
-    if (savePhoneNumbersError) {
-      return json(400, { error: savePhoneNumbersError.message })
+    if (clearPhoneNumbersError) {
+      return json(400, { error: clearPhoneNumbersError.message })
+    }
+
+    if (phoneNumbers.length > 0) {
+      const purchasedSet = new Set(purchasedPhoneNumbers)
+      const { error: savePhoneNumbersError } = await supabaseAdmin
+        .from('agent_phone_numbers')
+        .insert(
+          phoneNumbers.map((assignedPhoneNumber, index) => ({
+            client_id: clientId,
+            phone_number: assignedPhoneNumber,
+            is_primary: index === 0,
+            source: purchasedSet.has(assignedPhoneNumber)
+              ? 'retell'
+              : 'manual',
+          }))
+        )
+
+      if (savePhoneNumbersError) {
+        return json(400, { error: savePhoneNumbersError.message })
+      }
     }
   }
 
