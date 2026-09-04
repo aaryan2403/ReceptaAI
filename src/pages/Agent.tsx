@@ -47,6 +47,8 @@ export default function Agent() {
   ])
   const [savingHours, setSavingHours] = useState(false)
   const [hoursMessage, setHoursMessage] = useState('')
+  const [savingScheduleMode, setSavingScheduleMode] = useState(false)
+  const [scheduleModeMessage, setScheduleModeMessage] = useState('')
   const [scheduleMode, setScheduleMode] =
     useState<'24/7' | 'custom' | null>(null)
   const [businessTimeZone, setBusinessTimeZone] = useState(
@@ -229,6 +231,51 @@ export default function Agent() {
       )
     } finally {
       setSavingHours(false)
+    }
+  }
+
+  const chooseScheduleMode = async (
+    mode: '24/7' | 'custom'
+  ) => {
+    setSavingScheduleMode(true)
+    setScheduleModeMessage('')
+
+    try {
+      const result = await saveSchedulePreference(mode, {
+        operatingHours:
+          mode === 'custom' ? operatingHours : undefined,
+        timeZone: businessTimeZone,
+      })
+      const serialized =
+        result.businessHours ??
+        JSON.stringify({
+          mode,
+          timeZone: businessTimeZone,
+          hours: operatingHours,
+        })
+
+      setAgent((current) =>
+        current
+          ? {
+              ...current,
+              business_hours: serialized,
+            }
+          : current
+      )
+      setScheduleMode(result.scheduleMode)
+      setScheduleModeMessage(
+        result.scheduleMode === '24/7'
+          ? '24/7 availability saved and synchronized with Retell.'
+          : 'Custom availability selected. Set the hours below and save when finished.'
+      )
+    } catch (error) {
+      setScheduleModeMessage(
+        error instanceof Error
+          ? error.message
+          : 'Could not change the availability mode.'
+      )
+    } finally {
+      setSavingScheduleMode(false)
     }
   }
 
@@ -710,6 +757,34 @@ export default function Agent() {
                 receptionist.
               </p>
 
+              <div className="callsScheduleActions">
+                <button
+                  type="button"
+                  className="btn btnOutline"
+                  aria-pressed={false}
+                  disabled={savingScheduleMode}
+                  onClick={() => chooseScheduleMode('24/7')}
+                >
+                  24/7
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btnPrimary"
+                  aria-pressed={true}
+                  disabled={savingScheduleMode}
+                  onClick={() => chooseScheduleMode('custom')}
+                >
+                  Custom
+                </button>
+              </div>
+
+              {scheduleModeMessage && (
+                <p className="agentHoursMessage" role="status">
+                  {scheduleModeMessage}
+                </p>
+              )}
+
               <label
                 style={{
                   display: 'grid',
@@ -956,8 +1031,40 @@ export default function Agent() {
                 <p>
                   {scheduleMode === '24/7'
                     ? 'Your receptionist is configured to answer at any time, every day.'
-                    : 'Choose either 24/7 or Custom from the Calls page first.'}
+                    : 'Choose either 24/7 or Custom below.'}
                 </p>
+
+                <div className="callsScheduleActions">
+                  <button
+                    type="button"
+                    className={
+                      scheduleMode === '24/7'
+                        ? 'btn btnPrimary'
+                        : 'btn btnOutline'
+                    }
+                    aria-pressed={scheduleMode === '24/7'}
+                    disabled={savingScheduleMode}
+                    onClick={() => chooseScheduleMode('24/7')}
+                  >
+                    24/7
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btnOutline"
+                    aria-pressed={false}
+                    disabled={savingScheduleMode}
+                    onClick={() => chooseScheduleMode('custom')}
+                  >
+                    Custom
+                  </button>
+                </div>
+
+                {scheduleModeMessage && (
+                  <p className="agentHoursMessage" role="status">
+                    {scheduleModeMessage}
+                  </p>
+                )}
               </div>
 
               <a
