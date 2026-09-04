@@ -1790,6 +1790,7 @@ export default function Admin() {
                   </div>
 
                   <div
+                    className="adminClientMetricGrid"
                     style={{
                       display: 'grid',
                       gridTemplateColumns:
@@ -1862,7 +1863,7 @@ export default function Admin() {
 
                     <div>
                       <small>RETELL AGENT ID</small>
-                      <div>
+                      <div className="adminClientMetricValue adminClientMetricValue--identifier">
                         {client.agent?.retell_agent_id ||
                           'Not connected'}
                       </div>
@@ -1870,7 +1871,7 @@ export default function Admin() {
 
                     <div>
                       <small>PHONE NUMBERS</small>
-                      <div>
+                      <div className="adminClientMetricValue">
                         {client.agent?.phone_numbers?.length
                           ? client.agent.phone_numbers.join(', ')
                           : client.agent?.phone_number || 'Not assigned'}

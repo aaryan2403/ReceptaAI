@@ -7394,6 +7394,21 @@
   gap: 20px;
 }
 
+.adminClientMetricGrid > div {
+  min-width: 0;
+}
+
+.adminClientMetricValue {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.adminClientMetricValue--identifier {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
 .adminSearch {
   width: min(270px, 100%);
 }
