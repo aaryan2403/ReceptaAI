@@ -213,14 +213,7 @@ export default async (request: Request) => {
     return new Response(
       JSON.stringify({
         clients:
-          (clientsResult.data || [])
-            .filter(
-              (client) =>
-                client.contact_email
-                  ?.trim()
-                  .toLowerCase() !==
-                ADMIN_EMAIL
-            ),
+          clientsResult.data || [],
         subscriptions:
           subscriptionsResult.data || [],
         agents:

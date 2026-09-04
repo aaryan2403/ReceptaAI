@@ -2,8 +2,10 @@
 import { createClient } from '@supabase/supabase-js'
 import {
   syncRetellPhoneBindings,
+  syncRetellSchedule,
   syncRetellSubscription,
 } from '../lib/retell'
+import { loadClientScheduleContext } from '../lib/employeeSchedule'
 import {
   MAX_TOTAL_PHONE_NUMBERS,
   normalizePhoneNumberList,
@@ -572,6 +574,17 @@ export default async (request: Request) => {
         piiRedactionEnabled,
         safetyGuardrailsEnabled,
         aiModelId,
+      })
+
+      const scheduleContext = await loadClientScheduleContext({
+        supabase: supabaseAdmin,
+        clientId,
+      })
+
+      await syncRetellSchedule({
+        apiKey: retellApiKey,
+        agentId: retellAgentId,
+        ...scheduleContext,
       })
 
       if (removedManualPhoneNumbers.length > 0) {

@@ -2,6 +2,7 @@ import type {
   RetellOperatingDay,
   RetellSchedule,
 } from './retell'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type EmployeeScheduleEmployee = {
   id: string
@@ -156,4 +157,64 @@ export const buildEmployeeScheduleContext = ({
     'Current active employee availability:',
     ...employeeLines,
   ].join('\n')
+}
+
+export const loadClientScheduleContext = async ({
+  supabase,
+  clientId,
+  businessHours,
+}: {
+  supabase: SupabaseClient
+  clientId: string
+  businessHours?: string | null
+}) => {
+  let storedBusinessHours = businessHours
+
+  if (storedBusinessHours === undefined) {
+    const { data: agent, error: agentError } = await supabase
+      .from('agents')
+      .select('business_hours')
+      .eq('client_id', clientId)
+      .maybeSingle()
+
+    if (agentError) throw agentError
+    storedBusinessHours = agent?.business_hours ?? null
+  }
+
+  const { data: employees, error: employeesError } = await supabase
+    .from('employees')
+    .select('id, name, role, is_active')
+    .eq('client_id', clientId)
+    .order('created_at', { ascending: true })
+
+  if (employeesError) throw employeesError
+
+  const employeeRows = employees ?? []
+  const employeeIds = employeeRows.map((employee) => employee.id)
+  let schedules: EmployeeScheduleRow[] = []
+
+  if (employeeIds.length > 0) {
+    const { data, error } = await supabase
+      .from('employee_schedules')
+      .select(
+        'employee_id, day_of_week, is_working, start_time, end_time'
+      )
+      .in('employee_id', employeeIds)
+      .order('day_of_week', { ascending: true })
+
+    if (error) throw error
+    schedules = data ?? []
+  }
+
+  const schedule = getStoredBusinessSchedule(storedBusinessHours)
+
+  return {
+    schedule,
+    employeeSchedule: buildEmployeeScheduleContext({
+      employees: employeeRows,
+      schedules,
+      timeZone: schedule.timeZone,
+    }),
+    employeeScheduleTimeZone: schedule.timeZone,
+  }
 }

@@ -3,8 +3,10 @@ import Stripe from 'stripe'
 import {
   purchaseRetellPhoneNumber,
   releaseRetellPhoneNumber,
+  syncRetellSchedule,
   syncRetellSubscription,
 } from '../lib/retell'
+import { loadClientScheduleContext } from '../lib/employeeSchedule'
 import {
   MAX_TOTAL_PHONE_NUMBERS,
   normalizePhoneNumberList,
@@ -733,6 +735,18 @@ export default async (request: Request) => {
           safetyGuardrailsEnabled:
             guardrailsEnabled,
           aiModelId,
+        })
+
+        const scheduleContext = await loadClientScheduleContext({
+          supabase: supabaseAdmin,
+          clientId: newUser.id,
+          businessHours: 'Not configured',
+        })
+
+        await syncRetellSchedule({
+          apiKey: retellApiKey,
+          agentId: normalizedRetellId,
+          ...scheduleContext,
         })
       } catch (error) {
         await rollback()

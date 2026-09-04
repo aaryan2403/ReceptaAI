@@ -171,9 +171,6 @@ export default function Admin() {
     useState('')
   const [actionSuccess, setActionSuccess] =
     useState('')
-  const [syncingRetellContexts, setSyncingRetellContexts] =
-    useState(false)
-
   const [search, setSearch] =
     useState('')
 
@@ -998,88 +995,6 @@ export default function Admin() {
     }
   }
 
-  const handleSyncAllRetellContexts = async () => {
-    if (
-      !window.confirm(
-        'Publish the latest store hours and employee schedules to every connected Retell agent?'
-      )
-    ) {
-      return
-    }
-
-    setSyncingRetellContexts(true)
-    setActionError('')
-    setActionSuccess('')
-
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-
-      if (!session?.access_token) {
-        throw new Error('Admin session expired. Sign in again.')
-      }
-
-      const response = await fetch(
-        '/.netlify/functions/admin-sync-retell-context',
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        }
-      )
-      const result = (await response.json().catch(() => ({}))) as {
-        error?: string
-        total?: number
-        synced?: number
-        failed?: number
-        testAgent?: {
-          synced?: boolean
-          error?: string
-        } | null
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          result.error || 'Could not synchronize Retell agents.'
-        )
-      }
-
-      if (!result.testAgent) {
-        throw new Error(
-          `Synchronized ${result.synced ?? 0} agents, but the Recepta test account was not found with a connected Retell Agent ID.`
-        )
-      }
-
-      if (result.testAgent.synced !== true) {
-        throw new Error(
-          `The Recepta test agent failed to synchronize: ${
-            result.testAgent.error || 'Unknown Retell error.'
-          }`
-        )
-      }
-
-      if ((result.failed ?? 0) > 0) {
-        setActionError(
-          `Recepta test agent synchronized successfully, but ${result.failed} of ${result.total} connected agents failed.`
-        )
-      } else {
-        setActionSuccess(
-          `All ${result.synced ?? 0} connected Retell agents synchronized successfully, including receptahelp02@gmail.com.`
-        )
-      }
-    } catch (error) {
-      setActionError(
-        error instanceof Error
-          ? error.message
-          : 'Could not synchronize Retell agents.'
-      )
-    } finally {
-      setSyncingRetellContexts(false)
-    }
-  }
-
   const filteredClients = useMemo(() => {
     const query =
       search.trim().toLowerCase()
@@ -1735,40 +1650,19 @@ export default function Admin() {
               <h2>Current clients</h2>
             </div>
 
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'flex-end',
-                flexWrap: 'wrap',
-                gap: '10px',
-              }}
-            >
-              <button
-                type="button"
-                className="btn btnPrimary"
-                disabled={syncingRetellContexts}
-                onClick={handleSyncAllRetellContexts}
-              >
-                {syncingRetellContexts
-                  ? 'Syncing Retell Agents...'
-                  : 'Sync All Retell Agents'}
-              </button>
-
-              <div className="adminSearch">
-                <input
-                  type="search"
-                  value={search}
-                  onChange={(
-                    event: ChangeEvent<HTMLInputElement>
-                  ) =>
-                    setSearch(
-                      event.target.value
-                    )
-                  }
-                  placeholder="Search clients..."
-                />
-              </div>
+            <div className="adminSearch">
+              <input
+                type="search"
+                value={search}
+                onChange={(
+                  event: ChangeEvent<HTMLInputElement>
+                ) =>
+                  setSearch(
+                    event.target.value
+                  )
+                }
+                placeholder="Search clients..."
+              />
             </div>
           </div>
 
