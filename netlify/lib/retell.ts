@@ -5,7 +5,7 @@ import {
 
 const RETELL_API_BASE = 'https://api.retellai.com'
 
-const PII_CATEGORIES = [
+const ALL_RETELL_PII_CATEGORIES = [
   'person_name',
   'address',
   'email',
@@ -20,9 +20,9 @@ const PII_CATEGORIES = [
   'medical_id',
   'date_of_birth',
   'customer_account_number',
-]
+] as const
 
-const GUARDRAIL_OUTPUT_TOPICS = [
+const ALL_RETELL_GUARDRAIL_OUTPUT_TOPICS = [
   'harassment',
   'self_harm',
   'sexual_exploitation',
@@ -32,11 +32,37 @@ const GUARDRAIL_OUTPUT_TOPICS = [
   'gambling',
   'regulated_professional_advice',
   'child_safety_and_exploitation',
-]
+] as const
 
-const GUARDRAIL_INPUT_TOPICS = [
+const ALL_RETELL_GUARDRAIL_INPUT_TOPICS = [
   'platform_integrity_jailbreaking',
-]
+] as const
+
+const buildRetellProtectionConfig = ({
+  piiRedactionEnabled,
+  safetyGuardrailsEnabled,
+}: Pick<
+  RetellSyncOptions,
+  'piiRedactionEnabled' | 'safetyGuardrailsEnabled'
+>) => ({
+  data_storage_setting: piiRedactionEnabled
+    ? 'everything_except_pii'
+    : 'everything',
+  pii_config: {
+    mode: 'post_call',
+    categories: piiRedactionEnabled
+      ? [...ALL_RETELL_PII_CATEGORIES]
+      : [],
+  },
+  guardrail_config: {
+    output_topics: safetyGuardrailsEnabled
+      ? [...ALL_RETELL_GUARDRAIL_OUTPUT_TOPICS]
+      : [],
+    input_topics: safetyGuardrailsEnabled
+      ? [...ALL_RETELL_GUARDRAIL_INPUT_TOPICS]
+      : [],
+  },
+})
 
 type RetellVersion = {
   version: number
@@ -59,6 +85,7 @@ type RetellAgent = {
 type RetellLlm = {
   default_dynamic_variables?: Record<string, string> | null
   general_prompt?: string | null
+  general_tools?: Array<Record<string, unknown>> | null
 }
 
 export type RetellOperatingDay = {
@@ -313,29 +340,12 @@ const updateAndPublishAgent = async ({
       )}?version=${draftAgent.version}`,
       {
         method: 'PATCH',
-        body: JSON.stringify({
-          data_storage_setting:
-            piiRedactionEnabled
-              ? 'everything_except_pii'
-              : 'everything',
-          pii_config: {
-            mode: 'post_call',
-            categories:
-              piiRedactionEnabled
-                ? PII_CATEGORIES
-                : [],
-          },
-          guardrail_config: {
-            output_topics:
-              safetyGuardrailsEnabled
-                ? GUARDRAIL_OUTPUT_TOPICS
-                : [],
-            input_topics:
-              safetyGuardrailsEnabled
-                ? GUARDRAIL_INPUT_TOPICS
-                : [],
-          },
-        }),
+        body: JSON.stringify(
+          buildRetellProtectionConfig({
+            piiRedactionEnabled,
+            safetyGuardrailsEnabled,
+          })
+        ),
       }
     )
 
@@ -453,6 +463,132 @@ const BUSINESS_HOURS_PROMPT_MARKER =
 const EMPLOYEE_SCHEDULE_PROMPT_MARKER =
   '[RECEPTA MANAGED EMPLOYEE AVAILABILITY]'
 
+const APPOINTMENT_BOOKING_PROMPT_MARKER =
+  '[RECEPTA MANAGED APPOINTMENT BOOKING]'
+
+const RECEPTA_CALENDAR_TOOL_NAMES = new Set([
+  'recepta_list_employees',
+  'recepta_check_availability',
+  'recepta_book_appointment',
+])
+
+const buildReceptaCalendarTools = (siteUrl: string) => {
+  const url = `${siteUrl}/.netlify/functions/retell-calendar`
+
+  return [
+    {
+      type: 'custom',
+      name: 'recepta_list_employees',
+      description:
+        'List the active employees that callers may choose for an appointment. Call this when the caller asks who is available or does not know which employee to select.',
+      url,
+      method: 'POST',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    {
+      type: 'custom',
+      name: 'recepta_check_availability',
+      description:
+        'Check live Recepta calendar availability for a requested date, duration, preferred time, and optional employee. Always call this before offering appointment times.',
+      url,
+      method: 'POST',
+      parameters: {
+        type: 'object',
+        required: ['date', 'duration_minutes'],
+        properties: {
+          employee_name: {
+            type: 'string',
+            description:
+              'The employee requested by the caller. Omit only when the caller has no employee preference.',
+          },
+          date: {
+            type: 'string',
+            description:
+              'Requested local calendar date in YYYY-MM-DD format.',
+          },
+          preferred_time: {
+            type: 'string',
+            description:
+              'Optional preferred local start time in 24-hour HH:MM format.',
+          },
+          duration_minutes: {
+            type: 'integer',
+            description:
+              'Required appointment length in minutes, between 5 and 480.',
+          },
+        },
+      },
+    },
+    {
+      type: 'custom',
+      name: 'recepta_book_appointment',
+      description:
+        'Create a confirmed appointment in the live Recepta employee calendar. Use only after checking availability, collecting the required caller details, and receiving the caller’s explicit confirmation.',
+      url,
+      method: 'POST',
+      parameters: {
+        type: 'object',
+        required: [
+          'employee_name',
+          'date',
+          'time',
+          'duration_minutes',
+          'customer_name',
+          'customer_email',
+        ],
+        properties: {
+          employee_name: {
+            type: 'string',
+            description: 'Full name of the selected employee.',
+          },
+          date: {
+            type: 'string',
+            description: 'Confirmed local date in YYYY-MM-DD format.',
+          },
+          time: {
+            type: 'string',
+            description:
+              'Confirmed local start time in 24-hour HH:MM format.',
+          },
+          duration_minutes: {
+            type: 'integer',
+            description: 'Confirmed appointment duration in minutes.',
+          },
+          customer_name: {
+            type: 'string',
+            description: 'Caller’s full name, confirmed with the caller.',
+          },
+          customer_email: {
+            type: 'string',
+            description:
+              'Caller’s email address, read back and confirmed before booking.',
+          },
+          customer_phone: {
+            type: 'string',
+            description: 'Caller’s phone number when provided.',
+          },
+          customer_company: {
+            type: 'string',
+            description: 'Caller’s company when applicable.',
+          },
+          service: {
+            type: 'string',
+            description: 'Reason or service requested for the appointment.',
+          },
+          notes: {
+            type: 'string',
+            description:
+              'Short customer-approved details useful for the appointment.',
+          },
+        },
+      },
+    },
+  ]
+}
+
 const LEGACY_MANAGED_PROMPT_LINES: Record<string, string[][]> = {
   [BUSINESS_HOURS_PROMPT_MARKER]: [
     [
@@ -498,9 +634,22 @@ const formatBusinessHours = (schedule: RetellSchedule) => {
     return `The business and AI receptionist are available 24 hours a day, 7 days a week. Timezone: ${schedule.timeZone}.`
   }
 
+  const formatTime = (value: string) => {
+    const match = /^(\d{2}):(\d{2})/.exec(value)
+
+    if (!match) return value
+
+    const hour = Number(match[1])
+    const minute = match[2]
+    const displayHour = hour % 12 || 12
+    const period = hour < 12 ? 'a.m.' : 'p.m.'
+
+    return `${displayHour}:${minute} ${period}`
+  }
+
   const hours = schedule.hours.map((item) =>
     item.open
-      ? `${item.day}: ${item.start}-${item.end}`
+      ? `${item.day}: ${formatTime(item.start)} to ${formatTime(item.end)}`
       : `${item.day}: closed`
   )
 
@@ -602,6 +751,32 @@ export const syncRetellSchedule = async ({
     )
   }
 
+  const siteUrl = process.env.URL?.trim().replace(/\/$/, '')
+  const existingTools = currentLlm.general_tools ?? []
+  let generalTools = existingTools
+
+  if (siteUrl) {
+    generalPrompt = appendManagedPrompt(
+      generalPrompt,
+      APPOINTMENT_BOOKING_PROMPT_MARKER,
+      [
+        'For appointment requests, the live Recepta calendar tools are the only authoritative source for employees, availability, and completed bookings.',
+        'Ask whether the caller wants a particular employee. If not, use recepta_check_availability without an employee preference and offer the earliest suitable options.',
+        'Always call recepta_check_availability before offering a time. Never invent availability from the weekly schedule alone.',
+        'Before booking, collect and confirm the caller\'s full name, email address, selected employee, date, time, duration, and reason for the appointment.',
+        'Read the email address back for confirmation. Call recepta_book_appointment only after the caller explicitly approves the final details.',
+        'Never say an appointment is booked unless recepta_book_appointment returns success. If it fails, apologize and check availability again.',
+      ]
+    )
+    generalTools = [
+      ...existingTools.filter((tool) => {
+        const name = typeof tool.name === 'string' ? tool.name : ''
+        return !RECEPTA_CALENDAR_TOOL_NAMES.has(name)
+      }),
+      ...buildReceptaCalendarTools(siteUrl),
+    ]
+  }
+
   await retellRequest<unknown>(
     apiKey,
     `/update-retell-llm/${encodeURIComponent(
@@ -611,6 +786,7 @@ export const syncRetellSchedule = async ({
       method: 'PATCH',
       body: JSON.stringify({
         general_prompt: generalPrompt,
+        general_tools: generalTools,
         default_dynamic_variables: {
           ...(currentLlm.default_dynamic_variables ?? {}),
           recepta_schedule_mode: schedule.mode,

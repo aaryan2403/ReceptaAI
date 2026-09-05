@@ -222,7 +222,9 @@ export default function Agent() {
 
       setScheduleMode('custom')
 
-      setHoursMessage('Custom hours saved and synchronized with Retell.')
+      setHoursMessage(
+        'Store hours saved to your dashboard and synced with your assigned AI agent.'
+      )
     } catch (error) {
       setHoursMessage(
         error instanceof Error
@@ -265,7 +267,7 @@ export default function Agent() {
       setScheduleMode(result.scheduleMode)
       setScheduleModeMessage(
         result.scheduleMode === '24/7'
-          ? '24/7 availability saved and synchronized with Retell.'
+          ? '24/7 store hours saved to your dashboard and synced with your assigned AI agent.'
           : 'Custom availability selected. Set the hours below and save when finished.'
       )
     } catch (error) {
@@ -452,6 +454,13 @@ export default function Agent() {
             className="dashboardNavItem dashboardNavItemActive"
           >
             Agent
+          </a>
+
+          <a
+            href="/dashboard/requests"
+            className="dashboardNavItem"
+          >
+            Customer Requests
           </a>
 
           <a
@@ -754,7 +763,8 @@ export default function Agent() {
               <p>
                 Set your normal weekly call-answering hours.
                 Calls outside these hours will not connect to the
-                receptionist.
+                receptionist. Saving here also updates your assigned
+                AI receptionist automatically.
               </p>
 
               <div className="callsScheduleActions">
@@ -1000,8 +1010,8 @@ export default function Agent() {
               disabled={savingHours}
             >
               {savingHours
-                ? 'Saving...'
-                : 'Save Operating Hours'}
+                ? 'Saving & Syncing...'
+                : 'Save & Sync with AI Agent'}
             </button>
 
             {hoursMessage && (
@@ -1064,6 +1074,21 @@ export default function Agent() {
                   <p className="agentHoursMessage" role="status">
                     {scheduleModeMessage}
                   </p>
+                )}
+
+                {scheduleMode === '24/7' && (
+                  <div className="agentHoursActions">
+                    <button
+                      type="button"
+                      className="btn btnPrimary"
+                      disabled={savingScheduleMode}
+                      onClick={() => chooseScheduleMode('24/7')}
+                    >
+                      {savingScheduleMode
+                        ? 'Saving & Syncing...'
+                        : 'Save & Sync with AI Agent'}
+                    </button>
+                  </div>
                 )}
               </div>
 

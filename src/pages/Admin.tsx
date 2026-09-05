@@ -8,6 +8,7 @@ import type {
   FormEvent,
 } from 'react'
 import { supabase } from '../lib/supabase'
+import AdminRequestsNavItem from '../components/AdminRequestsNavItem'
 
 const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
 const MAX_MONTHLY_MINUTES = 100_000_000
@@ -1213,6 +1214,8 @@ export default function Admin() {
             >
               Clients
             </a>
+
+            <AdminRequestsNavItem />
           </nav>
         </div>
       </aside>
@@ -1557,7 +1560,9 @@ export default function Admin() {
                 />
                 <span>
                   PII Redaction — C$0.014 per
-                  selected minute
+                  selected minute. Automatically
+                  enables every supported PII
+                  category in Retell.
                 </span>
               </label>
 
@@ -1585,7 +1590,9 @@ export default function Admin() {
                 />
                 <span>
                   Safety Guardrails — C$0.007
-                  per selected minute
+                  per selected minute. Automatically
+                  enables every supported input and
+                  output guardrail in Retell.
                 </span>
               </label>
 

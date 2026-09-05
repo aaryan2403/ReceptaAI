@@ -44,8 +44,18 @@ const DEFAULT_OPERATING_HOURS: RetellOperatingDay[] = [
   end: '17:00',
 }))
 
-const formatTime = (value?: string | null) =>
-  value?.slice(0, 5) || 'time not set'
+const formatTime = (value?: string | null) => {
+  const match = /^(\d{2}):(\d{2})/.exec(value ?? '')
+
+  if (!match) return 'time not set'
+
+  const hour = Number(match[1])
+  const minute = match[2]
+  const displayHour = hour % 12 || 12
+  const period = hour < 12 ? 'a.m.' : 'p.m.'
+
+  return `${displayHour}:${minute} ${period}`
+}
 
 export const getBusinessTimeZone = (
   businessHours?: string | null
@@ -144,7 +154,7 @@ export const buildEmployeeScheduleContext = ({
 
       return `${day}: ${formatTime(
         schedule.start_time
-      )}-${formatTime(schedule.end_time)}`
+      )} to ${formatTime(schedule.end_time)}`
     })
 
     return `- ${employee.name}${

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router'
 import { supabase } from '../lib/supabase'
 import OnboardingForm from '../components/OnboardingForm'
+import AdminRequestsNavItem from '../components/AdminRequestsNavItem'
 
 type ClientStatus = 'setup' | 'testing' | 'live' | 'paused'
 
@@ -545,6 +546,8 @@ export default function AdminClient() {
             >
               Clients
             </a>
+
+            <AdminRequestsNavItem />
 
             <a
               href={`/admin/client/${client.id}`}

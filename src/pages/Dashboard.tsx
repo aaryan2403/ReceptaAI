@@ -559,6 +559,13 @@ export default function Dashboard() {
             </a>
 
             <a
+              href="/dashboard/requests"
+              className="dashboardNavItem"
+            >
+              Customer Requests
+            </a>
+
+            <a
               href="/dashboard/billing"
               className="dashboardNavItem"
             >
@@ -659,6 +666,13 @@ export default function Dashboard() {
           </a>
 
           <a
+            href="/dashboard/requests"
+            className="dashboardNavItem"
+          >
+            Customer Requests
+          </a>
+
+          <a
             href="/dashboard/billing"
             className="dashboardNavItem"
           >
@@ -714,6 +728,20 @@ export default function Dashboard() {
             {status.label}
           </div>
         </div>
+
+        <section className="dashboardRequestShortcut">
+          <div>
+            <span className="dashboardEyebrow">SUPPORT</span>
+            <h2>Need any changes?</h2>
+            <p>
+              Send a website, AI-agent, billing or general request to Recepta,
+              or book a 15-minute support call.
+            </p>
+          </div>
+          <a href="/dashboard/requests" className="btn btnPrimary">
+            Make a Request
+          </a>
+        </section>
 
         {isSubscriptionCancelled ? (
           <div className="dashboardEmptyState">

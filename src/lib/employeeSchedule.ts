@@ -1,6 +1,18 @@
 import { supabase } from './supabase'
 
-export const syncEmployeeScheduleWithRetell = async () => {
+export type EmployeeScheduleSyncPayload = {
+  employeeId: string
+  schedules: Array<{
+    dayOfWeek: number
+    isWorking: boolean
+    startTime: string | null
+    endTime: string | null
+  }>
+}
+
+export const syncEmployeeScheduleWithRetell = async (
+  payload?: EmployeeScheduleSyncPayload
+) => {
   const {
     data: { session },
   } = await supabase.auth.getSession()
@@ -15,7 +27,9 @@ export const syncEmployeeScheduleWithRetell = async () => {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${session.access_token}`,
+        ...(payload ? { 'Content-Type': 'application/json' } : {}),
       },
+      body: payload ? JSON.stringify(payload) : undefined,
     }
   )
   const body = (await response.json()) as {

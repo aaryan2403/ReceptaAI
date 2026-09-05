@@ -869,6 +869,15 @@ export default function Billing() {
 
           {!subscriptionIsPending && (
             <a
+              href="/dashboard/requests"
+              className="dashboardNavItem"
+            >
+              Customer Requests
+            </a>
+          )}
+
+          {!subscriptionIsPending && (
+            <a
               href="/dashboard/billing"
               className="dashboardNavItem dashboardNavItemActive"
             >
@@ -1883,8 +1892,9 @@ export default function Billing() {
                         </div>
 
                         <p>
-                          Redacts selected personal information from stored call
-                          transcripts and recordings.
+                          Automatically enables every supported PII category in
+                          Retell and redacts that personal information from stored
+                          call transcripts and recordings.
                         </p>
                       </button>
 
@@ -1919,8 +1929,9 @@ export default function Billing() {
                         </div>
 
                         <p>
-                          Adds protection against unsafe, harmful or inappropriate
-                          AI responses during calls.
+                          Automatically enables every supported Retell input and
+                          output guardrail for unsafe, harmful or inappropriate
+                          content during calls.
                         </p>
                       </button>
 

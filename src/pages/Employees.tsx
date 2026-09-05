@@ -308,48 +308,30 @@ export default function Employees() {
     setSavingSchedule(true)
     setMessage('')
 
-    const rows = schedules.map(
-      (schedule) => ({
-        employee_id:
-          selectedEmployeeId,
-
-        day_of_week:
-          schedule.day_of_week,
-
-        is_working:
-          schedule.is_working,
-
-        start_time:
-          schedule.is_working
+    try {
+      await syncEmployeeScheduleWithRetell({
+        employeeId: selectedEmployeeId,
+        schedules: schedules.map((schedule) => ({
+          dayOfWeek: schedule.day_of_week,
+          isWorking: schedule.is_working,
+          startTime: schedule.is_working
             ? schedule.start_time
             : null,
-
-        end_time:
-          schedule.is_working
+          endTime: schedule.is_working
             ? schedule.end_time
             : null,
-
-        updated_at:
-          new Date().toISOString(),
-      })
-    )
-
-    const { error } = await supabase
-      .from('employee_schedules')
-      .upsert(rows, {
-        onConflict:
-          'employee_id,day_of_week',
+        })),
       })
 
-    if (error) {
       setMessage(
-        'Could not save normal schedule.'
+        'Employee schedule saved to your dashboard and synced with your assigned AI agent.'
       )
-    } else {
-      await syncWithRetell('Normal weekly schedule saved.')
-
-      await loadSchedule(
-        selectedEmployeeId
+      await loadSchedule(selectedEmployeeId)
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'Could not save and synchronize the employee schedule.'
       )
     }
 
@@ -435,6 +417,13 @@ export default function Employees() {
             className="dashboardNavItem"
           >
             Agent
+          </a>
+
+          <a
+            href="/dashboard/requests"
+            className="dashboardNavItem"
+          >
+            Customer Requests
           </a>
 
           <a
@@ -662,6 +651,11 @@ export default function Employees() {
                     ? selectedEmployee.name
                     : 'Select an employee'}
                 </h2>
+
+                <p>
+                  Save changes here to update the dashboard and the
+                  assigned AI receptionist automatically.
+                </p>
               </div>
             </div>
 
@@ -824,8 +818,8 @@ export default function Employees() {
                     disabled={savingSchedule}
                   >
                     {savingSchedule
-                      ? 'Saving...'
-                      : 'Save Normal Schedule'}
+                      ? 'Saving & Syncing...'
+                      : 'Save & Sync with AI Agent'}
                   </button>
 
                   <button

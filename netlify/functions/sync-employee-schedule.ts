@@ -12,6 +12,86 @@ const json = (status: number, body: Record<string, unknown>) =>
     headers: { 'Content-Type': 'application/json' },
   })
 
+type ScheduleRow = {
+  employee_id: string
+  day_of_week: number
+  is_working: boolean
+  start_time: string | null
+  end_time: string | null
+}
+
+type ScheduleSaveBody = {
+  employeeId?: unknown
+  schedules?: unknown
+}
+
+const isTime = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)
+
+const normalizeScheduleSave = (
+  body: ScheduleSaveBody
+): { employeeId: string; schedules: ScheduleRow[] } | null => {
+  if (body.employeeId === undefined && body.schedules === undefined) {
+    return null
+  }
+
+  if (
+    typeof body.employeeId !== 'string' ||
+    !body.employeeId.trim() ||
+    !Array.isArray(body.schedules) ||
+    body.schedules.length !== 7
+  ) {
+    throw new Error('A complete seven-day employee schedule is required.')
+  }
+
+  const days = new Set<number>()
+  const schedules = body.schedules.map((item) => {
+    if (!item || typeof item !== 'object') {
+      throw new Error('The employee schedule contains an invalid day.')
+    }
+
+    const candidate = item as Record<string, unknown>
+    const dayOfWeek = candidate.dayOfWeek
+    const isWorking = candidate.isWorking
+    const startTime = candidate.startTime
+    const endTime = candidate.endTime
+
+    if (
+      !Number.isInteger(dayOfWeek) ||
+      (dayOfWeek as number) < 0 ||
+      (dayOfWeek as number) > 6 ||
+      days.has(dayOfWeek as number) ||
+      typeof isWorking !== 'boolean'
+    ) {
+      throw new Error('The employee schedule contains an invalid day.')
+    }
+
+    if (
+      isWorking &&
+      (!isTime(startTime) ||
+        !isTime(endTime) ||
+        startTime === endTime)
+    ) {
+      throw new Error(
+        'Every working day needs valid start and end times.'
+      )
+    }
+
+    days.add(dayOfWeek as number)
+
+    return {
+      employee_id: body.employeeId.trim(),
+      day_of_week: dayOfWeek as number,
+      is_working: isWorking,
+      start_time: isWorking ? (startTime as string) : null,
+      end_time: isWorking ? (endTime as string) : null,
+    }
+  })
+
+  return { employeeId: body.employeeId.trim(), schedules }
+}
+
 export default async (request: Request) => {
   if (request.method !== 'POST') {
     return json(405, { error: 'Method not allowed.' })
@@ -31,6 +111,22 @@ export default async (request: Request) => {
 
   if (!authHeader?.startsWith('Bearer ')) {
     return json(401, { error: 'Unauthorized.' })
+  }
+
+  let scheduleSave: ReturnType<typeof normalizeScheduleSave>
+
+  try {
+    const rawBody = await request.text()
+    scheduleSave = normalizeScheduleSave(
+      rawBody ? (JSON.parse(rawBody) as ScheduleSaveBody) : {}
+    )
+  } catch (error) {
+    return json(400, {
+      error:
+        error instanceof Error
+          ? error.message
+          : 'Invalid employee schedule.',
+    })
   }
 
   const supabaseAdmin = createClient(supabaseUrl, supabaseSecretKey, {
@@ -95,14 +191,76 @@ export default async (request: Request) => {
   }
 
   const employees = employeesResult.data ?? []
+
+  if (
+    scheduleSave &&
+    !employees.some(
+      (employee) => employee.id === scheduleSave.employeeId
+    )
+  ) {
+    return json(404, { error: 'Employee not found.' })
+  }
+
+  let previousSchedule: ScheduleRow[] | null = null
+
+  if (scheduleSave) {
+    const previousResult = await supabaseAdmin
+      .from('employee_schedules')
+      .select(
+        'employee_id, day_of_week, is_working, start_time, end_time'
+      )
+      .eq('employee_id', scheduleSave.employeeId)
+
+    if (previousResult.error) {
+      return json(500, {
+        error: 'Could not load the existing employee schedule.',
+      })
+    }
+
+    previousSchedule = previousResult.data ?? []
+
+    const saveResult = await supabaseAdmin
+      .from('employee_schedules')
+      .upsert(scheduleSave.schedules, {
+        onConflict: 'employee_id,day_of_week',
+      })
+
+    if (saveResult.error) {
+      return json(500, {
+        error: 'Could not save the employee schedule.',
+      })
+    }
+  }
+
+  const rollbackSchedule = async () => {
+    if (!scheduleSave || previousSchedule === null) return
+
+    const deleteResult = await supabaseAdmin
+      .from('employee_schedules')
+      .delete()
+      .eq('employee_id', scheduleSave.employeeId)
+
+    if (deleteResult.error) {
+      console.error('Employee schedule rollback delete failed:', deleteResult.error)
+      return
+    }
+
+    if (previousSchedule.length > 0) {
+      const restoreResult = await supabaseAdmin
+        .from('employee_schedules')
+        .insert(previousSchedule)
+
+      if (restoreResult.error) {
+        console.error(
+          'Employee schedule rollback restore failed:',
+          restoreResult.error
+        )
+      }
+    }
+  }
+
   const employeeIds = employees.map((employee) => employee.id)
-  let schedules: Array<{
-    employee_id: string
-    day_of_week: number
-    is_working: boolean
-    start_time: string | null
-    end_time: string | null
-  }> = []
+  let schedules: ScheduleRow[] = []
 
   if (employeeIds.length > 0) {
     const schedulesResult = await supabaseAdmin
@@ -114,6 +272,7 @@ export default async (request: Request) => {
       .order('day_of_week', { ascending: true })
 
     if (schedulesResult.error) {
+      await rollbackSchedule()
       return json(500, { error: 'Could not load employee schedules.' })
     }
 
@@ -150,13 +309,14 @@ export default async (request: Request) => {
       timeZone,
     })
   } catch (error) {
+    await rollbackSchedule()
     console.error('Retell employee schedule sync failed:', error)
 
     return json(502, {
       error:
         error instanceof Error
-          ? `Retell employee schedule sync failed: ${error.message}`
-          : 'Retell employee schedule sync failed.',
+          ? `Nothing was changed because Retell could not synchronize: ${error.message}`
+          : 'Nothing was changed because Retell could not synchronize.',
     })
   }
 }

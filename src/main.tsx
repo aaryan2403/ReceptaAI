@@ -12,9 +12,11 @@ import Employees from './pages/Employees.tsx'
 import Agent from './pages/Agent.tsx'
 import Billing from './pages/Billing.tsx'
 import Settings from './pages/Settings.tsx'
+import CustomerRequests from './pages/CustomerRequests.tsx'
 import ResetPassword from './pages/ResetPassword.tsx'
 import Admin from './pages/Admin.tsx'
 import AdminClient from './pages/AdminClient.tsx'
+import AdminRequests from './pages/AdminRequests.tsx'
 
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import AdminRoute from './components/AdminRoute.tsx'
@@ -124,6 +126,17 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
+        {/* Customer support requests stay reachable for every
+            logged-in Standard or Pro customer. */}
+        <Route
+          path="/dashboard/requests"
+          element={
+            <ProtectedRoute>
+              <CustomerRequests />
+            </ProtectedRoute>
+          }
+        />
+
         {/* =====================================================
             RECEPTA ADMIN
            ===================================================== */}
@@ -142,6 +155,15 @@ createRoot(document.getElementById('root')!).render(
           element={
             <AdminRoute>
               <AdminClient />
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path="/admin/requests"
+          element={
+            <AdminRoute>
+              <AdminRequests />
             </AdminRoute>
           }
         />
