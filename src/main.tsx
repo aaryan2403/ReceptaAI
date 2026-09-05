@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard.tsx'
 import Calls from './pages/Calls.tsx'
 import Appointments from './pages/Appointments.tsx'
 import Employees from './pages/Employees.tsx'
+import EmployeeHours from './pages/EmployeeHours.tsx'
 import Agent from './pages/Agent.tsx'
 import Billing from './pages/Billing.tsx'
 import Settings from './pages/Settings.tsx'
@@ -87,6 +88,17 @@ createRoot(document.getElementById('root')!).render(
             <ProtectedRoute>
               <ActiveSubscriptionRoute>
                 <Employees />
+              </ActiveSubscriptionRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/dashboard/employee-hours"
+          element={
+            <ProtectedRoute>
+              <ActiveSubscriptionRoute>
+                <EmployeeHours />
               </ActiveSubscriptionRoute>
             </ProtectedRoute>
           }
