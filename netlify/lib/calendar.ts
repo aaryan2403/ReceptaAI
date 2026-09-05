@@ -260,12 +260,24 @@ export const getClientCalendar = async ({
   supabase,
   clientId,
   date,
+  endDate,
 }: {
   supabase: SupabaseClient
   clientId: string
   date: string
+  endDate?: string
 }) => {
   const calendarDate = normalizeCalendarDate(date)
+  const calendarEndDate = normalizeCalendarDate(endDate ?? date)
+  const startTimestamp = Date.parse(`${calendarDate}T00:00:00Z`)
+  const endTimestamp = Date.parse(`${calendarEndDate}T00:00:00Z`)
+  const rangeDays = Math.round(
+    (endTimestamp - startTimestamp) / (24 * 60 * 60 * 1000)
+  )
+
+  if (rangeDays < 0 || rangeDays > 41) {
+    throw new Error('Calendar ranges must contain between 1 and 42 days.')
+  }
   const [agentResult, employeeResult, clientResult] = await Promise.all([
     supabase
       .from('agents')
@@ -297,7 +309,7 @@ export const getClientCalendar = async ({
     schedule.timeZone
   )
   const dayEnd = localDateTimeToUtc(
-    addDays(calendarDate, 1),
+    addDays(calendarEndDate, 1),
     '00:00',
     schedule.timeZone
   )
@@ -355,6 +367,7 @@ export const getClientCalendar = async ({
 
   return {
     date: calendarDate,
+    endDate: calendarEndDate,
     timeZone: schedule.timeZone,
     businessSchedule: schedule,
     business: clientResult.data,

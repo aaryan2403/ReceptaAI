@@ -90,7 +90,10 @@ export default async (request: Request) => {
   if (request.method === 'GET') {
     const url = new URL(request.url)
     const date =
-      url.searchParams.get('date') || new Date().toISOString().slice(0, 10)
+      url.searchParams.get('start') ||
+      url.searchParams.get('date') ||
+      new Date().toISOString().slice(0, 10)
+    const endDate = url.searchParams.get('end') || undefined
 
     try {
       const [calendar, contactsResult] = await Promise.all([
@@ -98,6 +101,7 @@ export default async (request: Request) => {
           supabase: supabaseAdmin,
           clientId: user.id,
           date,
+          endDate,
         }),
         supabaseAdmin
           .from('appointment_customer_contacts')
@@ -156,6 +160,54 @@ export default async (request: Request) => {
 
   if (request.method === 'PATCH') {
     const id = text(body.id, 100, true)!
+    const action = text(body.action, 30) || 'status'
+
+    if (action === 'details') {
+      try {
+        const customerName = text(body.customerName, 160, true)!
+        const customerEmail = text(body.customerEmail, 320)
+        const customerPhone = text(body.customerPhone, 60)
+        const companyName = text(body.companyName, 200)
+        const service = text(body.service, 240)
+        const notes = text(body.notes, 2000)
+        const internalNotes = text(body.internalNotes, 4000)
+
+        const { data, error } = await supabaseAdmin
+          .from('appointments')
+          .update({
+            customer_name: customerName,
+            customer_email: customerEmail,
+            customer_phone: customerPhone,
+            company_name: companyName,
+            service,
+            notes,
+            internal_notes: internalNotes,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', id)
+          .eq('client_id', user.id)
+          .select(
+            'id, employee_id, customer_name, customer_phone, customer_email, company_name, service, notes, internal_notes, appointment_time, appointment_end_time, duration_minutes, status, source'
+          )
+          .single()
+
+        if (error || !data) {
+          return json(400, {
+            error: error?.message || 'Could not update the appointment.',
+          })
+        }
+
+        return json(200, { appointment: data })
+      } catch (error) {
+        return json(400, {
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Could not update the appointment.',
+        })
+      }
+    }
+
     const status = text(body.status, 20, true)
 
     if (!['booked', 'completed', 'cancelled'].includes(status || '')) {

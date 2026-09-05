@@ -91,6 +91,30 @@ const getLocalDate = () => {
   return `${year}-${month}-${day}`
 }
 
+const parseDateValue = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+const formatDateValue = (date: Date) =>
+  [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
+
+const buildMonthGrid = (monthValue: string) => {
+  const monthStart = parseDateValue(monthValue)
+  const gridStart = new Date(monthStart)
+  gridStart.setDate(gridStart.getDate() - gridStart.getDay())
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart)
+    date.setDate(gridStart.getDate() + index)
+    return formatDateValue(date)
+  })
+}
+
 const INITIAL_FORM: FormState = {
   kind: 'appointment',
   employeeId: '',
@@ -110,6 +134,9 @@ const INITIAL_FORM: FormState = {
 
 export default function Appointments() {
   const [selectedDate, setSelectedDate] = useState(getLocalDate)
+  const [visibleMonth, setVisibleMonth] = useState(
+    () => `${getLocalDate().slice(0, 7)}-01`
+  )
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('')
   const [employees, setEmployees] = useState<Employee[]>([])
   const [appointments, setAppointments] = useState<Appointment[]>([])
@@ -129,6 +156,9 @@ export default function Appointments() {
   const [saving, setSaving] = useState(false)
   const [savingContact, setSavingContact] = useState(false)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [editingAppointmentId, setEditingAppointmentId] = useState<
+    string | null
+  >(null)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -164,13 +194,19 @@ export default function Appointments() {
     []
   )
 
+  const monthDays = useMemo(() => buildMonthGrid(visibleMonth), [visibleMonth])
+  const rangeStart = monthDays[0]
+  const rangeEnd = monthDays[monthDays.length - 1]
+
   const loadCalendar = useCallback(async () => {
     setLoading(true)
     setError('')
 
     try {
       const body = await requestCalendar(
-        `/.netlify/functions/calendar?date=${encodeURIComponent(selectedDate)}`
+        `/.netlify/functions/calendar?start=${encodeURIComponent(
+          rangeStart
+        )}&end=${encodeURIComponent(rangeEnd)}`
       )
       const calendar = body.calendar
 
@@ -190,7 +226,7 @@ export default function Appointments() {
       setSelectedEmployeeId((current) =>
         activeEmployees.some((employee) => employee.id === current)
           ? current
-          : firstEmployeeId
+          : ''
       )
       setForm((current) => ({
         ...current,
@@ -209,7 +245,7 @@ export default function Appointments() {
     } finally {
       setLoading(false)
     }
-  }, [requestCalendar, selectedDate])
+  }, [rangeEnd, rangeStart, requestCalendar])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -223,22 +259,110 @@ export default function Appointments() {
     () => new Map(employees.map((employee) => [employee.id, employee])),
     [employees]
   )
+
+  const calendarDateFor = useCallback(
+    (value: string) => {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(new Date(value))
+      const part = (type: string) =>
+        parts.find((item) => item.type === type)?.value || ''
+
+      return `${part('year')}-${part('month')}-${part('day')}`
+    },
+    [timeZone]
+  )
+  const calendarTimeFor = useCallback(
+    (value: string) => {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      }).formatToParts(new Date(value))
+      const part = (type: string) =>
+        parts.find((item) => item.type === type)?.value || '00'
+
+      return `${part('hour')}:${part('minute')}`
+    },
+    [timeZone]
+  )
+
   const filteredAppointments = useMemo(
     () =>
       appointments.filter(
         (appointment) =>
-          !selectedEmployeeId || appointment.employee_id === selectedEmployeeId
+          calendarDateFor(appointment.appointment_time) === selectedDate &&
+          (!selectedEmployeeId ||
+            appointment.employee_id === selectedEmployeeId)
       ),
-    [appointments, selectedEmployeeId]
+    [appointments, calendarDateFor, selectedDate, selectedEmployeeId]
   )
   const filteredBlocks = useMemo(
     () =>
       blocks.filter(
         (block) =>
-          !selectedEmployeeId || block.employee_id === selectedEmployeeId
+          calendarDateFor(block.starts_at) === selectedDate &&
+          (!selectedEmployeeId || block.employee_id === selectedEmployeeId)
       ),
-    [blocks, selectedEmployeeId]
+    [blocks, calendarDateFor, selectedDate, selectedEmployeeId]
   )
+
+  const calendarEntries = useMemo(() => {
+    const entries = new Map<
+      string,
+      Array<{
+        id: string
+        employeeName: string
+        label: string
+        time: string
+        kind: 'appointment' | 'block'
+      }>
+    >()
+    const add = (
+      date: string,
+      entry: {
+        id: string
+        employeeName: string
+        label: string
+        time: string
+        kind: 'appointment' | 'block'
+      }
+    ) => entries.set(date, [...(entries.get(date) ?? []), entry])
+
+    appointments.forEach((appointment) => {
+      const employee = appointment.employee_id
+        ? employeeById.get(appointment.employee_id)
+        : null
+      add(calendarDateFor(appointment.appointment_time), {
+        id: appointment.id,
+        employeeName: employee?.name || 'Unassigned',
+        label: appointment.customer_name || appointment.service || 'Appointment',
+        time: calendarTimeFor(appointment.appointment_time),
+        kind: 'appointment',
+      })
+    })
+
+    blocks.forEach((block) => {
+      add(calendarDateFor(block.starts_at), {
+        id: block.id,
+        employeeName:
+          employeeById.get(block.employee_id)?.name || 'Unassigned',
+        label: block.title,
+        time: calendarTimeFor(block.starts_at),
+        kind: 'block',
+      })
+    })
+
+    entries.forEach((items) =>
+      items.sort((left, right) => left.time.localeCompare(right.time))
+    )
+
+    return entries
+  }, [appointments, blocks, calendarDateFor, calendarTimeFor, employeeById])
   const agenda = useMemo(() => {
     const appointmentItems = filteredAppointments.map((appointment) => ({
       id: appointment.id,
@@ -265,6 +389,60 @@ export default function Appointments() {
     setForm((current) => ({ ...current, [key]: value }))
   }
 
+  const moveMonth = (amount: number) => {
+    const month = parseDateValue(visibleMonth)
+    month.setMonth(month.getMonth() + amount, 1)
+    const nextMonth = formatDateValue(month)
+    setVisibleMonth(nextMonth)
+    setSelectedDate(nextMonth)
+  }
+
+  const showToday = () => {
+    const today = getLocalDate()
+    setVisibleMonth(`${today.slice(0, 7)}-01`)
+    setSelectedDate(today)
+  }
+
+  const openCreateAppointment = (date = selectedDate) => {
+    const firstEmployee = employees.find((employee) => employee.is_active)
+    setEditingAppointmentId(null)
+    setSelectedDate(date)
+    setForm({
+      ...INITIAL_FORM,
+      employeeId: selectedEmployeeId || firstEmployee?.id || '',
+    })
+    setSavedContactId('')
+    window.setTimeout(() => {
+      document
+        .getElementById('create-appointment')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 0)
+  }
+
+  const editAppointment = (appointment: Appointment) => {
+    setEditingAppointmentId(appointment.id)
+    setSelectedDate(calendarDateFor(appointment.appointment_time))
+    setForm({
+      ...INITIAL_FORM,
+      kind: 'appointment',
+      employeeId: appointment.employee_id || '',
+      time: calendarTimeFor(appointment.appointment_time),
+      durationMinutes: String(appointment.duration_minutes || 30),
+      customerName: appointment.customer_name || '',
+      customerEmail: appointment.customer_email || '',
+      customerPhone: appointment.customer_phone || '',
+      companyName: appointment.company_name || '',
+      service: appointment.service || '',
+      notes: appointment.notes || '',
+      internalNotes: appointment.internal_notes || '',
+    })
+    window.setTimeout(() => {
+      document
+        .getElementById('create-appointment')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 0)
+  }
+
   const selectSavedContact = (contactId: string) => {
     setSavedContactId(contactId)
     const contact = contacts.find((item) => item.id === contactId)
@@ -288,6 +466,35 @@ export default function Appointments() {
     setMessage('')
 
     try {
+      if (editingAppointmentId) {
+        await requestCalendar('/.netlify/functions/calendar', {
+          method: 'PATCH',
+          body: JSON.stringify({
+            id: editingAppointmentId,
+            action: 'details',
+            customerName: form.customerName,
+            customerEmail: form.customerEmail,
+            customerPhone: form.customerPhone,
+            companyName: form.companyName,
+            service: form.service,
+            notes: form.notes,
+            internalNotes: form.internalNotes,
+          }),
+        })
+
+        setMessage(
+          'Appointment details updated. The AI receptionist now sees the updated calendar record.'
+        )
+        setEditingAppointmentId(null)
+        setForm((current) => ({
+          ...INITIAL_FORM,
+          employeeId: current.employeeId,
+        }))
+        setSavedContactId('')
+        await loadCalendar()
+        return
+      }
+
       const body = await requestCalendar('/.netlify/functions/calendar', {
         method: 'POST',
         body: JSON.stringify({
@@ -315,6 +522,7 @@ export default function Appointments() {
         employeeId: current.employeeId,
       }))
       setSavedContactId('')
+      setEditingAppointmentId(null)
       await loadCalendar()
     } catch (submitError) {
       setError(
@@ -494,9 +702,23 @@ export default function Appointments() {
             </p>
           </div>
 
-          <div className="appointmentTimeZone">
-            <span>BUSINESS TIMEZONE</span>
-            <strong>{timeZone}</strong>
+          <div className="appointmentHeaderActions">
+            <div className="appointmentTimeZone">
+              <span>BUSINESS TIMEZONE</span>
+              <strong>{timeZone}</strong>
+            </div>
+
+            <button
+              type="button"
+              className="btn btnPrimary"
+              onClick={() => openCreateAppointment()}
+            >
+              Create Appointment
+            </button>
+
+            <a href="/dashboard/employees" className="btn btnOutline">
+              Edit Employee Schedules
+            </a>
           </div>
         </div>
 
@@ -506,20 +728,153 @@ export default function Appointments() {
         <section className="appointmentDatePanel employeeCalendarPanel">
           <div className="appointmentDateHeader">
             <div>
-              <span className="appointmentSectionLabel">CALENDAR DATE</span>
-              <h2>{formatSelectedDate()}</h2>
-              <p>Select an employee to see only their bookings and blocks.</p>
+              <span className="appointmentSectionLabel">MONTH CALENDAR</span>
+              <h2>
+                {parseDateValue(visibleMonth).toLocaleDateString([], {
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </h2>
+              <p>
+                Every booking shows the assigned employee. Select a day to
+                review it, or select a booking to edit its details.
+              </p>
             </div>
 
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(event) => setSelectedDate(event.target.value)}
-              className="appointmentDatePicker"
-            />
+            <div className="appointmentMonthControls">
+              <button
+                type="button"
+                className="btn btnOutline"
+                onClick={() => moveMonth(-1)}
+                aria-label="Previous month"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                className="btn btnOutline"
+                onClick={showToday}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                className="btn btnOutline"
+                onClick={() => moveMonth(1)}
+                aria-label="Next month"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+
+          <div className="appointmentMonthCalendar">
+            <div className="appointmentMonthWeekdays" aria-hidden="true">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(
+                (day) => (
+                  <span key={day}>{day}</span>
+                )
+              )}
+            </div>
+
+            <div className="appointmentMonthGrid">
+              {monthDays.map((date) => {
+                const entries = calendarEntries.get(date) ?? []
+                const inMonth = date.slice(0, 7) === visibleMonth.slice(0, 7)
+                const isSelected = date === selectedDate
+                const isToday = date === getLocalDate()
+
+                return (
+                  <div
+                    key={date}
+                    className={[
+                      'appointmentMonthDay',
+                      !inMonth ? 'appointmentMonthDay--outside' : '',
+                      isSelected ? 'appointmentMonthDay--selected' : '',
+                      isToday ? 'appointmentMonthDay--today' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    <button
+                      type="button"
+                      className="appointmentMonthDateButton"
+                      onClick={() => setSelectedDate(date)}
+                      aria-label={`View ${date}`}
+                    >
+                      <span>{Number(date.slice(-2))}</span>
+                      {isToday && <small>Today</small>}
+                    </button>
+
+                    <div className="appointmentMonthEvents">
+                      {entries.slice(0, 3).map((entry) => (
+                        <button
+                          key={`${entry.kind}-${entry.id}`}
+                          type="button"
+                          className={`appointmentMonthEvent appointmentMonthEvent--${entry.kind}`}
+                          title={`${entry.time} · ${entry.employeeName} · ${entry.label}`}
+                          onClick={() => {
+                            setSelectedDate(date)
+
+                            if (entry.kind === 'appointment') {
+                              const appointment = appointments.find(
+                                (item) => item.id === entry.id
+                              )
+                              if (appointment) editAppointment(appointment)
+                            }
+                          }}
+                        >
+                          <span>{entry.time}</span>
+                          <strong>{entry.employeeName}</strong>
+                          <small>{entry.label}</small>
+                        </button>
+                      ))}
+
+                      {entries.length > 3 && (
+                        <button
+                          type="button"
+                          className="appointmentMonthMore"
+                          onClick={() => setSelectedDate(date)}
+                        >
+                          +{entries.length - 3} more
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="appointmentSelectedDayHeading">
+            <div>
+              <span className="appointmentSectionLabel">SELECTED DAY</span>
+              <h3>{formatSelectedDate()}</h3>
+            </div>
+
+            <button
+              type="button"
+              className="btn btnPrimary"
+              onClick={() => openCreateAppointment(selectedDate)}
+            >
+              Create Appointment
+            </button>
           </div>
 
           <div className="employeeCalendarTabs">
+            <button
+              type="button"
+              className={
+                selectedEmployeeId === ''
+                  ? 'employeeCalendarTab employeeCalendarTab--active'
+                  : 'employeeCalendarTab'
+              }
+              onClick={() => setSelectedEmployeeId('')}
+            >
+              <strong>All staff</strong>
+              <span>{employees.filter((employee) => employee.is_active).length} employees</span>
+            </button>
+
             {employees
               .filter((employee) => employee.is_active)
               .map((employee) => (
@@ -564,6 +919,7 @@ export default function Appointments() {
               {agenda.map((item) => {
                 if (item.kind === 'block') {
                   const block = item.block
+                  const blockEmployee = employeeById.get(block.employee_id)
 
                   return (
                     <article className="calendarAgendaItem calendarAgendaItem--block" key={item.id}>
@@ -572,7 +928,10 @@ export default function Appointments() {
                         <span>to {formatTime(block.ends_at)}</span>
                       </div>
                       <div className="calendarAgendaDetails">
-                        <span>BLOCKED · {block.block_type.replace('_', ' ')}</span>
+                        <span>
+                          BLOCKED · {blockEmployee?.name || 'Unassigned'} ·{' '}
+                          {block.block_type.replace('_', ' ')}
+                        </span>
                         <strong>{block.title}</strong>
                         {block.details && <p>{block.details}</p>}
                       </div>
@@ -636,21 +995,31 @@ export default function Appointments() {
                         </p>
                       )}
                     </div>
-                    <select
-                      value={appointment.status}
-                      disabled={updatingId === appointment.id}
-                      onChange={(event) =>
-                        void updateStatus(
-                          appointment.id,
-                          event.target.value as AppointmentStatus
-                        )
-                      }
-                      className={`appointmentStatusSelect appointmentStatusSelect--${appointment.status}`}
-                    >
-                      <option value="booked">Booked</option>
-                      <option value="completed">Completed</option>
-                      <option value="cancelled">Cancelled</option>
-                    </select>
+                    <div className="calendarAgendaActions">
+                      <button
+                        type="button"
+                        className="btn btnOutline"
+                        onClick={() => editAppointment(appointment)}
+                      >
+                        Edit
+                      </button>
+
+                      <select
+                        value={appointment.status}
+                        disabled={updatingId === appointment.id}
+                        onChange={(event) =>
+                          void updateStatus(
+                            appointment.id,
+                            event.target.value as AppointmentStatus
+                          )
+                        }
+                        className={`appointmentStatusSelect appointmentStatusSelect--${appointment.status}`}
+                      >
+                        <option value="booked">Booked</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </div>
                   </article>
                 )
               })}
@@ -658,23 +1027,35 @@ export default function Appointments() {
           )}
         </section>
 
-        <section className="appointmentDatePanel calendarCreatePanel">
+        <section
+          className="appointmentDatePanel calendarCreatePanel"
+          id="create-appointment"
+        >
           <div className="appointmentDateHeader">
             <div>
               <span className="appointmentSectionLabel">ADD TO CALENDAR</span>
-              <h2>Book or block a time</h2>
+              <h2>
+                {editingAppointmentId
+                  ? 'Edit appointment details'
+                  : 'Create appointment or block time'}
+              </h2>
               <p>
-                Manual bookings immediately become unavailable to the AI agent.
-                Private notes are never shared with callers.
+                {editingAppointmentId
+                  ? 'Edit the customer, company, service and note fields. The reserved employee and time remain protected.'
+                  : 'New bookings immediately become unavailable when the AI agent checks that employee’s calendar. Private notes are never shared with callers.'}
               </p>
             </div>
           </div>
 
           <form className="calendarCreateForm" onSubmit={submitCalendarItem}>
-            <div className="calendarSegmentedControl">
+            <div
+              className="calendarSegmentedControl"
+              aria-hidden={editingAppointmentId ? 'true' : undefined}
+            >
               <button
                 type="button"
                 className={form.kind === 'appointment' ? 'active' : ''}
+                disabled={Boolean(editingAppointmentId)}
                 onClick={() => updateForm('kind', 'appointment')}
               >
                 Appointment
@@ -682,6 +1063,7 @@ export default function Appointments() {
               <button
                 type="button"
                 className={form.kind === 'block' ? 'active' : ''}
+                disabled={Boolean(editingAppointmentId)}
                 onClick={() => updateForm('kind', 'block')}
               >
                 Blocked time
@@ -693,6 +1075,7 @@ export default function Appointments() {
                 <span>Employee</span>
                 <select
                   required
+                  disabled={Boolean(editingAppointmentId)}
                   value={form.employeeId}
                   onChange={(event) => updateForm('employeeId', event.target.value)}
                 >
@@ -711,8 +1094,12 @@ export default function Appointments() {
                 <input
                   type="date"
                   required
+                  disabled={Boolean(editingAppointmentId)}
                   value={selectedDate}
-                  onChange={(event) => setSelectedDate(event.target.value)}
+                  onChange={(event) => {
+                    setSelectedDate(event.target.value)
+                    setVisibleMonth(`${event.target.value.slice(0, 7)}-01`)
+                  }}
                 />
               </label>
               <label>
@@ -720,6 +1107,7 @@ export default function Appointments() {
                 <input
                   type="time"
                   required
+                  disabled={Boolean(editingAppointmentId)}
                   value={form.time}
                   onChange={(event) => updateForm('time', event.target.value)}
                 />
@@ -727,6 +1115,7 @@ export default function Appointments() {
               <label>
                 <span>Duration</span>
                 <select
+                  disabled={Boolean(editingAppointmentId)}
                   value={form.durationMinutes}
                   onChange={(event) =>
                     updateForm('durationMinutes', event.target.value)
@@ -868,17 +1257,37 @@ export default function Appointments() {
               </div>
             )}
 
-            <button
-              type="submit"
-              className="btn btnPrimary"
-              disabled={saving || !form.employeeId}
-            >
-              {saving
-                ? 'Saving...'
-                : form.kind === 'appointment'
-                  ? 'Book Appointment'
-                  : 'Block This Time'}
-            </button>
+            <div className="calendarSubmitActions">
+              <button
+                type="submit"
+                className="btn btnPrimary"
+                disabled={saving || !form.employeeId}
+              >
+                {saving
+                  ? 'Saving...'
+                  : editingAppointmentId
+                    ? 'Save Appointment Changes'
+                    : form.kind === 'appointment'
+                      ? 'Create Appointment'
+                      : 'Block This Time'}
+              </button>
+
+              {editingAppointmentId && (
+                <button
+                  type="button"
+                  className="btn btnOutline"
+                  onClick={() => {
+                    setEditingAppointmentId(null)
+                    setForm((current) => ({
+                      ...INITIAL_FORM,
+                      employeeId: current.employeeId,
+                    }))
+                  }}
+                >
+                  Cancel Editing
+                </button>
+              )}
+            </div>
           </form>
         </section>
 
