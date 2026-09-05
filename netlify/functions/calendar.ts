@@ -96,26 +96,14 @@ export default async (request: Request) => {
     const endDate = url.searchParams.get('end') || undefined
 
     try {
-      const [calendar, contactsResult] = await Promise.all([
-        getClientCalendar({
-          supabase: supabaseAdmin,
-          clientId: user.id,
-          date,
-          endDate,
-        }),
-        supabaseAdmin
-          .from('appointment_customer_contacts')
-          .select('id, name, email, phone, company_name, notes, created_at')
-          .eq('client_id', user.id)
-          .order('name', { ascending: true }),
-      ])
-
-      if (contactsResult.error) throw contactsResult.error
-
-      return json(200, {
-        calendar,
-        contacts: contactsResult.data ?? [],
+      const calendar = await getClientCalendar({
+        supabase: supabaseAdmin,
+        clientId: user.id,
+        date,
+        endDate,
       })
+
+      return json(200, { calendar })
     } catch (error) {
       return json(400, {
         error:
@@ -131,16 +119,12 @@ export default async (request: Request) => {
     const kind = url.searchParams.get('kind')
     const id = url.searchParams.get('id')?.trim()
 
-    if (!id || !['block', 'contact'].includes(kind || '')) {
+    if (!id || kind !== 'block') {
       return json(400, { error: 'Choose an item to delete.' })
     }
 
-    const table =
-      kind === 'block'
-        ? 'employee_calendar_blocks'
-        : 'appointment_customer_contacts'
     const { error } = await supabaseAdmin
-      .from(table)
+      .from('employee_calendar_blocks')
       .delete()
       .eq('id', id)
       .eq('client_id', user.id)
@@ -237,47 +221,6 @@ export default async (request: Request) => {
   }
 
   const kind = text(body.kind, 30, true)
-
-  if (kind === 'contact') {
-    try {
-      const name = text(body.name, 160, true)!
-      const email = text(body.email, 320)
-      const phone = text(body.phone, 60)
-      const companyName = text(body.companyName, 200)
-      const notes = text(body.notes, 2000)
-
-      if (!email && !phone) {
-        return json(400, {
-          error: 'Add an email address or phone number for the saved client.',
-        })
-      }
-
-      const { data, error } = await supabaseAdmin
-        .from('appointment_customer_contacts')
-        .insert({
-          client_id: user.id,
-          name,
-          email,
-          phone,
-          company_name: companyName,
-          notes,
-        })
-        .select('id, name, email, phone, company_name, notes, created_at')
-        .single()
-
-      if (error || !data) {
-        return json(400, {
-          error: error?.message || 'Could not save the client.',
-        })
-      }
-
-      return json(201, { contact: data })
-    } catch (error) {
-      return json(400, {
-        error: error instanceof Error ? error.message : 'Invalid client details.',
-      })
-    }
-  }
 
   const employeeId = text(body.employeeId, 100, true)!
   let date: string

@@ -38,16 +38,6 @@ type CalendarBlock = {
   ends_at: string
 }
 
-type SavedContact = {
-  id: string
-  name: string
-  email: string | null
-  phone: string | null
-  company_name: string | null
-  notes: string | null
-  created_at: string
-}
-
 type CalendarResponse = {
   calendar?: {
     date: string
@@ -56,10 +46,8 @@ type CalendarResponse = {
     appointments: Appointment[]
     blocks: CalendarBlock[]
   }
-  contacts?: SavedContact[]
   appointment?: Appointment
   block?: CalendarBlock
-  contact?: SavedContact
   confirmationEmailSent?: boolean
   confirmationWarning?: string | null
   error?: string
@@ -141,20 +129,10 @@ export default function EmployeeCalendar() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [blocks, setBlocks] = useState<CalendarBlock[]>([])
-  const [contacts, setContacts] = useState<SavedContact[]>([])
   const [timeZone, setTimeZone] = useState('America/Toronto')
   const [form, setForm] = useState<FormState>(INITIAL_FORM)
-  const [savedContactId, setSavedContactId] = useState('')
-  const [contactForm, setContactForm] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    companyName: '',
-    notes: '',
-  })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [savingContact, setSavingContact] = useState(false)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [editingAppointmentId, setEditingAppointmentId] = useState<
     string | null
@@ -215,7 +193,6 @@ export default function EmployeeCalendar() {
       setEmployees(calendar.employees)
       setAppointments(calendar.appointments)
       setBlocks(calendar.blocks)
-      setContacts(body.contacts ?? [])
       setTimeZone(calendar.timeZone)
 
       const activeEmployees = calendar.employees.filter(
@@ -411,7 +388,6 @@ export default function EmployeeCalendar() {
       ...INITIAL_FORM,
       employeeId: selectedEmployeeId || firstEmployee?.id || '',
     })
-    setSavedContactId('')
     window.setTimeout(() => {
       document
         .getElementById('create-appointment')
@@ -441,22 +417,6 @@ export default function EmployeeCalendar() {
         .getElementById('create-appointment')
         ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }, 0)
-  }
-
-  const selectSavedContact = (contactId: string) => {
-    setSavedContactId(contactId)
-    const contact = contacts.find((item) => item.id === contactId)
-
-    if (!contact) return
-
-    setForm((current) => ({
-      ...current,
-      customerName: contact.name,
-      customerEmail: contact.email || '',
-      customerPhone: contact.phone || '',
-      companyName: contact.company_name || '',
-      notes: contact.notes || current.notes,
-    }))
   }
 
   const submitCalendarItem = async (event: React.FormEvent) => {
@@ -490,7 +450,6 @@ export default function EmployeeCalendar() {
           ...INITIAL_FORM,
           employeeId: current.employeeId,
         }))
-        setSavedContactId('')
         await loadCalendar()
         return
       }
@@ -521,7 +480,6 @@ export default function EmployeeCalendar() {
         kind: current.kind,
         employeeId: current.employeeId,
       }))
-      setSavedContactId('')
       setEditingAppointmentId(null)
       await loadCalendar()
     } catch (submitError) {
@@ -566,69 +524,24 @@ export default function EmployeeCalendar() {
     }
   }
 
-  const deleteItem = async (kind: 'block' | 'contact', id: string) => {
-    const label = kind === 'block' ? 'blocked time' : 'saved client'
-
-    if (!window.confirm(`Delete this ${label}?`)) return
+  const deleteBlock = async (id: string) => {
+    if (!window.confirm('Delete this blocked time?')) return
 
     setError('')
 
     try {
       await requestCalendar(
-        `/.netlify/functions/calendar?kind=${kind}&id=${encodeURIComponent(id)}`,
+        `/.netlify/functions/calendar?kind=block&id=${encodeURIComponent(id)}`,
         { method: 'DELETE' }
       )
 
-      if (kind === 'block') {
-        setBlocks((current) => current.filter((block) => block.id !== id))
-      } else {
-        setContacts((current) => current.filter((contact) => contact.id !== id))
-        if (savedContactId === id) setSavedContactId('')
-      }
+      setBlocks((current) => current.filter((block) => block.id !== id))
     } catch (deleteError) {
       setError(
         deleteError instanceof Error
           ? deleteError.message
-          : `Could not delete the ${label}.`
+          : 'Could not delete the blocked time.'
       )
-    }
-  }
-
-  const saveContact = async (event: React.FormEvent) => {
-    event.preventDefault()
-    setSavingContact(true)
-    setError('')
-
-    try {
-      const body = await requestCalendar('/.netlify/functions/calendar', {
-        method: 'POST',
-        body: JSON.stringify({ kind: 'contact', ...contactForm }),
-      })
-
-      if (body.contact) {
-        setContacts((current) =>
-          [...current, body.contact!].sort((left, right) =>
-            left.name.localeCompare(right.name)
-          )
-        )
-      }
-
-      setContactForm({
-        name: '',
-        email: '',
-        phone: '',
-        companyName: '',
-        notes: '',
-      })
-      setMessage('Client saved to the optional appointment list.')
-    } catch (contactError) {
-      setError(
-        contactError instanceof Error
-          ? contactError.message
-          : 'Could not save the client.'
-      )
-    } finally {
-      setSavingContact(false)
     }
   }
 
@@ -938,7 +851,7 @@ export default function EmployeeCalendar() {
                       <button
                         type="button"
                         className="calendarDeleteButton"
-                        onClick={() => void deleteItem('block', block.id)}
+                        onClick={() => void deleteBlock(block.id)}
                       >
                         Delete
                       </button>
@@ -1132,21 +1045,6 @@ export default function EmployeeCalendar() {
 
             {form.kind === 'appointment' ? (
               <>
-                <label className="calendarFullField">
-                  <span>Saved client (optional)</span>
-                  <select
-                    value={savedContactId}
-                    onChange={(event) => selectSavedContact(event.target.value)}
-                  >
-                    <option value="">Enter details manually</option>
-                    {contacts.map((contact) => (
-                      <option key={contact.id} value={contact.id}>
-                        {contact.name}
-                        {contact.company_name ? ` — ${contact.company_name}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
                 <div className="calendarFormGrid">
                   <label>
                     <span>Customer name *</span>
@@ -1291,135 +1189,7 @@ export default function EmployeeCalendar() {
           </form>
         </section>
 
-        <section className="appointmentDatePanel savedClientsPanel">
-          <div className="appointmentDateHeader">
-            <div>
-              <span className="appointmentSectionLabel">OPTIONAL CLIENT LIST</span>
-              <h2>Saved appointment clients</h2>
-              <p>
-                Save frequent clients to prefill bookings. Appointments do not
-                require this list, and deleting a client will not delete history.
-              </p>
-            </div>
-            <span className="appointmentCount">{contacts.length}</span>
-          </div>
-
-          <form className="savedContactForm" onSubmit={saveContact}>
-            <div className="calendarFormGrid">
-              <label>
-                <span>Name *</span>
-                <input
-                  required
-                  value={contactForm.name}
-                  onChange={(event) =>
-                    setContactForm((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
-                  placeholder="Customer name"
-                />
-              </label>
-              <label>
-                <span>Email</span>
-                <input
-                  type="email"
-                  value={contactForm.email}
-                  onChange={(event) =>
-                    setContactForm((current) => ({
-                      ...current,
-                      email: event.target.value,
-                    }))
-                  }
-                  placeholder="customer@example.com"
-                />
-              </label>
-              <label>
-                <span>Phone</span>
-                <input
-                  value={contactForm.phone}
-                  onChange={(event) =>
-                    setContactForm((current) => ({
-                      ...current,
-                      phone: event.target.value,
-                    }))
-                  }
-                  placeholder="+1 416..."
-                />
-              </label>
-              <label>
-                <span>Company</span>
-                <input
-                  value={contactForm.companyName}
-                  onChange={(event) =>
-                    setContactForm((current) => ({
-                      ...current,
-                      companyName: event.target.value,
-                    }))
-                  }
-                  placeholder="Optional"
-                />
-              </label>
-            </div>
-            <label className="calendarFullField">
-              <span>Notes</span>
-              <input
-                value={contactForm.notes}
-                onChange={(event) =>
-                  setContactForm((current) => ({
-                    ...current,
-                    notes: event.target.value,
-                  }))
-                }
-                placeholder="Optional preferences or details"
-              />
-            </label>
-            <button
-              type="submit"
-              className="btn btnOutline"
-              disabled={savingContact}
-            >
-              {savingContact ? 'Saving...' : 'Add to Client List'}
-            </button>
-          </form>
-
-          {contacts.length > 0 && (
-            <div className="savedContactList">
-              {contacts.map((contact) => (
-                <article key={contact.id} className="savedContactCard">
-                  <div>
-                    <strong>{contact.name}</strong>
-                    <span>{contact.company_name || 'Individual client'}</span>
-                    <p>
-                      {[contact.email, contact.phone].filter(Boolean).join(' · ')}
-                    </p>
-                  </div>
-                  <div className="savedContactActions">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        selectSavedContact(contact.id)
-                        updateForm('kind', 'appointment')
-                        window.scrollTo({ top: 650, behavior: 'smooth' })
-                      }}
-                    >
-                      Use
-                    </button>
-                    <button
-                      type="button"
-                      className="calendarDeleteButton"
-                      onClick={() => void deleteItem('contact', contact.id)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
       </section>
     </main>
   )
 }
-
