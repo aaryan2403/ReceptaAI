@@ -20,12 +20,6 @@ const json = (
     },
   })
 
-const addOneMonth = (date: Date) => {
-  const result = new Date(date)
-  result.setUTCMonth(result.getUTCMonth() + 1)
-  return result
-}
-
 type OperatingDay = {
   day: string
   open: boolean
@@ -347,7 +341,7 @@ export default async (request: Request) => {
   } = await supabaseAdmin
     .from('subscriptions')
     .select(
-      'status, monthly_minutes, current_period_start, current_period_end'
+      'status, monthly_minutes, rollover_seconds, current_period_start, current_period_end'
     )
     .eq('client_id', agent.client_id)
     .maybeSingle()
@@ -421,18 +415,18 @@ export default async (request: Request) => {
   }
 
   const now = new Date()
-  let periodStart =
+  const periodStart =
     subscription.current_period_start
       ? new Date(
           subscription.current_period_start
         )
-      : now
-  let periodEnd =
+      : new Date(Number.NaN)
+  const periodEnd =
     subscription.current_period_end
       ? new Date(
           subscription.current_period_end
         )
-      : addOneMonth(periodStart)
+      : new Date(Number.NaN)
 
   const periodExpired =
     !Number.isFinite(periodEnd.getTime()) ||
@@ -442,57 +436,63 @@ export default async (request: Request) => {
     !Number.isFinite(periodStart.getTime()) ||
     periodExpired
   ) {
-    periodStart = now
-    periodEnd = addOneMonth(now)
-
-    const { error: periodUpdateError } =
-      await supabaseAdmin
-        .from('subscriptions')
-        .update({
-          current_period_start:
-            periodStart.toISOString(),
-          current_period_end:
-            periodEnd.toISOString(),
-          next_billing_date:
-            periodEnd.toISOString(),
-        })
-        .eq('client_id', agent.client_id)
-
-    if (periodUpdateError) {
-      return json(500, {
-        error: 'Could not start billing period.',
-      })
-    }
-
-    await Promise.all([
+    const [subscriptionPause, clientPause, agentPause] =
+      await Promise.all([
+        supabaseAdmin
+          .from('subscriptions')
+          .update({ status: 'past_due' })
+          .eq('client_id', agent.client_id),
       supabaseAdmin
         .from('clients')
-        .update({ status: 'live' })
+        .update({ status: 'paused' })
         .eq('id', agent.client_id),
       supabaseAdmin
         .from('agents')
-        .update({ status: 'live' })
+        .update({ status: 'paused' })
         .eq('client_id', agent.client_id),
-    ])
+      ])
+
+    if (
+      subscriptionPause.error ||
+      clientPause.error ||
+      agentPause.error
+    ) {
+      return json(500, {
+        error: 'Could not enforce the paid billing period.',
+      })
+    }
 
     try {
       await syncRetellPhoneBinding({
         apiKey: retellApiKey,
         agentId: agent.retell_agent_id,
         phoneNumber: toNumber ?? agent.phone_number,
-        active: true,
+        active: false,
       })
     } catch (error) {
       console.error(
-        'Could not restore Retell phone binding:',
+        'Could not pause the expired Retell phone binding:',
         error
       )
     }
+
+    return json(200, {
+      call_inbound: {
+        reject: true,
+      },
+    })
   }
 
   const monthlyMinutes = Number(
     subscription.monthly_minutes
   )
+  const rolloverSeconds = Math.max(
+    0,
+    Number(subscription.rollover_seconds ?? 0) || 0
+  )
+  const availableSeconds =
+    Math.floor(monthlyMinutes) * 60 +
+    Math.floor(rolloverSeconds)
 
   if (
     !Number.isFinite(monthlyMinutes) ||
@@ -513,7 +513,7 @@ export default async (request: Request) => {
     {
       p_client_id: agent.client_id,
       p_monthly_seconds:
-        Math.floor(monthlyMinutes) * 60,
+        availableSeconds,
       p_period_start:
         periodStart.toISOString(),
     }

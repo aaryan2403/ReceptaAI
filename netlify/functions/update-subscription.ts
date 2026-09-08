@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import {
-  releaseRetellPhoneNumber,
   syncRetellSubscription,
 } from '../lib/retell'
 import { calculateMonthlyPriceCad } from '../lib/pricing'
@@ -90,14 +89,11 @@ export default async (request: Request) => {
     const { action, aiModelId } =
       await request.json()
 
-    if (
-      action !== 'cancel' &&
-      action !== 'change_model'
-    ) {
+    if (action !== 'change_model') {
       return new Response(
         JSON.stringify({
           error:
-            'Unsupported subscription action.',
+            'Customers cannot cancel or delete subscriptions from the dashboard.',
         }),
         {
           status: 403,
@@ -624,205 +620,12 @@ export default async (request: Request) => {
       )
     }
 
-    if (
-      subscription.status ===
-      'cancelled'
-    ) {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          status: 'cancelled',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
-    if (
-      subscription.stripe_subscription_id &&
-      stripeSecretKey
-    ) {
-      const stripe =
-        new Stripe(stripeSecretKey)
-
-      await stripe.subscriptions.cancel(
-        subscription.stripe_subscription_id
-      )
-    }
-
-    const { error: cancelError } =
-      await supabaseAdmin
-        .from('subscriptions')
-        .update({
-          status: 'cancelled',
-        })
-        .eq('client_id', user.id)
-
-    if (cancelError) {
-      return new Response(
-        JSON.stringify({
-          error: cancelError.message,
-        }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
-    const [agentPause, clientPause] =
-      await Promise.all([
-        supabaseAdmin
-          .from('agents')
-          .update({
-            status: 'paused',
-          })
-          .eq('client_id', user.id),
-        supabaseAdmin
-          .from('clients')
-          .update({
-            status: 'paused',
-          })
-          .eq('id', user.id),
-      ])
-
-    if (agentPause.error) {
-      throw agentPause.error
-    }
-
-    if (clientPause.error) {
-      throw clientPause.error
-    }
-
-    const { data: assignedAgent } =
-      await supabaseAdmin
-        .from('agents')
-        .select(
-          'retell_agent_id, phone_number'
-        )
-        .eq('client_id', user.id)
-        .maybeSingle()
-
-    const { data: phoneRows, error: phoneRowsError } =
-      await supabaseAdmin
-        .from('agent_phone_numbers')
-        .select('phone_number, source')
-        .eq('client_id', user.id)
-        .order('is_primary', { ascending: false })
-        .order('created_at', { ascending: true })
-
-    if (phoneRowsError) {
-      throw phoneRowsError
-    }
-
-    const phoneNumbers = (phoneRows ?? []).map(
-      (row) => row.phone_number
-    )
-
-    if (
-      phoneNumbers.length === 0 &&
-      assignedAgent?.phone_number
-    ) {
-      phoneNumbers.push(assignedAgent.phone_number)
-    }
-
-    let retellSyncWarning: string | null = null
-
-    if (assignedAgent?.retell_agent_id) {
-      if (!retellApiKey) {
-        retellSyncWarning =
-          'RETELL_API_KEY is missing.'
-      } else {
-        try {
-          await syncRetellSubscription({
-            apiKey: retellApiKey,
-            agentId:
-              assignedAgent.retell_agent_id,
-            phoneNumber:
-              assignedAgent.phone_number,
-            phoneNumbers,
-            active: false,
-            piiRedactionEnabled: false,
-            safetyGuardrailsEnabled: false,
-          })
-        } catch (error) {
-          retellSyncWarning =
-            error instanceof Error
-              ? error.message
-              : 'Retell cancellation sync failed.'
-
-          console.error(
-            'Retell cancellation sync error:',
-            error
-          )
-        }
-      }
-    }
-
-    if (
-      !subscription.stripe_subscription_id &&
-      retellApiKey
-    ) {
-      const purchasedRows = (phoneRows ?? []).filter(
-        (row) => row.source === 'retell'
-      )
-
-      for (const row of purchasedRows) {
-        try {
-          await releaseRetellPhoneNumber({
-            apiKey: retellApiKey,
-            phoneNumber: row.phone_number,
-          })
-
-          const { error: deleteNumberError } = await supabaseAdmin
-            .from('agent_phone_numbers')
-            .delete()
-            .eq('client_id', user.id)
-            .eq('phone_number', row.phone_number)
-
-          if (deleteNumberError) throw deleteNumberError
-        } catch (error) {
-          retellSyncWarning =
-            error instanceof Error
-              ? `Retell number release failed: ${error.message}`
-              : 'Retell number release failed.'
-          console.error('Retell number release error:', error)
-          break
-        }
-      }
-
-      const remainingNumbers = (phoneRows ?? [])
-        .filter((row) => row.source !== 'retell')
-        .map((row) => row.phone_number)
-
-      if (remainingNumbers[0]) {
-        const { error: primaryRowError } = await supabaseAdmin
-          .from('agent_phone_numbers')
-          .update({ is_primary: true })
-          .eq('client_id', user.id)
-          .eq('phone_number', remainingNumbers[0])
-
-        if (primaryRowError) throw primaryRowError
-      }
-
-      const { error: primaryPhoneError } = await supabaseAdmin
-        .from('agents')
-        .update({ phone_number: remainingNumbers[0] ?? null })
-        .eq('client_id', user.id)
-
-      if (primaryPhoneError) throw primaryPhoneError
-    }
-
     return new Response(
       JSON.stringify({
-        success: true,
-        status: 'cancelled',
-        retellSyncWarning,
+        error: 'Unsupported subscription action.',
       }),
       {
-        status: 200,
+        status: 403,
         headers: { 'Content-Type': 'application/json' },
       }
     )

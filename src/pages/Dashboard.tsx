@@ -14,6 +14,7 @@ type Subscription = {
   plan_name: string | null
   monthly_price: number | null
   monthly_minutes: number | null
+  rollover_seconds: number
   current_period_start: string | null
   current_period_end: string | null
   status: string | null
@@ -219,7 +220,7 @@ export default function Dashboard() {
         supabase
           .from('subscriptions')
           .select(
-            'plan_name, monthly_price, monthly_minutes, current_period_start, current_period_end, status'
+            'plan_name, monthly_price, monthly_minutes, rollover_seconds, current_period_start, current_period_end, status'
           )
           .eq('client_id', user.id)
           .maybeSingle(),
@@ -363,16 +364,28 @@ export default function Dashboard() {
 
     const monthlyMinutes =
       subscription?.monthly_minutes ?? 300
+    const rolloverMinutes = Math.floor(
+      Math.max(
+        0,
+        Number(subscription?.rollover_seconds ?? 0)
+      ) / 60
+    )
+    const totalAvailableMinutes =
+      monthlyMinutes + rolloverMinutes
 
-    const minutesRemaining = Math.max(
-      monthlyMinutes - minutesTalked,
-      0
+    const minutesRemaining = Math.floor(
+      Math.max(
+        totalAvailableMinutes * 60 - totalSeconds,
+        0
+      ) / 60
     )
 
     const usagePercentage =
-      monthlyMinutes > 0
+      totalAvailableMinutes > 0
         ? Math.min(
-            (minutesTalked / monthlyMinutes) * 100,
+            (totalSeconds /
+              (totalAvailableMinutes * 60)) *
+              100,
             100
           )
         : 0
@@ -416,6 +429,8 @@ export default function Dashboard() {
       callsAnswered,
       minutesTalked,
       monthlyMinutes,
+      rolloverMinutes,
+      totalAvailableMinutes,
       minutesRemaining,
       usagePercentage,
       appointmentsToday,
@@ -476,7 +491,7 @@ export default function Dashboard() {
   const getStatusInfo = () => {
     if (
       subscription?.status === 'active' &&
-      stats.monthlyMinutes > 0 &&
+      stats.totalAvailableMinutes > 0 &&
       stats.minutesRemaining === 0
     ) {
       return {
@@ -826,7 +841,7 @@ export default function Dashboard() {
 
             <strong>
               {stats.minutesTalked} /{' '}
-              {stats.monthlyMinutes} min
+              {stats.totalAvailableMinutes} min
             </strong>
 
             <div
@@ -858,7 +873,7 @@ export default function Dashboard() {
               }}
             >
               {stats.minutesRemaining > 0
-                ? `${stats.minutesRemaining} minutes remaining`
+                ? `${stats.minutesRemaining} minutes remaining · ${stats.rolloverMinutes} rolled over`
                 : 'Monthly minutes used'}
             </small>
           </div>

@@ -227,6 +227,7 @@ export default async (request: Request) => {
                 Math.floor(
                   monthlyMinutes
                 ),
+              rollover_seconds: 0,
               ai_model_id: aiModelId,
               pii_redaction_enabled:
                 piiRedactionEnabled,
@@ -391,6 +392,7 @@ export default async (request: Request) => {
     ) {
       const invoice =
         event.data.object as unknown as {
+          billing_reason?: string | null
           subscription?:
             | string
             | { id?: string }
@@ -439,6 +441,80 @@ export default async (request: Request) => {
           typeof periodStartSeconds === 'number' &&
           typeof periodEndSeconds === 'number'
         ) {
+          const nextPeriodStart = new Date(
+            periodStartSeconds * 1000
+          )
+          const nextPeriodEnd = new Date(
+            periodEndSeconds * 1000
+          )
+          const {
+            data: storedSubscription,
+            error: storedSubscriptionError,
+          } = await supabaseAdmin
+            .from('subscriptions')
+            .select(
+              'client_id, monthly_minutes, rollover_seconds, current_period_start, pii_redaction_enabled, safety_guardrails_enabled'
+            )
+            .eq(
+              'stripe_subscription_id',
+              stripeSubscriptionId
+            )
+            .maybeSingle()
+
+          if (storedSubscriptionError) {
+            throw storedSubscriptionError
+          }
+
+          let rolloverSeconds = Math.max(
+            0,
+            Number(
+              storedSubscription?.rollover_seconds ?? 0
+            ) || 0
+          )
+          const storedPeriodStart = storedSubscription?.current_period_start
+            ? new Date(storedSubscription.current_period_start)
+            : null
+          const beginsNewPaidMonth =
+            invoice.billing_reason === 'subscription_cycle' &&
+            storedPeriodStart &&
+            Number.isFinite(storedPeriodStart.getTime()) &&
+            storedPeriodStart.getTime() < nextPeriodStart.getTime()
+
+          if (
+            beginsNewPaidMonth &&
+            storedSubscription?.client_id
+          ) {
+            const { data: previousCalls, error: previousCallsError } =
+              await supabaseAdmin
+                .from('calls')
+                .select('duration_seconds')
+                .eq('client_id', storedSubscription.client_id)
+                .gte('started_at', storedPeriodStart.toISOString())
+                .lt('started_at', nextPeriodStart.toISOString())
+
+            if (previousCallsError) {
+              throw previousCallsError
+            }
+
+            const usedSeconds = (previousCalls ?? []).reduce(
+              (total, row) =>
+                total + Math.max(0, Number(row.duration_seconds) || 0),
+              0
+            )
+            const monthlySeconds =
+              Math.max(
+                0,
+                Math.floor(
+                  Number(storedSubscription.monthly_minutes) || 0
+                )
+              ) * 60
+
+            rolloverSeconds = Math.max(
+              monthlySeconds + rolloverSeconds - usedSeconds,
+              0
+            )
+          }
+
           const {
             data: renewedSubscription,
             error: renewalError,
@@ -446,15 +522,10 @@ export default async (request: Request) => {
             .from('subscriptions')
             .update({
               status: 'active',
-              current_period_start: new Date(
-                periodStartSeconds * 1000
-              ).toISOString(),
-              current_period_end: new Date(
-                periodEndSeconds * 1000
-              ).toISOString(),
-              next_billing_date: new Date(
-                periodEndSeconds * 1000
-              ).toISOString(),
+              rollover_seconds: Math.floor(rolloverSeconds),
+              current_period_start: nextPeriodStart.toISOString(),
+              current_period_end: nextPeriodEnd.toISOString(),
+              next_billing_date: nextPeriodEnd.toISOString(),
             })
             .eq(
               'stripe_subscription_id',

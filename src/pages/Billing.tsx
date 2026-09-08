@@ -22,6 +22,8 @@ type Subscription = {
   next_billing_date: string | null
   current_period_start: string | null
   current_period_end: string | null
+  rollover_seconds: number
+  stripe_subscription_id: string | null
 }
 
 type CallRecord = {
@@ -68,12 +70,6 @@ export default function Billing() {
 
   const [loading, setLoading] =
     useState(true)
-
-  const [cancelling, setCancelling] =
-    useState(false)
-
-  const [billingError, setBillingError] =
-    useState('')
 
   const [selectedPlan, setSelectedPlan] =
     useState<PlanName>('Recepta Standard')
@@ -147,7 +143,9 @@ export default function Billing() {
             status,
             next_billing_date,
             current_period_start,
-            current_period_end
+            current_period_end,
+            rollover_seconds,
+            stripe_subscription_id
             `
           )
           .eq('client_id', user.id)
@@ -403,7 +401,7 @@ export default function Billing() {
     }
   }, [subscription])
 
-  const minutesUsed = useMemo(() => {
+  const secondsUsed = useMemo(() => {
     const periodStart =
       subscription?.current_period_start
         ? new Date(
@@ -422,27 +420,38 @@ export default function Billing() {
       )
     })
 
-    const totalSeconds = periodCalls.reduce(
+    return periodCalls.reduce(
       (total, call) =>
         total + (call.duration_seconds || 0),
       0
     )
-
-    return Math.ceil(totalSeconds / 60)
   }, [calls, subscription])
 
-  const minuteAllowance =
+  const minutesUsed = Math.ceil(secondsUsed / 60)
+  const monthlyMinuteAllocation =
     subscription?.monthly_minutes ?? 0
+  const rolloverSeconds = Math.max(
+    0,
+    Number(subscription?.rollover_seconds ?? 0)
+  )
+  const rolloverMinutes = Math.floor(
+    rolloverSeconds / 60
+  )
+  const availableSeconds =
+    monthlyMinuteAllocation * 60 + rolloverSeconds
+  const minuteAllowance = Math.floor(
+    availableSeconds / 60
+  )
 
-  const minutesRemaining = Math.max(
-    minuteAllowance - minutesUsed,
-    0
+  const minutesRemaining = Math.floor(
+    Math.max(availableSeconds - secondsUsed, 0) /
+      60
   )
 
   const usagePercentage =
-    minuteAllowance > 0
+    availableSeconds > 0
       ? Math.min(
-          (minutesUsed / minuteAllowance) * 100,
+          (secondsUsed / availableSeconds) * 100,
           100
         )
       : 0
@@ -462,80 +471,6 @@ export default function Billing() {
 
     return '/openai.png'
   }
-
-  const handleCancelSubscription =
-    async () => {
-      if (
-        !window.confirm(
-          'Cancel your Recepta subscription? Your paid dashboard features will be locked.'
-        )
-      ) {
-        return
-      }
-
-      setCancelling(true)
-      setBillingError('')
-
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
-
-        if (!session?.access_token) {
-          throw new Error(
-            'Your session has expired. Please sign in again.'
-          )
-        }
-
-        const response = await fetch(
-          '/.netlify/functions/update-subscription',
-          {
-            method: 'POST',
-
-            headers: {
-              'Content-Type':
-                'application/json',
-
-              Authorization:
-                `Bearer ${session.access_token}`,
-            },
-
-            body: JSON.stringify({
-              action: 'cancel',
-            }),
-          }
-        )
-
-        const result =
-          await response
-            .json()
-            .catch(() => ({}))
-
-        if (!response.ok) {
-          throw new Error(
-            result?.error ||
-              'Unable to cancel your subscription.'
-          )
-        }
-
-        window.location.assign(
-          '/dashboard'
-        )
-      } catch (error) {
-        console.error(
-          'Cancel subscription error:',
-          error
-        )
-
-        setBillingError(
-          error instanceof Error
-            ? error.message
-            : 'Unable to cancel your subscription.'
-        )
-      } finally {
-        setCancelling(false)
-      }
-    }
 
   const updateExtraPhoneNumbers = (
     value: string
@@ -962,7 +897,7 @@ export default function Billing() {
                 <div className="billingCurrentStats">
                   <div>
                     <span>
-                      Monthly Platform
+                      Monthly Charge
                     </span>
 
                     <strong>
@@ -988,7 +923,27 @@ export default function Billing() {
 
                   <div>
                     <span>
-                      Monthly Minutes
+                      Monthly Allocation
+                    </span>
+
+                    <strong>
+                      {monthlyMinuteAllocation.toLocaleString()}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Rolled Over
+                    </span>
+
+                    <strong>
+                      {rolloverMinutes.toLocaleString()}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>
+                      Total Available
                     </span>
 
                     <strong>
@@ -1123,12 +1078,12 @@ export default function Billing() {
 
                   <small>
                     {minutesRemaining.toLocaleString()}{' '}
-                    minutes remaining
+                    minutes remaining. Unused minutes roll into your next paid month.
                   </small>
                 </div>
               </section>
 
-              {/* CANCEL */}
+              {/* MANAGE SUBSCRIPTION */}
 
               {subscriptionIsActive && (
                 <section
@@ -1150,13 +1105,57 @@ export default function Billing() {
                   </div>
 
                   <p>
-                    Change the AI model powering
-                    your existing Retell
-                    receptionist. Your voice,
-                    prompt, knowledge base, phone
-                    number and other settings stay
-                    the same.
+                    Your subscription renews every month at the displayed total,
+                    regardless of how many minutes you use. Unused minutes roll
+                    forward. You can also change the AI model powering your
+                    existing Retell receptionist without changing its voice,
+                    prompt, knowledge base or phone numbers.
                   </p>
+
+                  {!subscription.stripe_subscription_id && (
+                    <div
+                      style={{
+                        marginTop: '20px',
+                        padding: '20px',
+                        borderRadius: '18px',
+                        border: '1px solid rgba(255,190,70,0.28)',
+                        background: 'rgba(255,190,70,0.055)',
+                      }}
+                    >
+                      <strong style={{ display: 'block', color: '#ffca61' }}>
+                        Automatic monthly billing is not connected
+                      </strong>
+                      <p style={{ margin: '8px 0 16px' }}>
+                        Complete Stripe Checkout once to charge this subscription
+                        automatically every month.
+                      </p>
+                      <button
+                        type="button"
+                        className="btn btnPrimary"
+                        onClick={handleRenewPreviousSubscription}
+                        disabled={
+                          checkoutLoading ||
+                          !subscription.ai_model_id ||
+                          !subscription.monthly_minutes
+                        }
+                      >
+                        {checkoutLoading
+                          ? 'Opening Stripe Checkout...'
+                          : 'Set Up Monthly Billing'}
+                      </button>
+                      {checkoutError && (
+                        <p
+                          role="alert"
+                          style={{
+                            margin: '12px 0 0',
+                            color: '#ff6b6b',
+                          }}
+                        >
+                          {checkoutError}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   <div
                     style={{
@@ -1322,30 +1321,6 @@ export default function Billing() {
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    className="btn btnOutline billingUpdateSubscription"
-                    onClick={
-                      handleCancelSubscription
-                    }
-                    disabled={cancelling}
-                    style={{
-                      marginTop: '20px',
-                    }}
-                  >
-                    {cancelling
-                      ? 'Cancelling...'
-                      : 'Cancel Subscription'}
-                  </button>
-
-                  {billingError && (
-                    <p
-                      className="billingCheckoutDisclaimer"
-                      role="alert"
-                    >
-                      {billingError}
-                    </p>
-                  )}
                 </section>
               )}
 

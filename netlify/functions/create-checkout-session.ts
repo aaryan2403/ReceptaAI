@@ -131,7 +131,7 @@ export default async (request: Request) => {
       error: subscriptionError,
     } = await supabaseAdmin
       .from('subscriptions')
-      .select('status')
+      .select('status, stripe_subscription_id')
       .eq('client_id', user.id)
       .maybeSingle()
 
@@ -147,16 +147,17 @@ export default async (request: Request) => {
       )
     }
 
-    // Customers can only self-purchase AFTER cancelling
-    // a subscription that was initially activated by Admin.
+    // A cancelled customer can renew. An admin-created customer can also
+    // connect recurring Stripe billing when no Stripe subscription exists yet.
     if (
       !currentSubscription ||
-      currentSubscription.status !== 'cancelled'
+      (currentSubscription.status !== 'cancelled' &&
+        currentSubscription.stripe_subscription_id)
     ) {
       return new Response(
         JSON.stringify({
           error:
-            'Your current subscription must be cancelled before purchasing a new one.',
+            'This account already has automatic monthly billing.',
         }),
         {
           status: 403,

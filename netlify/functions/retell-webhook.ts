@@ -241,7 +241,7 @@ export default async (
   } = await supabaseAdmin
     .from('subscriptions')
     .select(
-      'status, monthly_minutes, current_period_start, pii_redaction_enabled'
+      'status, monthly_minutes, rollover_seconds, current_period_start, pii_redaction_enabled'
     )
     .eq('client_id', agent.client_id)
     .maybeSingle()
@@ -418,6 +418,13 @@ export default async (
     const monthlyMinutes = Number(
       subscription?.monthly_minutes ?? 0
     )
+    const rolloverSeconds = Math.max(
+      0,
+      Number(subscription?.rollover_seconds ?? 0) || 0
+    )
+    const availableSeconds =
+      Math.floor(monthlyMinutes) * 60 +
+      Math.floor(rolloverSeconds)
 
     if (
       subscription?.status === 'active' &&
@@ -453,7 +460,7 @@ export default async (
 
       if (
         usedSeconds >=
-        Math.floor(monthlyMinutes) * 60
+        availableSeconds
       ) {
         const [agentPause, clientPause] =
           await Promise.all([
