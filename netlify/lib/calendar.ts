@@ -279,17 +279,12 @@ export const getClientCalendar = async ({
   if (rangeDays < 0 || rangeDays > 41) {
     throw new Error('Calendar ranges must contain between 1 and 42 days.')
   }
-  const [agentResult, employeeResult, clientResult] = await Promise.all([
+  const [agentResult, clientResult] = await Promise.all([
     supabase
       .from('agents')
       .select('business_hours')
       .eq('client_id', clientId)
       .maybeSingle(),
-    supabase
-      .from('employees')
-      .select('id, name, role, email, is_active, calendar_color')
-      .eq('client_id', clientId)
-      .order('created_at', { ascending: true }),
     supabase
       .from('clients')
       .select('company_name, contact_email')
@@ -298,8 +293,35 @@ export const getClientCalendar = async ({
   ])
 
   if (agentResult.error) throw agentResult.error
-  if (employeeResult.error) throw employeeResult.error
   if (clientResult.error) throw clientResult.error
+
+  const employeeWithColorResult = await supabase
+    .from('employees')
+    .select('id, name, role, email, is_active, calendar_color')
+    .eq('client_id', clientId)
+    .order('created_at', { ascending: true })
+  let employeeRows: CalendarEmployee[] = []
+  const setupWarnings: string[] = []
+
+  if (employeeWithColorResult.error) {
+    const fallbackEmployeeResult = await supabase
+      .from('employees')
+      .select('id, name, role, email, is_active')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: true })
+
+    if (fallbackEmployeeResult.error) {
+      throw fallbackEmployeeResult.error
+    }
+
+    employeeRows = (fallbackEmployeeResult.data ?? []).map((employee) => ({
+      ...employee,
+      calendar_color: null,
+    })) as CalendarEmployee[]
+    setupWarnings.push('employee colors')
+  } else {
+    employeeRows = (employeeWithColorResult.data ?? []) as CalendarEmployee[]
+  }
 
   const schedule = getStoredBusinessSchedule(
     agentResult.data?.business_hours ?? null
@@ -317,7 +339,7 @@ export const getClientCalendar = async ({
   const appointmentQueryStart = new Date(
     dayStart.getTime() - 8 * 60 * 60 * 1000
   )
-  const employees = (employeeResult.data ?? []) as CalendarEmployee[]
+  const employees = employeeRows
   const employeeIds = employees.map((employee) => employee.id)
   let employeeSchedules: EmployeeSchedule[] = []
   let appointments: CalendarAppointment[] = []
@@ -352,19 +374,36 @@ export const getClientCalendar = async ({
           .order('starts_at', { ascending: true }),
       ])
 
-    if (scheduleResult.error) throw scheduleResult.error
-    if (appointmentResult.error) throw appointmentResult.error
-    if (blockResult.error) throw blockResult.error
+    if (scheduleResult.error) {
+      setupWarnings.push('employee schedules')
+    } else {
+      employeeSchedules = (scheduleResult.data ?? []) as EmployeeSchedule[]
+    }
 
-    employeeSchedules = (scheduleResult.data ?? []) as EmployeeSchedule[]
-    appointments = (
-      (appointmentResult.data ?? []) as CalendarAppointment[]
-    ).filter(
-      (appointment) =>
-        new Date(appointmentEnd(appointment)) > dayStart
-    )
-    blocks = (blockResult.data ?? []) as CalendarBlock[]
+    if (appointmentResult.error) {
+      setupWarnings.push('employee appointment fields')
+    } else {
+      appointments = (
+        (appointmentResult.data ?? []) as CalendarAppointment[]
+      ).filter(
+        (appointment) =>
+          new Date(appointmentEnd(appointment)) > dayStart
+      )
+    }
+
+    if (blockResult.error) {
+      setupWarnings.push('blocked-time records')
+    } else {
+      blocks = (blockResult.data ?? []) as CalendarBlock[]
+    }
   }
+
+  const warning =
+    setupWarnings.length > 0
+      ? `Existing employees were loaded, but ${setupWarnings.join(
+          ', '
+        )} still need database setup. Run supabase_add_employee_calendar.sql in Supabase.`
+      : null
 
   return {
     date: calendarDate,
@@ -376,6 +415,7 @@ export const getClientCalendar = async ({
     employeeSchedules,
     appointments,
     blocks,
+    warning,
   }
 }
 

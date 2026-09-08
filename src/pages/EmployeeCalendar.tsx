@@ -48,6 +48,7 @@ type CalendarResponse = {
     employees: Employee[]
     appointments: Appointment[]
     blocks: CalendarBlock[]
+    warning?: string | null
   }
   appointment?: Appointment
   block?: CalendarBlock
@@ -246,6 +247,7 @@ export default function EmployeeCalendar() {
       setEmployees(calendar.employees)
       setAppointments(calendar.appointments)
       setBlocks(calendar.blocks)
+      setError(calendar.warning || '')
 
       const activeEmployees = calendar.employees.filter(
         (employee) => employee.is_active
@@ -264,10 +266,47 @@ export default function EmployeeCalendar() {
         }
       })
     } catch (loadError) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      const { data: fallbackEmployees } = user
+        ? await supabase
+            .from('employees')
+            .select('id, name, role, email, is_active')
+            .eq('client_id', user.id)
+            .order('created_at', { ascending: true })
+        : { data: [] }
+      const restoredEmployees = (fallbackEmployees ?? []).map((employee) => ({
+        ...employee,
+        calendar_color: window.localStorage.getItem(
+          `recepta-employee-color:${employee.id}`
+        ),
+      })) as Employee[]
+
+      setEmployees(restoredEmployees)
+      setAppointments([])
+      setBlocks([])
+
+      const firstEmployee = restoredEmployees.find(
+        (employee) => employee.is_active
+      )
+
+      setForm((current) => ({
+        ...current,
+        employeeId:
+          restoredEmployees.some(
+            (employee) =>
+              employee.is_active && employee.id === current.employeeId
+          )
+            ? current.employeeId
+            : firstEmployee?.id || '',
+      }))
       setError(
-        loadError instanceof Error
-          ? loadError.message
-          : 'Could not load the employee timetable.'
+        restoredEmployees.length > 0
+          ? 'Your employees are available, but the calendar database setup is incomplete. Run supabase_add_employee_calendar.sql in Supabase before adding appointments or blocked time.'
+          : loadError instanceof Error
+            ? loadError.message
+            : 'Could not load the employee timetable.'
       )
     } finally {
       setLoading(false)
@@ -459,8 +498,13 @@ export default function EmployeeCalendar() {
       .eq('client_id', user.id)
 
     if (colorError) {
-      throw new Error(
-        'Could not save the employee color. Run the latest employee calendar SQL migration first.'
+      window.localStorage.setItem(
+        `recepta-employee-color:${selectedEmployee.id}`,
+        employeeColor
+      )
+    } else {
+      window.localStorage.removeItem(
+        `recepta-employee-color:${selectedEmployee.id}`
       )
     }
 
