@@ -8754,3 +8754,385 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================================
+   EMPLOYEE APPOINTMENT COMPOSER + WEEKLY TIMETABLE
+   ============================================================ */
+
+.employeeAppointmentComposer,
+.employeeWeeklyTimetable {
+  margin-top: 24px;
+  padding: 28px;
+  color: #fff;
+  background:
+    radial-gradient(circle at top right, rgba(0, 230, 118, 0.05), transparent 38%),
+    rgba(4, 20, 11, 0.88);
+  border: 1px solid rgba(0, 230, 118, 0.13);
+  border-radius: 24px;
+}
+
+.employeeTimetableSectionHeading,
+.employeeCustomFieldsHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.employeeTimetableSectionHeading h2 {
+  margin: 7px 0 0;
+  color: #fff;
+  font-size: clamp(24px, 3vw, 34px);
+}
+
+.employeeTimetableSectionHeading p {
+  max-width: 700px;
+  margin: 9px 0 0;
+  color: rgba(203, 222, 210, 0.55);
+  line-height: 1.65;
+}
+
+.employeeQuickAppointmentForm {
+  display: grid;
+  gap: 22px;
+  margin-top: 26px;
+}
+
+.employeeQuickFormGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.employeeQuickFormGrid--customer {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.employeeQuickAppointmentForm label {
+  display: grid;
+  gap: 9px;
+  color: rgba(231, 242, 235, 0.62);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.employeeQuickAppointmentForm input,
+.employeeQuickAppointmentForm select {
+  width: 100%;
+  min-height: 50px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  outline: none;
+}
+
+.employeeQuickAppointmentForm input:focus,
+.employeeQuickAppointmentForm select:focus {
+  border-color: rgba(0, 230, 118, 0.72);
+  box-shadow: 0 0 0 3px rgba(0, 230, 118, 0.08);
+}
+
+.employeeColorField > div {
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+}
+
+.employeeColorField input[type='color'] {
+  width: 36px;
+  min-height: 34px;
+  padding: 2px;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+}
+
+.employeeColorField strong {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+
+.employeeCustomFields {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+}
+
+.employeeCustomFieldsHeading strong,
+.employeeCustomFieldsHeading span {
+  display: block;
+}
+
+.employeeCustomFieldsHeading strong {
+  color: #fff;
+  font-size: 14px;
+}
+
+.employeeCustomFieldsHeading span {
+  margin-top: 5px;
+  color: rgba(203, 222, 210, 0.5);
+  font-size: 12px;
+}
+
+.employeeCustomFieldsHeading .btn {
+  min-height: 42px;
+  padding: 8px 14px;
+}
+
+.employeeCustomFieldRow {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.65fr) minmax(200px, 1.35fr) auto;
+  gap: 10px;
+}
+
+.employeeCustomFieldRow button {
+  padding: 0 14px;
+  cursor: pointer;
+  color: #ff8585;
+  background: rgba(255, 80, 80, 0.05);
+  border: 1px solid rgba(255, 80, 80, 0.18);
+  border-radius: 11px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.employeeAddCalendarButton {
+  width: fit-content;
+  min-width: 230px;
+}
+
+.employeeColorLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin: 22px 0 15px;
+}
+
+.employeeColorLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: rgba(235, 244, 238, 0.62);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.employeeColorLegend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.employeeTimetableScroller {
+  max-height: 760px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(0, 7, 3, 0.62);
+}
+
+.employeeTimetableHeader,
+.employeeTimetableGrid {
+  min-width: 1120px;
+  display: grid;
+  grid-template-columns: 84px repeat(7, minmax(138px, 1fr));
+}
+
+.employeeTimetableHeader {
+  position: sticky;
+  z-index: 8;
+  top: 0;
+  min-height: 68px;
+  background: #07170e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.employeeTimetableCorner,
+.employeeTimetableDay {
+  display: grid;
+  place-items: center;
+  color: rgba(215, 230, 220, 0.55);
+  background: transparent;
+  border: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  font: inherit;
+}
+
+.employeeTimetableCorner {
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.employeeTimetableDay {
+  cursor: pointer;
+}
+
+.employeeTimetableDay span,
+.employeeTimetableDay strong {
+  display: block;
+}
+
+.employeeTimetableDay span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.employeeTimetableDay strong {
+  margin-top: 4px;
+  color: #fff;
+  font-size: 19px;
+}
+
+.employeeTimetableDay--today {
+  background: rgba(0, 230, 118, 0.07);
+}
+
+.employeeTimetableDay--today strong,
+.employeeTimetableDay--today span {
+  color: #00e676;
+}
+
+.employeeTimetableGrid {
+  position: relative;
+}
+
+.employeeTimetableTime {
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 4px 10px 0 0;
+  color: rgba(213, 229, 219, 0.42);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.employeeTimetableCell {
+  z-index: 0;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.055);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.employeeTimetableCell:hover {
+  background: rgba(0, 230, 118, 0.035);
+}
+
+.employeeTimetableEntry {
+  position: relative;
+  z-index: 4;
+  min-width: 0;
+  margin: 2px 4px;
+  padding: 7px 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 9px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.23);
+}
+
+.employeeTimetableEntry--block {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(0, 0, 0, 0.08) 0,
+    rgba(0, 0, 0, 0.08) 7px,
+    rgba(255, 255, 255, 0.05) 7px,
+    rgba(255, 255, 255, 0.05) 14px
+  );
+}
+
+.employeeTimetableEntry span,
+.employeeTimetableEntry strong,
+.employeeTimetableEntry small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.employeeTimetableEntry span {
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.employeeTimetableEntry strong {
+  margin-top: 3px;
+  font-size: 11px;
+}
+
+.employeeTimetableEntry small {
+  margin-top: 3px;
+  font-size: 8px;
+  opacity: 0.78;
+}
+
+.employeeTimetableEntry > button {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  padding: 2px 5px;
+  cursor: pointer;
+  color: inherit;
+  background: rgba(0, 0, 0, 0.22);
+  border: 0;
+  border-radius: 4px;
+  font-size: 7px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+@media (max-width: 1180px) {
+  .employeeQuickFormGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .employeeAppointmentComposer,
+  .employeeWeeklyTimetable {
+    padding: 20px;
+    border-radius: 18px;
+  }
+
+  .employeeTimetableSectionHeading,
+  .employeeCustomFieldsHeading {
+    flex-direction: column;
+  }
+
+  .employeeQuickFormGrid,
+  .employeeQuickFormGrid--customer,
+  .employeeCustomFieldRow {
+    grid-template-columns: 1fr;
+  }
+
+  .employeeCustomFieldsHeading .btn,
+  .employeeAddCalendarButton {
+    width: 100%;
+  }
+
+  .employeeCustomFieldRow button {
+    min-height: 42px;
+  }
+}

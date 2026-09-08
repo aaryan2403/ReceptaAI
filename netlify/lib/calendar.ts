@@ -7,6 +7,7 @@ export type CalendarEmployee = {
   role: string | null
   email: string | null
   is_active: boolean
+  calendar_color: string | null
 }
 
 export type CalendarAppointment = {
@@ -286,7 +287,7 @@ export const getClientCalendar = async ({
       .maybeSingle(),
     supabase
       .from('employees')
-      .select('id, name, role, email, is_active')
+      .select('id, name, role, email, is_active, calendar_color')
       .eq('client_id', clientId)
       .order('created_at', { ascending: true }),
     supabase

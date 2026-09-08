@@ -1,6 +1,9 @@
 -- Run this file once in the Supabase SQL Editor before deploying the code.
 -- It is safe to run more than once.
 
+alter table public.employees
+  add column if not exists calendar_color text not null default '#00e676';
+
 alter table public.appointments
   add column if not exists employee_id uuid,
   add column if not exists appointment_end_time timestamptz,
