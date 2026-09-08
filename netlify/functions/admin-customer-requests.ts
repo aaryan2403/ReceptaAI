@@ -6,6 +6,28 @@ const ALLOWED_STATUSES = new Set([
   'resolved',
 ])
 
+const isMissingCustomerRequestsTable = (message?: string) => {
+  const normalized = message?.toLowerCase() || ''
+
+  return (
+    normalized.includes('customer_requests') &&
+    (normalized.includes('schema cache') ||
+      normalized.includes('does not exist') ||
+      normalized.includes('could not find the table'))
+  )
+}
+
+const databaseError = (message?: string) =>
+  isMissingCustomerRequestsTable(message)
+    ? json(503, {
+        error:
+          'Customer Requests needs its Supabase setup. Run supabase_add_customer_requests.sql in the Supabase SQL Editor.',
+        code: 'CUSTOMER_REQUESTS_SETUP_REQUIRED',
+      })
+    : json(400, {
+        error: message || 'Could not access customer requests.',
+      })
+
 const json = (status: number, body: Record<string, unknown>) =>
   new Response(JSON.stringify(body), {
     status,
@@ -80,7 +102,7 @@ export default async (request: Request) => {
       .order('created_at', { ascending: false })
 
     if (error) {
-      return json(400, { error: error.message })
+      return databaseError(error.message)
     }
 
     const requests = data ?? []
@@ -119,7 +141,7 @@ export default async (request: Request) => {
     .maybeSingle()
 
   if (error) {
-    return json(400, { error: error.message })
+    return databaseError(error.message)
   }
 
   if (!data) {

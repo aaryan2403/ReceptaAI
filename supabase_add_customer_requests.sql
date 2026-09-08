@@ -1,5 +1,7 @@
--- Run this file once in the Supabase SQL Editor before deploying the code.
--- It is safe to run more than once.
+-- REQUIRED DATABASE SETUP
+-- Run this entire file in Supabase -> SQL Editor -> New query, then click Run.
+-- Deploying the website does not create Supabase tables automatically.
+-- This migration is safe to run more than once.
 
 create table if not exists public.customer_requests (
   id uuid primary key default gen_random_uuid(),
@@ -33,6 +35,9 @@ create index if not exists customer_requests_status_idx
   on public.customer_requests (status, created_at desc);
 
 alter table public.customer_requests enable row level security;
+
+grant select, insert on table public.customer_requests to authenticated;
+revoke all on table public.customer_requests from anon;
 
 drop policy if exists recepta_clients_read_own_requests
   on public.customer_requests;

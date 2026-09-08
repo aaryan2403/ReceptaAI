@@ -20,6 +20,28 @@ const REQUEST_TYPE_LABELS: Record<string, string> = {
 
 const NOTIFICATION_EMAIL = 'receptahelp02@gmail.com'
 
+const isMissingCustomerRequestsTable = (message?: string) => {
+  const normalized = message?.toLowerCase() || ''
+
+  return (
+    normalized.includes('customer_requests') &&
+    (normalized.includes('schema cache') ||
+      normalized.includes('does not exist') ||
+      normalized.includes('could not find the table'))
+  )
+}
+
+const databaseError = (message?: string) =>
+  isMissingCustomerRequestsTable(message)
+    ? json(503, {
+        error:
+          'Customer requests are temporarily unavailable. Please book a support call or email receptahelp02@gmail.com.',
+        code: 'CUSTOMER_REQUESTS_SETUP_REQUIRED',
+      })
+    : json(400, {
+        error: message || 'Could not access customer requests.',
+      })
+
 const json = (status: number, body: Record<string, unknown>) =>
   new Response(JSON.stringify(body), {
     status,
@@ -135,7 +157,7 @@ export default async (request: Request) => {
       .order('created_at', { ascending: false })
 
     if (error) {
-      return json(400, { error: error.message })
+      return databaseError(error.message)
     }
 
     return json(200, { requests: data ?? [] })
@@ -199,9 +221,9 @@ export default async (request: Request) => {
       .single()
 
   if (insertError || !createdRequest) {
-    return json(400, {
-      error: insertError?.message || 'Could not save the request.',
-    })
+    return databaseError(
+      insertError?.message || 'Could not save the request.'
+    )
   }
 
   let notificationSent = false
