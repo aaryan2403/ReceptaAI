@@ -58,6 +58,87 @@ const ADD_ON_PRICES = {
 
 const MAX_MONTHLY_MINUTES = 100_000_000
 
+const isMissingRolloverColumn = (error: {
+  code?: string
+  message?: string
+} | null) => {
+  const message = error?.message?.toLowerCase() ?? ''
+
+  return (
+    message.includes('rollover_seconds') &&
+    (error?.code === '42703' ||
+      error?.code === 'PGRST204' ||
+      message.includes('does not exist') ||
+      message.includes('schema cache'))
+  )
+}
+
+const loadSubscription = async (clientId: string) => {
+  const result = await supabase
+    .from('subscriptions')
+    .select(
+      `
+      plan_name,
+      monthly_price,
+      monthly_minutes,
+      ai_model_id,
+      pii_redaction_enabled,
+      safety_guardrails_enabled,
+      extra_phone_numbers,
+      status,
+      next_billing_date,
+      current_period_start,
+      current_period_end,
+      rollover_seconds,
+      stripe_subscription_id
+      `
+    )
+    .eq('client_id', clientId)
+    .maybeSingle()
+
+  if (!result.error) {
+    return result.data as Subscription | null
+  }
+
+  if (!isMissingRolloverColumn(result.error)) {
+    console.error('Billing subscription load failed:', result.error)
+    return null
+  }
+
+  const fallback = await supabase
+    .from('subscriptions')
+    .select(
+      `
+      plan_name,
+      monthly_price,
+      monthly_minutes,
+      ai_model_id,
+      pii_redaction_enabled,
+      safety_guardrails_enabled,
+      extra_phone_numbers,
+      status,
+      next_billing_date,
+      current_period_start,
+      current_period_end,
+      stripe_subscription_id
+      `
+    )
+    .eq('client_id', clientId)
+    .maybeSingle()
+
+  if (fallback.error) {
+    console.error('Billing subscription fallback failed:', fallback.error)
+    return null
+  }
+
+  return fallback.data
+    ? ({
+        ...fallback.data,
+        rollover_seconds: 0,
+      } as Subscription)
+    : null
+}
+
 export default function Billing() {
   const [subscription, setSubscription] =
     useState<Subscription | null>(null)
@@ -126,30 +207,10 @@ export default function Billing() {
       }
 
       const [
-        subscriptionResult,
+        subscriptionData,
         modelsResult,
       ] = await Promise.all([
-        supabase
-          .from('subscriptions')
-          .select(
-            `
-            plan_name,
-            monthly_price,
-            monthly_minutes,
-            ai_model_id,
-            pii_redaction_enabled,
-            safety_guardrails_enabled,
-            extra_phone_numbers,
-            status,
-            next_billing_date,
-            current_period_start,
-            current_period_end,
-            rollover_seconds,
-            stripe_subscription_id
-            `
-          )
-          .eq('client_id', user.id)
-          .maybeSingle(),
+        loadSubscription(user.id),
 
         supabase
           .from('ai_models')
@@ -168,9 +229,8 @@ export default function Billing() {
           }),
       ])
 
-      if (subscriptionResult.data) {
-        const loadedSubscription =
-          subscriptionResult.data as Subscription
+      if (subscriptionData) {
+        const loadedSubscription = subscriptionData
 
         setSubscription(loadedSubscription)
         setPiiRedaction(
@@ -207,11 +267,6 @@ export default function Billing() {
 
         setModels(loadedModels)
 
-        const subscriptionData =
-          subscriptionResult.data as
-            | Subscription
-            | null
-
         if (subscriptionData) {
           setSelectedPlan(
             subscriptionData.plan_name ===
@@ -237,13 +292,6 @@ export default function Billing() {
             loadedModels[0]?.id || ''
           )
         }
-      }
-
-      if (subscriptionResult.error) {
-        console.error(
-          'Subscription error:',
-          subscriptionResult.error
-        )
       }
 
       if (modelsResult.error) {

@@ -46,6 +46,63 @@ type ChartPoint = {
   value: number
 }
 
+const isMissingRolloverColumn = (error: {
+  code?: string
+  message?: string
+} | null) => {
+  const message = error?.message?.toLowerCase() ?? ''
+
+  return (
+    message.includes('rollover_seconds') &&
+    (error?.code === '42703' ||
+      error?.code === 'PGRST204' ||
+      message.includes('does not exist') ||
+      message.includes('schema cache'))
+  )
+}
+
+const loadSubscription = async (clientId: string) => {
+  const result = await supabase
+    .from('subscriptions')
+    .select(
+      'plan_name, monthly_price, monthly_minutes, rollover_seconds, current_period_start, current_period_end, status'
+    )
+    .eq('client_id', clientId)
+    .maybeSingle()
+
+  if (!result.error) {
+    return result.data as Subscription | null
+  }
+
+  if (!isMissingRolloverColumn(result.error)) {
+    console.error('Dashboard subscription load failed:', result.error)
+    return null
+  }
+
+  const fallback = await supabase
+    .from('subscriptions')
+    .select(
+      'plan_name, monthly_price, monthly_minutes, current_period_start, current_period_end, status'
+    )
+    .eq('client_id', clientId)
+    .maybeSingle()
+
+  if (fallback.error) {
+    console.error(
+      'Dashboard subscription fallback failed:',
+      fallback.error
+    )
+    return null
+  }
+
+  return fallback.data
+    ? {
+        ...fallback.data,
+        rollover_seconds: 0,
+      }
+    : null
+}
+
 function CompanyStatisticsChart({
   title,
   points,
@@ -207,7 +264,7 @@ export default function Dashboard() {
 
       const [
         { data: clientData },
-        { data: subscriptionData },
+        subscriptionData,
         { data: agentData },
         { data: phoneNumberData },
       ] = await Promise.all([
@@ -217,13 +274,7 @@ export default function Dashboard() {
           .eq('id', user.id)
           .single(),
 
-        supabase
-          .from('subscriptions')
-          .select(
-            'plan_name, monthly_price, monthly_minutes, rollover_seconds, current_period_start, current_period_end, status'
-          )
-          .eq('client_id', user.id)
-          .maybeSingle(),
+        loadSubscription(user.id),
 
         supabase
           .from('agents')

@@ -235,7 +235,7 @@ export default async (
     })
   }
 
-  const {
+  let {
     data: subscription,
     error: subscriptionError,
   } = await supabaseAdmin
@@ -245,6 +245,28 @@ export default async (
     )
     .eq('client_id', agent.client_id)
     .maybeSingle()
+
+  if (
+    subscriptionError?.message
+      ?.toLowerCase()
+      .includes('rollover_seconds')
+  ) {
+    const fallback = await supabaseAdmin
+      .from('subscriptions')
+      .select(
+        'status, monthly_minutes, current_period_start, pii_redaction_enabled'
+      )
+      .eq('client_id', agent.client_id)
+      .maybeSingle()
+
+    subscription = fallback.data
+      ? {
+          ...fallback.data,
+          rollover_seconds: 0,
+        }
+      : null
+    subscriptionError = fallback.error
+  }
 
   if (subscriptionError) {
     return json(500, {
