@@ -5,6 +5,12 @@ alter table public.subscriptions
   add column if not exists rollover_seconds bigint not null default 0
   check (rollover_seconds >= 0);
 
-comment on column public.subscriptions.rollover_seconds is
-  'Unused paid call time carried from completed billing periods. The current allowance is monthly_minutes * 60 plus rollover_seconds.';
+update public.subscriptions
+set rollover_seconds = least(
+  greatest(coalesce(rollover_seconds, 0), 0),
+  greatest(coalesce(monthly_minutes, 0), 0)::bigint * 60
+)
+where rollover_seconds is not null;
 
+comment on column public.subscriptions.rollover_seconds is
+  'Unused paid call time carried into the current billing period. It is capped at one monthly allowance and replaced at each paid renewal.';

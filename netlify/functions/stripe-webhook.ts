@@ -509,9 +509,20 @@ export default async (request: Request) => {
                 )
               ) * 60
 
-            rolloverSeconds = Math.max(
-              monthlySeconds + rolloverSeconds - usedSeconds,
+            const currentMonthUsedSeconds = Math.max(
+              usedSeconds - rolloverSeconds,
               0
+            )
+
+            // Rollover from the previous period expires here. Only unused
+            // minutes from the period that just ended enter the new month,
+            // capped at one normal monthly allowance.
+            rolloverSeconds = Math.min(
+              Math.max(
+                monthlySeconds - currentMonthUsedSeconds,
+                0
+              ),
+              monthlySeconds
             )
           }
 

@@ -1078,7 +1078,8 @@ export default function Billing() {
 
                   <small>
                     {minutesRemaining.toLocaleString()}{' '}
-                    minutes remaining. Unused minutes roll into your next paid month.
+                    minutes remaining. Up to one monthly allowance rolls into
+                    the next paid month and expires at the end of that month.
                   </small>
                 </div>
               </section>
@@ -1107,7 +1108,8 @@ export default function Billing() {
                   <p>
                     Your subscription renews every month at the displayed total,
                     regardless of how many minutes you use. Unused minutes roll
-                    forward. You can also change the AI model powering your
+                    forward for one paid month, capped at one normal monthly
+                    allowance. You can also change the AI model powering your
                     existing Retell receptionist without changing its voice,
                     prompt, knowledge base or phone numbers.
                   </p>
