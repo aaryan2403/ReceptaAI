@@ -279,12 +279,14 @@ export default function Calls() {
             Calls
           </a>
 
-          <a
-            href="/dashboard/calendar"
-            className="dashboardNavItem"
-          >
-            Calendar
-          </a>
+          {isPro && (
+            <a
+              href="/dashboard/calendar"
+              className="dashboardNavItem"
+            >
+              Calendar
+            </a>
+          )}
 
           <a
             href="/dashboard/agent"

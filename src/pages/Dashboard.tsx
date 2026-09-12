@@ -701,12 +701,14 @@ export default function Dashboard() {
             Calls
           </a>
 
-          <a
-            href="/dashboard/calendar"
-            className="dashboardNavItem"
-          >
-            Calendar
-          </a>
+          {isPro && (
+            <a
+              href="/dashboard/calendar"
+              className="dashboardNavItem"
+            >
+              Calendar
+            </a>
+          )}
 
           <a
             href="/dashboard/agent"

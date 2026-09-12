@@ -18,6 +18,7 @@ import AdminClient from './pages/AdminClient.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import AdminRoute from './components/AdminRoute.tsx'
 import ActiveSubscriptionRoute from './components/ActiveSubscriptionRoute.tsx'
+import ProRoute from './components/ProRoute.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -64,14 +65,14 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
-        {/* ACTIVE STANDARD + ACTIVE PRO */}
+        {/* ACTIVE PRO ONLY */}
         <Route
           path="/dashboard/calendar"
           element={
             <ProtectedRoute>
-              <ActiveSubscriptionRoute>
+              <ProRoute>
                 <CalendarPage />
-              </ActiveSubscriptionRoute>
+              </ProRoute>
             </ProtectedRoute>
           }
         />
