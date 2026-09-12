@@ -67,6 +67,7 @@ type CustomField = {
 type FormState = {
   kind: EntryKind
   employeeId: string
+  employeeName: string
   date: string
   time: string
   durationMinutes: string
@@ -131,6 +132,7 @@ const getWeekStart = (value: string) => {
 const getInitialForm = (): FormState => ({
   kind: 'appointment',
   employeeId: '',
+  employeeName: '',
   date: getLocalDate(),
   time: '09:00',
   durationMinutes: '30',
@@ -262,17 +264,19 @@ export default function CalendarPage() {
       const activeEmployees = calendarEmployees.filter(
         (employee) => employee.is_active
       )
-      const firstEmployee = activeEmployees[0]
 
       setForm((current) => {
         const selected = activeEmployees.find(
-          (employee) => employee.id === current.employeeId
+          (employee) =>
+            employee.id === current.employeeId ||
+            employee.name.toLowerCase() ===
+              current.employeeName.trim().toLowerCase()
         )
-        const nextEmployee = selected || firstEmployee
 
         return {
           ...current,
-          employeeId: nextEmployee?.id || '',
+          employeeId: selected?.id || '',
+          employeeName: selected?.name || current.employeeName,
         }
       })
     } catch (loadError) {
@@ -297,20 +301,21 @@ export default function CalendarPage() {
       setAppointments([])
       setBlocks([])
 
-      const firstEmployee = restoredEmployees.find(
-        (employee) => employee.is_active
-      )
+      setForm((current) => {
+        const selected = restoredEmployees.find(
+          (employee) =>
+            employee.is_active &&
+            (employee.id === current.employeeId ||
+              employee.name.toLowerCase() ===
+                current.employeeName.trim().toLowerCase())
+        )
 
-      setForm((current) => ({
-        ...current,
-        employeeId:
-          restoredEmployees.some(
-            (employee) =>
-              employee.is_active && employee.id === current.employeeId
-          )
-            ? current.employeeId
-            : firstEmployee?.id || '',
-      }))
+        return {
+          ...current,
+          employeeId: selected?.id || '',
+          employeeName: selected?.name || current.employeeName,
+        }
+      })
       setError(
         restoredEmployees.length > 0
           ? 'Your staff calendars are available, but the calendar database setup is incomplete. Run supabase_add_employee_calendar.sql in Supabase before adding appointments or blocked time.'
@@ -535,8 +540,14 @@ export default function CalendarPage() {
     setMessage('')
 
     try {
+      if (!form.employeeName.trim()) {
+        throw new Error('Enter a staff member.')
+      }
+
       if (!form.employeeId) {
-        throw new Error('Choose a staff member.')
+        throw new Error(
+          `No active staff member matches “${form.employeeName.trim()}”.`
+        )
       }
 
       const customDetails = form.customFields
@@ -589,6 +600,7 @@ export default function CalendarPage() {
       setForm((current) => ({
         ...getInitialForm(),
         employeeId: current.employeeId,
+        employeeName: current.employeeName,
         date: current.date,
         kind: current.kind,
       }))
@@ -729,24 +741,29 @@ export default function CalendarPage() {
             <div className="employeeQuickFormGrid">
               <label>
                 <span>Staff member *</span>
-                <select
+                <input
+                  type="text"
                   required
-                  value={form.employeeId}
+                  value={form.employeeName}
                   onChange={(event) => {
-                    updateForm('employeeId', event.target.value)
+                    const employeeName = event.target.value
+                    const matchingEmployee = employees.find(
+                      (employee) =>
+                        employee.is_active &&
+                        employee.name.toLowerCase() ===
+                          employeeName.trim().toLowerCase()
+                    )
+
+                    setForm((current) => ({
+                      ...current,
+                      employeeName,
+                      employeeId: matchingEmployee?.id || '',
+                    }))
                     setColorOverride(null)
                   }}
-                >
-                  <option value="">Choose staff member</option>
-                  {employees
-                    .filter((employee) => employee.is_active)
-                    .map((employee) => (
-                      <option key={employee.id} value={employee.id}>
-                        {employee.name}
-                        {employee.role ? ` — ${employee.role}` : ''}
-                      </option>
-                    ))}
-                </select>
+                  placeholder="Type an active staff member's name"
+                  autoComplete="off"
+                />
               </label>
 
               <label>
