@@ -10,6 +10,40 @@
   grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
 }
 
+.calendarFieldHint {
+  min-height: 16px;
+  color: rgba(203, 222, 210, 0.5);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.calendarFieldHint--error {
+  color: #ff8585;
+}
+
+.calendarResponsiveMain .calendarStaffField {
+  min-width: min(280px, 100%);
+}
+
+.calendarStaffInputRow,
+.calendarAdditionalFieldComposer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.calendarStaffInputRow .btn,
+.calendarAdditionalFieldComposer .btn {
+  min-width: 82px;
+  padding-inline: 20px;
+}
+
+.calendarResponsiveMain .employeeCustomFieldRow {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 @media (max-width: 900px) {
   .calendarResponsivePage {
     grid-template-columns: minmax(0, 1fr);
@@ -20,5 +54,15 @@
   .calendarResponsiveMain .employeeQuickFormGrid,
   .calendarResponsiveMain .employeeQuickFormGrid--customer {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .calendarStaffInputRow,
+  .calendarAdditionalFieldComposer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .calendarStaffInputRow .btn,
+  .calendarAdditionalFieldComposer .btn {
+    width: 100%;
   }
 }

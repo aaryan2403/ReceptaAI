@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { syncEmployeeScheduleWithRetell } from '../lib/employeeSchedule'
 import './EmployeeCalendar.css'
 
 type AppointmentStatus = 'booked' | 'cancelled' | 'completed'
@@ -46,6 +47,7 @@ type CalendarResponse = {
     date: string
     endDate: string
     timeZone: string
+    businessSchedule: BusinessSchedule
     employees: Employee[]
     appointments: Appointment[]
     blocks: CalendarBlock[]
@@ -60,8 +62,18 @@ type CalendarResponse = {
 
 type CustomField = {
   id: string
-  label: string
   value: string
+}
+
+type BusinessSchedule = {
+  mode: '24/7' | 'custom'
+  timeZone: string
+  hours: Array<{
+    day: string
+    open: boolean
+    start: string
+    end: string
+  }>
 }
 
 type FormState = {
@@ -116,6 +128,19 @@ const formatDateValue = (date: Date) =>
     String(date.getDate()).padStart(2, '0'),
   ].join('-')
 
+const getNextBookableSlot = () => {
+  const slot = new Date(Date.now() + 5 * 60_000)
+  slot.setSeconds(0, 0)
+  slot.setMinutes(Math.ceil(slot.getMinutes() / 30) * 30)
+
+  return {
+    date: formatDateValue(slot),
+    time: `${String(slot.getHours()).padStart(2, '0')}:${String(
+      slot.getMinutes()
+    ).padStart(2, '0')}`,
+  }
+}
+
 const addDays = (value: string, amount: number) => {
   const date = parseDateValue(value)
   date.setDate(date.getDate() + amount)
@@ -129,24 +154,43 @@ const getWeekStart = (value: string) => {
   return formatDateValue(date)
 }
 
-const getInitialForm = (): FormState => ({
-  kind: 'appointment',
-  employeeId: '',
-  employeeName: '',
-  date: getLocalDate(),
-  time: '09:00',
-  durationMinutes: '30',
-  customerName: '',
-  customerPhone: '',
-  blockTitle: '',
-  customFields: [],
+const getInitialForm = (): FormState => {
+  const nextSlot = getNextBookableSlot()
+
+  return {
+    kind: 'appointment',
+    employeeId: '',
+    employeeName: '',
+    date: nextSlot.date,
+    time: nextSlot.time,
+    durationMinutes: '30',
+    customerName: '',
+    customerPhone: '',
+    blockTitle: '',
+    customFields: [],
+  }
+}
+
+const makeCustomField = (value: string): CustomField => ({
+  id: crypto.randomUUID(),
+  value,
 })
 
-const makeCustomField = (): CustomField => ({
-  id: crypto.randomUUID(),
-  label: '',
-  value: '',
-})
+const DEFAULT_BUSINESS_SCHEDULE: BusinessSchedule = {
+  mode: '24/7',
+  timeZone: 'America/Toronto',
+  hours: [],
+}
+
+const SCHEDULE_DAYS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+]
 
 const normalizeColor = (value: string | null | undefined) =>
   /^#[0-9a-f]{6}$/i.test(value || '') ? value! : DEFAULT_COLOR
@@ -171,13 +215,18 @@ export default function CalendarPage() {
   const [weekStart, setWeekStart] = useState(() => getWeekStart(getLocalDate()))
   const [timeZone, setTimeZone] = useState('America/Toronto')
   const [employees, setEmployees] = useState<Employee[]>([])
+  const [businessSchedule, setBusinessSchedule] =
+    useState<BusinessSchedule>(DEFAULT_BUSINESS_SCHEDULE)
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [blocks, setBlocks] = useState<CalendarBlock[]>([])
   const [form, setForm] = useState<FormState>(getInitialForm)
   const [colorOverride, setColorOverride] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [addingStaff, setAddingStaff] = useState(false)
+  const [additionalFieldDraft, setAdditionalFieldDraft] = useState('')
   const [error, setError] = useState('')
+  const [formError, setFormError] = useState('')
   const [message, setMessage] = useState('')
   const timetableScrollerRef = useRef<HTMLDivElement | null>(null)
 
@@ -247,6 +296,12 @@ export default function CalendarPage() {
       }
 
       setTimeZone(calendar.timeZone)
+      setBusinessSchedule(
+        calendar.businessSchedule || {
+          ...DEFAULT_BUSINESS_SCHEDULE,
+          timeZone: calendar.timeZone,
+        }
+      )
       const calendarEmployees = calendar.employees.map((employee) => ({
         ...employee,
         calendar_color:
@@ -462,24 +517,29 @@ export default function CalendarPage() {
     setForm((current) => ({ ...current, [key]: value }))
   }
 
-  const updateCustomField = (
-    id: string,
-    key: 'label' | 'value',
-    value: string
-  ) => {
+  const updateCustomField = (id: string, value: string) => {
     setForm((current) => ({
       ...current,
       customFields: current.customFields.map((field) =>
-        field.id === id ? { ...field, [key]: value } : field
+        field.id === id ? { ...field, value } : field
       ),
     }))
   }
 
   const addCustomField = () => {
+    const value = additionalFieldDraft.trim()
+
+    if (!value) {
+      setFormError('Type the additional information before clicking Add.')
+      return
+    }
+
     setForm((current) => ({
       ...current,
-      customFields: [...current.customFields, makeCustomField()],
+      customFields: [...current.customFields, makeCustomField(value)],
     }))
+    setAdditionalFieldDraft('')
+    setFormError('')
   }
 
   const removeCustomField = (id: string) => {
@@ -487,6 +547,134 @@ export default function CalendarPage() {
       ...current,
       customFields: current.customFields.filter((field) => field.id !== id),
     }))
+  }
+
+  const addOrSelectStaff = async () => {
+    const staffName = form.employeeName.trim()
+
+    if (!staffName) {
+      setFormError('Type the staff member name before clicking Add.')
+      return
+    }
+
+    setAddingStaff(true)
+    setFormError('')
+    setMessage('')
+
+    try {
+      const existingEmployee = employees.find(
+        (employee) =>
+          employee.name.toLowerCase() === staffName.toLowerCase()
+      )
+
+      if (existingEmployee?.is_active) {
+        setForm((current) => ({
+          ...current,
+          employeeId: existingEmployee.id,
+          employeeName: existingEmployee.name,
+        }))
+        setMessage(`${existingEmployee.name} is selected.`)
+        return
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) throw new Error('Please sign in again.')
+
+      let employee = existingEmployee
+
+      if (employee) {
+        const { data, error: activateError } = await supabase
+          .from('employees')
+          .update({ is_active: true, updated_at: new Date().toISOString() })
+          .eq('id', employee.id)
+          .eq('client_id', user.id)
+          .select('id, name, role, email, is_active')
+          .single()
+
+        if (activateError || !data) {
+          throw new Error('Could not reactivate this staff member.')
+        }
+
+        employee = { ...data, calendar_color: null }
+      } else {
+        const { data, error: insertError } = await supabase
+          .from('employees')
+          .insert({
+            client_id: user.id,
+            name: staffName,
+            email: null,
+            phone: null,
+            role: null,
+            is_active: true,
+          })
+          .select('id, name, role, email, is_active')
+          .single()
+
+        if (insertError || !data) {
+          throw new Error(insertError?.message || 'Could not add staff member.')
+        }
+
+        employee = { ...data, calendar_color: null }
+      }
+
+      const hoursByDay = new Map(
+        businessSchedule.hours.map((day) => [day.day, day])
+      )
+      const schedules = SCHEDULE_DAYS.map((day, dayOfWeek) => {
+        const businessDay = hoursByDay.get(day)
+        const isWorking =
+          businessSchedule.mode === '24/7' || Boolean(businessDay?.open)
+
+        return {
+          dayOfWeek,
+          isWorking,
+          startTime: isWorking
+            ? businessSchedule.mode === '24/7'
+              ? '00:00'
+              : businessDay?.start || '09:00'
+            : null,
+          endTime: isWorking
+            ? businessSchedule.mode === '24/7'
+              ? '23:59'
+              : businessDay?.end || '17:00'
+            : null,
+        }
+      })
+
+      await syncEmployeeScheduleWithRetell({
+        employeeId: employee.id,
+        schedules,
+      })
+
+      const selectedEmployee: Employee = {
+        ...employee,
+        calendar_color: window.localStorage.getItem(
+          `recepta-employee-color:${employee.id}`
+        ),
+      }
+
+      setEmployees((current) => [
+        ...current.filter((item) => item.id !== selectedEmployee.id),
+        selectedEmployee,
+      ])
+      setForm((current) => ({
+        ...current,
+        employeeId: selectedEmployee.id,
+        employeeName: selectedEmployee.name,
+      }))
+      setMessage(`${selectedEmployee.name} was added and synced with the AI agent.`)
+    } catch (staffError) {
+      setFormError(
+        staffError instanceof Error
+          ? staffError.message
+          : 'Could not add this staff member.'
+      )
+    } finally {
+      setAddingStaff(false)
+    }
   }
 
   const saveEmployeeColor = async () => {
@@ -537,6 +725,7 @@ export default function CalendarPage() {
     event.preventDefault()
     setSaving(true)
     setError('')
+    setFormError('')
     setMessage('')
 
     try {
@@ -551,12 +740,8 @@ export default function CalendarPage() {
       }
 
       const customDetails = form.customFields
-        .map((field) => ({
-          label: field.label.trim(),
-          value: field.value.trim(),
-        }))
-        .filter((field) => field.label || field.value)
-        .map((field) => `${field.label || 'Detail'}: ${field.value || 'Not provided'}`)
+        .map((field) => field.value.trim())
+        .filter(Boolean)
         .join('\n')
 
       await saveEmployeeColor()
@@ -611,7 +796,7 @@ export default function CalendarPage() {
         setWeekStart(nextWeekStart)
       }
     } catch (submitError) {
-      setError(
+      setFormError(
         submitError instanceof Error
           ? submitError.message
           : 'Could not add this time to the calendar.'
@@ -739,31 +924,64 @@ export default function CalendarPage() {
 
           <form className="employeeQuickAppointmentForm" onSubmit={submitCalendarEntry}>
             <div className="employeeQuickFormGrid">
-              <label>
+              <label className="calendarStaffField">
                 <span>Staff member *</span>
-                <input
-                  type="text"
-                  required
-                  value={form.employeeName}
-                  onChange={(event) => {
-                    const employeeName = event.target.value
-                    const matchingEmployee = employees.find(
-                      (employee) =>
-                        employee.is_active &&
-                        employee.name.toLowerCase() ===
-                          employeeName.trim().toLowerCase()
-                    )
+                <div className="calendarStaffInputRow">
+                  <input
+                    type="text"
+                    required
+                    value={form.employeeName}
+                    onChange={(event) => {
+                      const employeeName = event.target.value
+                      const matchingEmployee = employees.find(
+                        (employee) =>
+                          employee.is_active &&
+                          employee.name.toLowerCase() ===
+                            employeeName.trim().toLowerCase()
+                      )
 
-                    setForm((current) => ({
-                      ...current,
-                      employeeName,
-                      employeeId: matchingEmployee?.id || '',
-                    }))
-                    setColorOverride(null)
-                  }}
-                  placeholder="Type an active staff member's name"
-                  autoComplete="off"
-                />
+                      setForm((current) => ({
+                        ...current,
+                        employeeName,
+                        employeeId: matchingEmployee?.id || '',
+                      }))
+                      setColorOverride(null)
+                      setFormError('')
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        void addOrSelectStaff()
+                      }
+                    }}
+                    placeholder="Staff name"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    className="btn btnOutline"
+                    onClick={() => void addOrSelectStaff()}
+                    disabled={addingStaff || !form.employeeName.trim()}
+                  >
+                    {addingStaff ? 'Adding...' : 'Add'}
+                  </button>
+                </div>
+                <small
+                  className={
+                    form.employeeName && !form.employeeId
+                      ? 'calendarFieldHint calendarFieldHint--error'
+                      : 'calendarFieldHint'
+                  }
+                >
+                  {form.employeeName && !form.employeeId
+                    ? 'Click Add to create or select this staff member.'
+                    : employees.filter((employee) => employee.is_active)
+                          .length > 0
+                      ? form.employeeId
+                        ? `${form.employeeName} is ready for this appointment.`
+                        : 'Type a staff name and click Add.'
+                      : 'Type the first staff name and click Add.'}
+                </small>
               </label>
 
               <label>
@@ -859,34 +1077,48 @@ export default function CalendarPage() {
               <div className="employeeCustomFieldsHeading">
                 <div>
                   <strong>Additional fields</strong>
-                  <span>Add any extra information needed for this entry.</span>
+                  <span>
+                    Type one detail and click Add. It will be saved with the
+                    appointment and shown on its calendar entry.
+                  </span>
                 </div>
+              </div>
+
+              <div className="calendarAdditionalFieldComposer">
+                <input
+                  value={additionalFieldDraft}
+                  onChange={(event) => {
+                    setAdditionalFieldDraft(event.target.value)
+                    setFormError('')
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      addCustomField()
+                    }
+                  }}
+                  placeholder="Extra detail"
+                  aria-label="Additional appointment detail"
+                />
                 <button
                   type="button"
                   className="btn btnOutline"
                   onClick={addCustomField}
+                  disabled={!additionalFieldDraft.trim()}
                 >
-                  + Add field
+                  Add
                 </button>
               </div>
 
               {form.customFields.map((field) => (
                 <div className="employeeCustomFieldRow" key={field.id}>
                   <input
-                    value={field.label}
-                    onChange={(event) =>
-                      updateCustomField(field.id, 'label', event.target.value)
-                    }
-                    placeholder="Field name"
-                    aria-label="Additional field name"
-                  />
-                  <input
                     value={field.value}
                     onChange={(event) =>
-                      updateCustomField(field.id, 'value', event.target.value)
+                      updateCustomField(field.id, event.target.value)
                     }
-                    placeholder="Value"
-                    aria-label="Additional field value"
+                    placeholder="Extra detail"
+                    aria-label="Edit additional appointment detail"
                   />
                   <button
                     type="button"
@@ -898,6 +1130,12 @@ export default function CalendarPage() {
                 </div>
               ))}
             </div>
+
+            {formError && (
+              <div className="calendarAlert calendarAlert--error" role="alert">
+                {formError}
+              </div>
+            )}
 
             <button
               type="submit"
