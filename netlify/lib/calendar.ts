@@ -345,62 +345,85 @@ export const getClientCalendar = async ({
   let appointments: CalendarAppointment[] = []
   let blocks: CalendarBlock[] = []
 
+  const [appointmentResult, blockResult] = await Promise.all([
+    supabase
+      .from('appointments')
+      .select(
+        'id, employee_id, customer_name, customer_phone, customer_email, company_name, service, notes, internal_notes, appointment_time, appointment_end_time, duration_minutes, status, source'
+      )
+      .eq('client_id', clientId)
+      .gte('appointment_time', appointmentQueryStart.toISOString())
+      .lt('appointment_time', dayEnd.toISOString())
+      .order('appointment_time', { ascending: true }),
+    supabase
+      .from('employee_calendar_blocks')
+      .select(
+        'id, employee_id, title, details, block_type, starts_at, ends_at'
+      )
+      .eq('client_id', clientId)
+      .lt('starts_at', dayEnd.toISOString())
+      .gt('ends_at', dayStart.toISOString())
+      .order('starts_at', { ascending: true }),
+  ])
+
+  if (appointmentResult.error) {
+    const legacyAppointments = await supabase
+      .from('appointments')
+      .select(
+        'id, customer_name, customer_phone, customer_email, service, appointment_time, status'
+      )
+      .eq('client_id', clientId)
+      .gte('appointment_time', appointmentQueryStart.toISOString())
+      .lt('appointment_time', dayEnd.toISOString())
+      .order('appointment_time', { ascending: true })
+
+    if (legacyAppointments.error) {
+      setupWarnings.push('appointment records')
+    } else {
+      appointments = (legacyAppointments.data ?? []).map((appointment) => ({
+        ...appointment,
+        employee_id: null,
+        company_name: null,
+        notes: null,
+        internal_notes: null,
+        appointment_end_time: null,
+        duration_minutes: 30,
+        source: 'imported',
+      })) as CalendarAppointment[]
+      setupWarnings.push('extended appointment fields')
+    }
+  } else {
+    appointments = (
+      (appointmentResult.data ?? []) as CalendarAppointment[]
+    ).filter(
+      (appointment) => new Date(appointmentEnd(appointment)) > dayStart
+    )
+  }
+
+  if (blockResult.error) {
+    setupWarnings.push('blocked-time records')
+  } else {
+    blocks = (blockResult.data ?? []) as CalendarBlock[]
+  }
+
   if (employeeIds.length > 0) {
-    const [scheduleResult, appointmentResult, blockResult] =
-      await Promise.all([
-        supabase
-          .from('employee_schedules')
-          .select(
-            'employee_id, day_of_week, is_working, start_time, end_time'
-          )
-          .in('employee_id', employeeIds),
-        supabase
-          .from('appointments')
-          .select(
-            'id, employee_id, customer_name, customer_phone, customer_email, company_name, service, notes, internal_notes, appointment_time, appointment_end_time, duration_minutes, status, source'
-          )
-          .eq('client_id', clientId)
-          .gte('appointment_time', appointmentQueryStart.toISOString())
-          .lt('appointment_time', dayEnd.toISOString())
-          .order('appointment_time', { ascending: true }),
-        supabase
-          .from('employee_calendar_blocks')
-          .select(
-            'id, employee_id, title, details, block_type, starts_at, ends_at'
-          )
-          .eq('client_id', clientId)
-          .lt('starts_at', dayEnd.toISOString())
-          .gt('ends_at', dayStart.toISOString())
-          .order('starts_at', { ascending: true }),
-      ])
+    const scheduleResult = await supabase
+      .from('employee_schedules')
+      .select(
+        'employee_id, day_of_week, is_working, start_time, end_time'
+      )
+      .in('employee_id', employeeIds)
 
     if (scheduleResult.error) {
       setupWarnings.push('employee schedules')
     } else {
       employeeSchedules = (scheduleResult.data ?? []) as EmployeeSchedule[]
     }
-
-    if (appointmentResult.error) {
-      setupWarnings.push('employee appointment fields')
-    } else {
-      appointments = (
-        (appointmentResult.data ?? []) as CalendarAppointment[]
-      ).filter(
-        (appointment) =>
-          new Date(appointmentEnd(appointment)) > dayStart
-      )
-    }
-
-    if (blockResult.error) {
-      setupWarnings.push('blocked-time records')
-    } else {
-      blocks = (blockResult.data ?? []) as CalendarBlock[]
-    }
   }
 
   const warning =
     setupWarnings.length > 0
-      ? `Existing employees were loaded, but ${setupWarnings.join(
+      ? `Your calendar loaded, but ${setupWarnings.join(
           ', '
         )} still need database setup. Run supabase_add_employee_calendar.sql in Supabase.`
       : null

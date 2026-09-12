@@ -164,7 +164,7 @@ const minutesToTime = (minutes: number) => {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 }
 
-export default function EmployeeCalendar() {
+export default function CalendarPage() {
   const [weekStart, setWeekStart] = useState(() => getWeekStart(getLocalDate()))
   const [timeZone, setTimeZone] = useState('America/Toronto')
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -303,10 +303,10 @@ export default function EmployeeCalendar() {
       }))
       setError(
         restoredEmployees.length > 0
-          ? 'Your employees are available, but the calendar database setup is incomplete. Run supabase_add_employee_calendar.sql in Supabase before adding appointments or blocked time.'
+          ? 'Your staff calendars are available, but the calendar database setup is incomplete. Run supabase_add_employee_calendar.sql in Supabase before adding appointments or blocked time.'
           : loadError instanceof Error
             ? loadError.message
-            : 'Could not load the employee timetable.'
+            : 'Could not load the appointment calendar.'
       )
     } finally {
       setLoading(false)
@@ -526,7 +526,7 @@ export default function EmployeeCalendar() {
 
     try {
       if (!form.employeeId) {
-        throw new Error('Choose an employee.')
+        throw new Error('Choose a staff member.')
       }
 
       const customDetails = form.customFields
@@ -565,12 +565,12 @@ export default function EmployeeCalendar() {
         setMessage(
           body.confirmationEmailSent
             ? 'Appointment added. Confirmation emails were sent.'
-            : `Appointment added to the employee timetable. ${
+            : `Appointment added to the calendar. ${
                 body.confirmationWarning || ''
               }`.trim()
         )
       } else {
-        setMessage('The selected time is now blocked on the employee timetable.')
+        setMessage('The selected time is now blocked on the calendar.')
       }
 
       const nextWeekStart = getWeekStart(form.date)
@@ -648,20 +648,14 @@ export default function EmployeeCalendar() {
           <a href="/dashboard/calls" className="dashboardNavItem">
             Calls
           </a>
-          <a href="/dashboard/appointments" className="dashboardNavItem">
-            Appointments
-          </a>
           <a
-            href="/dashboard/employees"
+            href="/dashboard/calendar"
             className="dashboardNavItem dashboardNavItemActive"
           >
-            Employees
+            Calendar
           </a>
           <a href="/dashboard/agent" className="dashboardNavItem">
             Agent
-          </a>
-          <a href="/dashboard/requests" className="dashboardNavItem">
-            Customer Requests
           </a>
           <a href="/dashboard/billing" className="dashboardNavItem">
             Billing
@@ -675,18 +669,13 @@ export default function EmployeeCalendar() {
       <section className="dashboardMain">
         <div className="dashboardHeader appointmentPageHeader">
           <div>
-            <p className="dashboardEyebrow">EMPLOYEES</p>
-            <h1>Employee Appointments</h1>
+            <p className="dashboardEyebrow">CALENDAR</p>
+            <h1>Appointment Calendar</h1>
             <p>
-              Add appointments or blocked time, then see every employee’s week
-              in one timetable. Retell checks these same bookings before
-              offering callers a time.
+              View every booked appointment in one timetable or reserve a time
+              slot directly. Retell uses this same calendar when booking calls.
             </p>
           </div>
-
-          <a href="/dashboard/employee-hours" className="btn btnOutline">
-            Manage Employees & Hours
-          </a>
         </div>
 
         {error && <div className="calendarAlert calendarAlert--error">{error}</div>}
@@ -698,7 +687,7 @@ export default function EmployeeCalendar() {
         >
           <div className="employeeTimetableSectionHeading">
             <div>
-              <span className="appointmentSectionLabel">ADD TO CALENDAR</span>
+              <span className="appointmentSectionLabel">BOOK A TIME</span>
               <h2>
                 {form.kind === 'appointment'
                   ? 'Add appointment'
@@ -727,7 +716,7 @@ export default function EmployeeCalendar() {
           <form className="employeeQuickAppointmentForm" onSubmit={submitCalendarEntry}>
             <div className="employeeQuickFormGrid">
               <label>
-                <span>Employee *</span>
+                <span>Staff member *</span>
                 <select
                   required
                   value={form.employeeId}
@@ -736,7 +725,7 @@ export default function EmployeeCalendar() {
                     setColorOverride(null)
                   }}
                 >
-                  <option value="">Choose current employee</option>
+                  <option value="">Choose staff member</option>
                   {employees
                     .filter((employee) => employee.is_active)
                     .map((employee) => (
@@ -785,7 +774,7 @@ export default function EmployeeCalendar() {
               </label>
 
               <label className="employeeColorField">
-                <span>Employee block color</span>
+                <span>Calendar color</span>
                 <div>
                   <input
                     type="color"
@@ -901,8 +890,8 @@ export default function EmployeeCalendar() {
               <span className="appointmentSectionLabel">WEEKLY CALENDAR</span>
               <h2>{displayWeek}</h2>
               <p>
-                Each employee has their own color. Select a date heading to add
-                a new entry for that day.
+                Each staff member has their own color. Select a date heading to
+                add a new appointment or blocked time for that day.
               </p>
             </div>
 
@@ -948,15 +937,12 @@ export default function EmployeeCalendar() {
 
           {loading ? (
             <div className="appointmentInnerEmpty">
-              <strong>Loading employee timetable...</strong>
+              <strong>Loading appointment calendar...</strong>
             </div>
           ) : employees.filter((employee) => employee.is_active).length === 0 ? (
             <div className="appointmentInnerEmpty">
-              <strong>No active employees</strong>
-              <p>Add an employee before creating appointments.</p>
-              <a href="/dashboard/employee-hours" className="btn btnPrimary">
-                Manage Employees
-              </a>
+              <strong>No booking calendars are configured</strong>
+              <p>Contact Recepta to configure a staff calendar for bookings.</p>
             </div>
           ) : (
             <div

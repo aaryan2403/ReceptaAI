@@ -1,27 +1,22 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Route, Routes } from 'react-router'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 import './index.css'
 
 import App from './App.tsx'
 import Login from './pages/Login.tsx'
 import Dashboard from './pages/Dashboard.tsx'
 import Calls from './pages/Calls.tsx'
-import Appointments from './pages/Appointments.tsx'
-import Employees from './pages/Employees.tsx'
-import EmployeeHours from './pages/EmployeeHours.tsx'
+import CalendarPage from './pages/EmployeeCalendar.tsx'
 import Agent from './pages/Agent.tsx'
 import Billing from './pages/Billing.tsx'
 import Settings from './pages/Settings.tsx'
-import CustomerRequests from './pages/CustomerRequests.tsx'
 import ResetPassword from './pages/ResetPassword.tsx'
 import Admin from './pages/Admin.tsx'
 import AdminClient from './pages/AdminClient.tsx'
-import AdminRequests from './pages/AdminRequests.tsx'
 
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import AdminRoute from './components/AdminRoute.tsx'
-import ProRoute from './components/ProRoute.tsx'
 import ActiveSubscriptionRoute from './components/ActiveSubscriptionRoute.tsx'
 
 createRoot(document.getElementById('root')!).render(
@@ -69,26 +64,33 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
-        {/* ACTIVE PRO ONLY */}
+        {/* ACTIVE STANDARD + ACTIVE PRO */}
         <Route
-          path="/dashboard/appointments"
+          path="/dashboard/calendar"
           element={
             <ProtectedRoute>
-              <ProRoute>
-                <Appointments />
-              </ProRoute>
+              <ActiveSubscriptionRoute>
+                <CalendarPage />
+              </ActiveSubscriptionRoute>
             </ProtectedRoute>
           }
         />
 
-        {/* ACTIVE STANDARD + ACTIVE PRO */}
+        {/* Legacy links now open the single calendar workspace. */}
+        <Route
+          path="/dashboard/appointments"
+          element={
+            <ProtectedRoute>
+              <Navigate to="/dashboard/calendar" replace />
+            </ProtectedRoute>
+          }
+        />
+
         <Route
           path="/dashboard/employees"
           element={
             <ProtectedRoute>
-              <ActiveSubscriptionRoute>
-                <Employees />
-              </ActiveSubscriptionRoute>
+              <Navigate to="/dashboard/calendar" replace />
             </ProtectedRoute>
           }
         />
@@ -97,9 +99,7 @@ createRoot(document.getElementById('root')!).render(
           path="/dashboard/employee-hours"
           element={
             <ProtectedRoute>
-              <ActiveSubscriptionRoute>
-                <EmployeeHours />
-              </ActiveSubscriptionRoute>
+              <Navigate to="/dashboard/calendar" replace />
             </ProtectedRoute>
           }
         />
@@ -138,13 +138,12 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
-        {/* Customer support requests stay reachable for every
-            logged-in Standard or Pro customer. */}
+        {/* The retired customer-request page returns to Overview. */}
         <Route
           path="/dashboard/requests"
           element={
             <ProtectedRoute>
-              <CustomerRequests />
+              <Navigate to="/dashboard" replace />
             </ProtectedRoute>
           }
         />
@@ -175,7 +174,7 @@ createRoot(document.getElementById('root')!).render(
           path="/admin/requests"
           element={
             <AdminRoute>
-              <AdminRequests />
+              <Navigate to="/admin" replace />
             </AdminRoute>
           }
         />

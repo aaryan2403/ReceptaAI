@@ -330,20 +330,11 @@ export default function Settings() {
             Calls
           </a>
 
-          {isPro && (
-            <a
-              href="/dashboard/appointments"
-              className="dashboardNavItem"
-            >
-              Appointments
-            </a>
-          )}
-
           <a
-            href="/dashboard/employees"
+            href="/dashboard/calendar"
             className="dashboardNavItem"
           >
-            Employees
+            Calendar
           </a>
 
           <a
@@ -351,13 +342,6 @@ export default function Settings() {
             className="dashboardNavItem"
           >
             Agent
-          </a>
-
-          <a
-            href="/dashboard/requests"
-            className="dashboardNavItem"
-          >
-            Customer Requests
           </a>
 
           <a

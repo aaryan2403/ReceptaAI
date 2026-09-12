@@ -317,9 +317,6 @@ export default function Billing() {
     !subscription ||
     subscription.status === 'pending'
 
-  const currentIsPro =
-    subscription?.plan_name === 'Recepta Pro'
-
   const currentModel = useMemo(() => {
     if (!subscription?.ai_model_id) {
       return null
@@ -825,20 +822,11 @@ export default function Billing() {
                 Calls
               </a>
 
-              {currentIsPro && (
-                <a
-                  href="/dashboard/appointments"
-                  className="dashboardNavItem"
-                >
-                  Appointments
-                </a>
-              )}
-
               <a
-                href="/dashboard/employees"
+                href="/dashboard/calendar"
                 className="dashboardNavItem"
               >
-                Employees
+                Calendar
               </a>
 
               <a
@@ -848,15 +836,6 @@ export default function Billing() {
                 Agent
               </a>
             </>
-          )}
-
-          {!subscriptionIsPending && (
-            <a
-              href="/dashboard/requests"
-              className="dashboardNavItem"
-            >
-              Customer Requests
-            </a>
           )}
 
           {!subscriptionIsPending && (

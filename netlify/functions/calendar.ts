@@ -78,12 +78,9 @@ export default async (request: Request) => {
     return json(500, { error: 'Could not verify calendar access.' })
   }
 
-  if (
-    subscription?.status !== 'active' ||
-    subscription.plan_name !== 'Recepta Pro'
-  ) {
+  if (subscription?.status !== 'active') {
     return json(403, {
-      error: 'The employee appointment calendar requires an active Recepta Pro plan.',
+      error: 'The appointment calendar requires an active Recepta plan.',
     })
   }
 
@@ -109,7 +106,7 @@ export default async (request: Request) => {
         error:
           error instanceof Error
             ? error.message
-            : 'Could not load the employee calendar.',
+            : 'Could not load the appointment calendar.',
       })
     }
   }
