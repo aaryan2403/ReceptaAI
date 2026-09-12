@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import './EmployeeCalendar.css'
 
 type AppointmentStatus = 'booked' | 'cancelled' | 'completed'
 type EntryKind = 'appointment' | 'block'
@@ -244,12 +245,21 @@ export default function CalendarPage() {
       }
 
       setTimeZone(calendar.timeZone)
-      setEmployees(calendar.employees)
+      const calendarEmployees = calendar.employees.map((employee) => ({
+        ...employee,
+        calendar_color:
+          employee.calendar_color ||
+          window.localStorage.getItem(
+            `recepta-employee-color:${employee.id}`
+          ),
+      }))
+
+      setEmployees(calendarEmployees)
       setAppointments(calendar.appointments)
       setBlocks(calendar.blocks)
       setError(calendar.warning || '')
 
-      const activeEmployees = calendar.employees.filter(
+      const activeEmployees = calendarEmployees.filter(
         (employee) => employee.is_active
       )
       const firstEmployee = activeEmployees[0]
@@ -564,13 +574,15 @@ export default function CalendarPage() {
       if (form.kind === 'appointment') {
         setMessage(
           body.confirmationEmailSent
-            ? 'Appointment added. Confirmation emails were sent.'
-            : `Appointment added to the calendar. ${
+            ? 'Appointment added, available to your AI agent, and confirmation emails were sent.'
+            : `Appointment added and available to your AI agent immediately. ${
                 body.confirmationWarning || ''
               }`.trim()
         )
       } else {
-        setMessage('The selected time is now blocked on the calendar.')
+        setMessage(
+          'The selected time is blocked. Your AI agent will no longer offer it.'
+        )
       }
 
       const nextWeekStart = getWeekStart(form.date)
@@ -635,7 +647,7 @@ export default function CalendarPage() {
   })}`
 
   return (
-    <main className="dashboardPage">
+    <main className="dashboardPage calendarResponsivePage">
       <aside className="dashboardSidebar">
         <a href="/" className="dashboardBrand">
           <img src="/components/logoR.png" alt="Recepta" />
@@ -666,7 +678,7 @@ export default function CalendarPage() {
         </nav>
       </aside>
 
-      <section className="dashboardMain">
+      <section className="dashboardMain calendarResponsiveMain">
         <div className="dashboardHeader appointmentPageHeader">
           <div>
             <p className="dashboardEyebrow">CALENDAR</p>

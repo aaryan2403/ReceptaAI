@@ -318,7 +318,6 @@ export const getClientCalendar = async ({
       ...employee,
       calendar_color: null,
     })) as CalendarEmployee[]
-    setupWarnings.push('employee colors')
   } else {
     employeeRows = (employeeWithColorResult.data ?? []) as CalendarEmployee[]
   }

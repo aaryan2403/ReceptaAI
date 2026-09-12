@@ -774,6 +774,26 @@ export default function Dashboard() {
           </div>
         </div>
 
+        <section className="dashboardRequestShortcut">
+          <div>
+            <p className="dashboardEyebrow">SUPPORT</p>
+            <h2>Need any changes? Ask for help</h2>
+            <p>
+              Ask Recepta for an agent update, website change, billing help or
+              anything else you need.
+            </p>
+          </div>
+
+          <a
+            className="btn btnPrimary"
+            href="https://mail.google.com/mail/?view=cm&fs=1&to=receptahelp02@gmail.com&su=Recepta%20Help%20Request"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Ask for Help
+          </a>
+        </section>
+
         {isSubscriptionCancelled ? (
           <div className="dashboardEmptyState">
             <h2>
