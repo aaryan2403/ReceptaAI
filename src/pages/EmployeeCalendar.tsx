@@ -239,6 +239,7 @@ export default function CalendarPage() {
   const [addingStaff, setAddingStaff] = useState(false)
   const [savingFieldSchema, setSavingFieldSchema] = useState(false)
   const [savingOverlap, setSavingOverlap] = useState(false)
+  const [syncingAgent, setSyncingAgent] = useState(false)
   const [error, setError] = useState('')
   const [formError, setFormError] = useState('')
   const [message, setMessage] = useState('')
@@ -554,7 +555,7 @@ export default function CalendarPage() {
         }
       })
 
-      let syncNote = ''
+      let syncNote = ' The AI agent was updated.'
       try {
         await syncEmployeeScheduleWithRetell({
           employeeId: employee.id,
@@ -658,7 +659,7 @@ export default function CalendarPage() {
         `recepta-employee-color:${employee.id}`
       )
 
-      let syncNote = ''
+      let syncNote = ' The AI agent was updated.'
       try {
         await syncEmployeeScheduleWithRetell()
       } catch (syncError) {
@@ -677,21 +678,56 @@ export default function CalendarPage() {
     }
   }
 
+  const saveAndUpdateAgent = async () => {
+    setSyncingAgent(true)
+    setError('')
+    setMessage('')
+
+    try {
+      await syncDashboardContextWithRetell()
+      setMessage(
+        'Calendar employees, appointment fields and store schedule were saved and the AI agent was updated.'
+      )
+    } catch (syncError) {
+      setError(
+        syncError instanceof Error
+          ? syncError.message
+          : 'Could not update the AI agent.'
+      )
+    } finally {
+      setSyncingAgent(false)
+    }
+  }
+
   const saveOverlapLimit = async () => {
     const limit = Math.max(0, Math.min(10, Math.round(overlapLimit || 0)))
     setOverlapLimit(limit)
     setSavingOverlap(true)
     setError('')
+    setMessage('')
 
     try {
       const { error: updateError } = await supabase.auth.updateUser({
         data: { appointment_overlap_limit: limit },
       })
       if (updateError) throw updateError
+
+      try {
+        await syncDashboardContextWithRetell()
+      } catch (syncError) {
+        throw new Error(
+          `The overlap rule was saved, but the AI agent could not be updated: ${
+            syncError instanceof Error
+              ? syncError.message
+              : 'Retell synchronization failed.'
+          }`
+        )
+      }
+
       setMessage(
         limit === 0
-          ? 'Overlapping appointments are disabled.'
-          : `${limit} additional overlap${limit === 1 ? '' : 's'} allowed per employee.`
+          ? 'Overlapping appointments are disabled and the AI agent was updated.'
+          : `${limit} additional overlap${limit === 1 ? '' : 's'} allowed per employee, and the AI agent was updated.`
       )
     } catch (overlapError) {
       setError(
@@ -750,6 +786,9 @@ export default function CalendarPage() {
 
       try {
         await syncDashboardContextWithRetell()
+        setMessage(
+          `${label} was saved for every employee and the AI agent was updated.`
+        )
       } catch (syncError) {
         setFormError(
           `Field saved for every employee, but the AI sync needs attention: ${
@@ -793,6 +832,9 @@ export default function CalendarPage() {
 
       try {
         await syncDashboardContextWithRetell()
+        setMessage(
+          `${field.label} was removed for every employee and the AI agent was updated.`
+        )
       } catch (syncError) {
         setFormError(
           `Field removed for every employee, but the AI sync needs attention: ${
@@ -850,7 +892,7 @@ export default function CalendarPage() {
         }),
       })
 
-      let syncNote = ''
+      let syncNote = ' The AI agent was updated.'
       try {
         await syncDashboardContextWithRetell()
       } catch (syncError) {
@@ -887,7 +929,7 @@ export default function CalendarPage() {
         `/.netlify/functions/calendar?kind=block&id=${encodeURIComponent(id)}`,
         { method: 'DELETE' }
       )
-      let syncNote = ''
+      let syncNote = ' The AI agent was updated.'
       try {
         await syncDashboardContextWithRetell()
       } catch (syncError) {
@@ -919,7 +961,7 @@ export default function CalendarPage() {
         method: 'PATCH',
         body: JSON.stringify({ id, status: 'cancelled' }),
       })
-      let syncNote = ''
+      let syncNote = ' The AI agent was updated.'
       try {
         await syncDashboardContextWithRetell()
       } catch (syncError) {
@@ -973,9 +1015,19 @@ export default function CalendarPage() {
             <h1>Appointments</h1>
             <p>Manage employees, bookings and availability in one place.</p>
           </div>
-          <button className="btn btnPrimary" type="button" onClick={() => openComposer()}>
-            + Add appointment
-          </button>
+          <div className="calendarHeaderActions">
+            <button
+              className="btn btnOutline"
+              type="button"
+              disabled={syncingAgent}
+              onClick={() => void saveAndUpdateAgent()}
+            >
+              {syncingAgent ? 'Updating Agent...' : 'Save & Update Agent'}
+            </button>
+            <button className="btn btnPrimary" type="button" onClick={() => openComposer()}>
+              + Add appointment
+            </button>
+          </div>
         </header>
 
         {error && <div className="calendarAlert calendarAlert--error">{error}</div>}
@@ -987,26 +1039,33 @@ export default function CalendarPage() {
             <h2>Amount of appointment overlaps allowed</h2>
             <p>Use 0 to prevent double-booking. Each number allows one additional appointment at the same time for one employee.</p>
           </div>
-          <label>
-            <span>Overlap amount</span>
-            <input
-              type="number"
-              min="0"
-              max="10"
-              step="1"
-              value={overlapLimit}
-              onChange={(event) => setOverlapLimit(Number(event.target.value))}
-              onBlur={() => void saveOverlapLimit()}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') event.currentTarget.blur()
-              }}
-            />
-            <small>
-              {savingOverlap
-                ? 'Saving...'
-                : 'Saved automatically and used by the AI agent'}
-            </small>
-          </label>
+          <div className="calendarOverlapActions">
+            <label>
+              <span>Overlap amount</span>
+              <input
+                type="number"
+                min="0"
+                max="10"
+                step="1"
+                value={overlapLimit}
+                onChange={(event) => setOverlapLimit(Number(event.target.value))}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void saveOverlapLimit()
+                  }
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btnPrimary"
+              disabled={savingOverlap}
+              onClick={() => void saveOverlapLimit()}
+            >
+              {savingOverlap ? 'Saving & Updating Agent...' : 'Save & Update Agent'}
+            </button>
+          </div>
         </section>
 
         <section className="calendarSketchCard calendarEmployeesCard">
@@ -1184,7 +1243,9 @@ export default function CalendarPage() {
                       disabled={addingStaff || !staffDraft.trim()}
                       onClick={() => void addOrSelectStaff()}
                     >
-                      {addingStaff ? 'Adding...' : '+ Add'}
+                      {addingStaff
+                        ? 'Saving & Updating Agent...'
+                        : 'Save & Update Agent'}
                     </button>
                   </div>
                   <small>New employees are selected automatically.</small>
@@ -1246,7 +1307,7 @@ export default function CalendarPage() {
                         disabled={savingFieldSchema}
                         onClick={() => void deleteDetail(field)}
                       >
-                        Delete field
+                      Delete & Update Agent
                       </button>
                     </span>
                     <input
@@ -1290,7 +1351,9 @@ export default function CalendarPage() {
                     onClick={() => void addDetail()}
                     disabled={savingFieldSchema || !detailDraft.trim()}
                   >
-                    {savingFieldSchema ? 'Saving...' : '+ Add field'}
+                    {savingFieldSchema
+                      ? 'Saving & Updating Agent...'
+                      : 'Save & Update Agent'}
                   </button>
                 </div>
               </div>
@@ -1299,7 +1362,9 @@ export default function CalendarPage() {
               <div className="calendarModalActions">
                 <button type="button" className="btn btnOutline" onClick={() => setComposerOpen(false)}>Cancel</button>
                 <button type="submit" className="btn btnPrimary" disabled={saving}>
-                  {saving ? 'Saving...' : 'Add to calendar'}
+                  {saving
+                    ? 'Saving & Updating Agent...'
+                    : 'Save & Update Agent'}
                 </button>
               </div>
             </form>
@@ -1332,10 +1397,10 @@ export default function CalendarPage() {
             </dl>
             <div className="calendarModalActions">
               {viewItem.kind === 'appointment' && (
-                <button type="button" className="btn btnDanger" onClick={() => void deleteAppointment(viewItem.id)}>Delete appointment</button>
+                <button type="button" className="btn btnDanger" onClick={() => void deleteAppointment(viewItem.id)}>Delete & Update Agent</button>
               )}
               {viewItem.kind === 'block' && (
-                <button type="button" className="btn btnDanger" onClick={() => void deleteBlock(viewItem.id)}>Remove block</button>
+                <button type="button" className="btn btnDanger" onClick={() => void deleteBlock(viewItem.id)}>Remove & Update Agent</button>
               )}
               <button type="button" className="btn btnPrimary" onClick={() => setViewItem(null)}>Done</button>
             </div>

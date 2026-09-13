@@ -27,6 +27,12 @@
   color: rgba(203, 222, 210, 0.56);
 }
 
+.calendarHeaderActions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+}
+
 .calendarSketchHeader > .btn {
   flex: 0 0 auto;
 }
@@ -116,6 +122,11 @@
 .calendarOverlapCard small {
   color: rgba(203, 222, 210, 0.44);
   font-size: 10px;
+}
+
+.calendarOverlapActions {
+  display: grid;
+  gap: 10px;
 }
 
 .calendarCardHeading {
@@ -646,9 +657,16 @@
   }
 
   .calendarSketchHeader > .btn,
+  .calendarHeaderActions,
+  .calendarHeaderActions .btn,
   .calendarMonthControls,
   .calendarMonthControls .btn {
     width: 100%;
+  }
+
+  .calendarHeaderActions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .calendarMonthControls {
