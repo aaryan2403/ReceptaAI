@@ -4,7 +4,10 @@ import {
   getBusinessTimeZone,
   getStoredBusinessSchedule,
 } from '../lib/employeeSchedule'
-import { syncRetellSchedule } from '../lib/retell'
+import {
+  normalizeAppointmentFields,
+  syncRetellSchedule,
+} from '../lib/retell'
 
 const json = (status: number, body: Record<string, unknown>) =>
   new Response(JSON.stringify(body), {
@@ -45,6 +48,8 @@ const normalizeScheduleSave = (
     throw new Error('A complete seven-day employee schedule is required.')
   }
 
+  const employeeId = body.employeeId.trim()
+
   const days = new Set<number>()
   const schedules = body.schedules.map((item) => {
     if (!item || typeof item !== 'object') {
@@ -81,7 +86,7 @@ const normalizeScheduleSave = (
     days.add(dayOfWeek as number)
 
     return {
-      employee_id: body.employeeId.trim(),
+      employee_id: employeeId,
       day_of_week: dayOfWeek as number,
       is_working: isWorking,
       start_time: isWorking ? (startTime as string) : null,
@@ -89,7 +94,7 @@ const normalizeScheduleSave = (
     }
   })
 
-  return { employeeId: body.employeeId.trim(), schedules }
+  return { employeeId, schedules }
 }
 
 export default async (request: Request) => {
@@ -290,6 +295,9 @@ export default async (request: Request) => {
   const storeSchedule = getStoredBusinessSchedule(
     agentResult.data.business_hours
   )
+  const appointmentFields = normalizeAppointmentFields(
+    user.user_metadata?.appointment_custom_fields
+  )
 
   try {
     const result = await syncRetellSchedule({
@@ -298,6 +306,7 @@ export default async (request: Request) => {
       schedule: storeSchedule,
       employeeSchedule,
       employeeScheduleTimeZone: timeZone,
+      appointmentFields,
     })
 
     return json(200, {

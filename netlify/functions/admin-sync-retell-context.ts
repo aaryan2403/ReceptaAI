@@ -3,7 +3,10 @@ import {
   buildEmployeeScheduleContext,
   getStoredBusinessSchedule,
 } from '../lib/employeeSchedule'
-import { syncRetellSchedule } from '../lib/retell'
+import {
+  normalizeAppointmentFields,
+  syncRetellSchedule,
+} from '../lib/retell'
 
 const json = (status: number, body: Record<string, unknown>) =>
   new Response(JSON.stringify(body), {
@@ -132,12 +135,19 @@ export default async (request: Request) => {
         timeZone: storeSchedule.timeZone,
       })
 
+      const { data: clientUserResult } =
+        await supabaseAdmin.auth.admin.getUserById(agent.client_id)
+      const appointmentFields = normalizeAppointmentFields(
+        clientUserResult.user?.user_metadata?.appointment_custom_fields
+      )
+
       await syncRetellSchedule({
         apiKey: retellApiKey,
         agentId: agent.retell_agent_id!.trim(),
         schedule: storeSchedule,
         employeeSchedule,
         employeeScheduleTimeZone: storeSchedule.timeZone,
+        appointmentFields,
       })
 
       results.push({

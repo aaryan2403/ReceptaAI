@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import {
+  normalizeAppointmentFields,
   syncRetellSchedule,
   type RetellOperatingDay,
   type RetellSchedule,
@@ -269,6 +270,9 @@ export default async (request: Request) => {
     schedules: employeeSchedules,
     timeZone: schedule.timeZone,
   })
+  const appointmentFields = normalizeAppointmentFields(
+    user.user_metadata?.appointment_custom_fields
+  )
 
   const { error: updateError } = await supabaseAdmin
     .from('agents')
@@ -288,6 +292,7 @@ export default async (request: Request) => {
       schedule,
       employeeSchedule,
       employeeScheduleTimeZone: schedule.timeZone,
+      appointmentFields,
     })
 
     return json(200, {

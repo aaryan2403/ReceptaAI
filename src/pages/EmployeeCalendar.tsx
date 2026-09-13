@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { syncEmployeeScheduleWithRetell } from '../lib/employeeSchedule'
+import { syncDashboardContextWithRetell } from '../lib/dashboardSync'
 import './EmployeeCalendar.css'
 
 type EntryKind = 'appointment' | 'block'
@@ -746,6 +747,18 @@ export default function CalendarPage() {
         customFields: fieldsFromLabels(nextLabels, current.customFields),
       }))
       setDetailDraft('')
+
+      try {
+        await syncDashboardContextWithRetell()
+      } catch (syncError) {
+        setFormError(
+          `Field saved for every employee, but the AI sync needs attention: ${
+            syncError instanceof Error
+              ? syncError.message
+              : 'Retell synchronization failed.'
+          }`
+        )
+      }
     } catch (fieldError) {
       setFormError(
         fieldError instanceof Error
@@ -777,6 +790,18 @@ export default function CalendarPage() {
           (item) => item.id !== field.id
         ),
       }))
+
+      try {
+        await syncDashboardContextWithRetell()
+      } catch (syncError) {
+        setFormError(
+          `Field removed for every employee, but the AI sync needs attention: ${
+            syncError instanceof Error
+              ? syncError.message
+              : 'Retell synchronization failed.'
+          }`
+        )
+      }
     } catch (fieldError) {
       setFormError(
         fieldError instanceof Error
@@ -825,11 +850,22 @@ export default function CalendarPage() {
         }),
       })
 
+      let syncNote = ''
+      try {
+        await syncDashboardContextWithRetell()
+      } catch (syncError) {
+        syncNote = ` The appointment is live in the calendar, but AI context sync needs attention: ${
+          syncError instanceof Error
+            ? syncError.message
+            : 'Retell synchronization failed.'
+        }`
+      }
+
       setComposerOpen(false)
       setMessage(
         body.confirmationEmailSent
-          ? 'Appointment added and confirmation emails sent.'
-          : `Appointment added and available to the AI agent. ${body.confirmationWarning || ''}`.trim()
+          ? `Appointment added and confirmation emails sent.${syncNote}`
+          : `Appointment added and available to the AI agent. ${body.confirmationWarning || ''}${syncNote}`.trim()
       )
       setMonth(monthStart(form.date))
       await loadCalendar()
@@ -851,9 +887,19 @@ export default function CalendarPage() {
         `/.netlify/functions/calendar?kind=block&id=${encodeURIComponent(id)}`,
         { method: 'DELETE' }
       )
+      let syncNote = ''
+      try {
+        await syncDashboardContextWithRetell()
+      } catch (syncError) {
+        syncNote = ` The calendar changed, but AI context sync needs attention: ${
+          syncError instanceof Error
+            ? syncError.message
+            : 'Retell synchronization failed.'
+        }`
+      }
       setBlocks((current) => current.filter((block) => block.id !== id))
       setViewItem(null)
-      setMessage('Blocked time removed.')
+      setMessage(`Blocked time removed.${syncNote}`)
     } catch (deleteError) {
       setError(
         deleteError instanceof Error
@@ -873,12 +919,22 @@ export default function CalendarPage() {
         method: 'PATCH',
         body: JSON.stringify({ id, status: 'cancelled' }),
       })
+      let syncNote = ''
+      try {
+        await syncDashboardContextWithRetell()
+      } catch (syncError) {
+        syncNote = ` The appointment is deleted from the live calendar, but AI context sync needs attention: ${
+          syncError instanceof Error
+            ? syncError.message
+            : 'Retell synchronization failed.'
+        }`
+      }
       setAppointments((current) =>
         current.filter((appointment) => appointment.id !== id)
       )
       setViewItem(null)
       setMessage(
-        'Appointment deleted. The AI agent can offer this time again.'
+        `Appointment deleted. The AI agent can offer this time again.${syncNote}`
       )
     } catch (deleteError) {
       setError(

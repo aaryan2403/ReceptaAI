@@ -8,7 +8,10 @@ import {
   normalizeDuration,
 } from '../lib/calendar'
 import { sendAppointmentConfirmations } from '../lib/appointmentEmail'
-import { verifyRetellSignature } from '../lib/retell'
+import {
+  normalizeAppointmentFields,
+  verifyRetellSignature,
+} from '../lib/retell'
 
 const json = (status: number, body: Record<string, unknown>) =>
   new Response(JSON.stringify(body), {
@@ -128,6 +131,23 @@ export default async (request: Request) => {
     })
   }
 
+  let appointmentFields: string[] = []
+  try {
+    const { data: clientUserResult, error: clientUserError } =
+      await supabaseAdmin.auth.admin.getUserById(clientId)
+
+    if (clientUserError) throw clientUserError
+
+    appointmentFields = normalizeAppointmentFields(
+      clientUserResult.user?.user_metadata?.appointment_custom_fields
+    )
+  } catch (error) {
+    console.error(
+      'Could not load dashboard appointment fields for calendar tool:',
+      error
+    )
+  }
+
   const args = payload.args ?? {}
 
   try {
@@ -144,9 +164,10 @@ export default async (request: Request) => {
       return json(200, {
         success: true,
         employees: data ?? [],
+        appointment_fields: appointmentFields,
         instruction:
           data && data.length > 0
-            ? 'Let the caller choose an employee, or offer to find the earliest available employee.'
+            ? 'Let the caller choose an employee, or offer to find the earliest available employee. Collect the configured appointment fields when relevant and include their values in the booking notes.'
             : 'No active employees are currently available for booking.',
       })
     }
@@ -172,6 +193,7 @@ export default async (request: Request) => {
         date,
         time_zone: result.timeZone,
         requested_employee: employeeName,
+        appointment_fields: appointmentFields,
         available_slots: result.slots.map((slot) => ({
           employee_name: slot.employeeName,
           employee_role: slot.employeeRole,
@@ -341,6 +363,7 @@ export default async (request: Request) => {
       success: true,
       appointment_id: appointmentId,
       employee_name: employee.name,
+      appointment_fields: appointmentFields,
       start_iso: exactSlot.start,
       end_iso: exactSlot.end,
       time_zone: exactSlot.timeZone,

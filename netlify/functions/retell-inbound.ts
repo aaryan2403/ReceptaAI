@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import {
+  formatAppointmentFields,
+  normalizeAppointmentFields,
   normalizeE164,
   syncRetellPhoneBinding,
   verifyRetellSignature,
@@ -389,6 +391,7 @@ export default async (request: Request) => {
     agent.business_hours
   )
   let employeeSchedule = `Business timezone: ${employeeScheduleTimeZone}. No active employees are configured.`
+  let appointmentFields: string[] = []
 
   try {
     const { data: employees, error: employeesError } =
@@ -434,6 +437,22 @@ export default async (request: Request) => {
       error
     )
     employeeSchedule = `Business timezone: ${employeeScheduleTimeZone}. Employee availability is temporarily unavailable; do not invent an employee schedule.`
+  }
+
+  try {
+    const { data: clientUserResult, error: clientUserError } =
+      await supabaseAdmin.auth.admin.getUserById(agent.client_id)
+
+    if (clientUserError) throw clientUserError
+
+    appointmentFields = normalizeAppointmentFields(
+      clientUserResult.user?.user_metadata?.appointment_custom_fields
+    )
+  } catch (error) {
+    console.error(
+      'Could not load dashboard appointment fields for inbound call:',
+      error
+    )
   }
 
   const now = new Date()
@@ -626,6 +645,8 @@ export default async (request: Request) => {
         recepta_employee_schedule: employeeSchedule,
         recepta_employee_schedule_timezone:
           employeeScheduleTimeZone,
+        recepta_appointment_fields:
+          formatAppointmentFields(appointmentFields),
       },
       metadata: {
         recepta_client_id: agent.client_id,

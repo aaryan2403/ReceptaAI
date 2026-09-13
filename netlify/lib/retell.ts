@@ -466,6 +466,9 @@ const EMPLOYEE_SCHEDULE_PROMPT_MARKER =
 const APPOINTMENT_BOOKING_PROMPT_MARKER =
   '[RECEPTA MANAGED APPOINTMENT BOOKING]'
 
+const APPOINTMENT_FIELDS_PROMPT_MARKER =
+  '[RECEPTA MANAGED APPOINTMENT FIELDS]'
+
 const RECEPTA_CALENDAR_TOOL_NAMES = new Set([
   'recepta_list_employees',
   'recepta_check_availability',
@@ -605,6 +608,12 @@ const LEGACY_MANAGED_PROMPT_LINES: Record<string, string[][]> = {
       'Do not expose private contact details, invent availability, or claim an appointment is booked unless an authorized booking tool confirms it.',
     ],
   ],
+  [APPOINTMENT_FIELDS_PROMPT_MARKER]: [
+    [
+      'The additional appointment fields configured in the Recepta dashboard are supplied in {{recepta_appointment_fields}}.',
+      'Collect those fields when they are relevant to the caller\'s booking and include the values in the booking notes.',
+    ],
+  ],
 }
 
 const appendManagedPrompt = (
@@ -660,18 +669,43 @@ const formatBusinessHours = (schedule: RetellSchedule) => {
   ].join('\n')
 }
 
+export const normalizeAppointmentFields = (value: unknown) => {
+  if (!Array.isArray(value)) return []
+
+  const labels: string[] = []
+  value.forEach((item) => {
+    if (typeof item !== 'string') return
+    const label = item.trim().slice(0, 60)
+    if (
+      label &&
+      !labels.some((existing) => existing.toLowerCase() === label.toLowerCase())
+    ) {
+      labels.push(label)
+    }
+  })
+
+  return labels.slice(0, 20)
+}
+
+export const formatAppointmentFields = (fields: string[]) =>
+  fields.length > 0
+    ? fields.map((field) => `- ${field}`).join('\n')
+    : 'No additional appointment fields are configured.'
+
 export const syncRetellSchedule = async ({
   apiKey,
   agentId,
   schedule,
   employeeSchedule,
   employeeScheduleTimeZone,
+  appointmentFields,
 }: {
   apiKey: string
   agentId: string
   schedule: RetellSchedule
   employeeSchedule?: string
   employeeScheduleTimeZone?: string
+  appointmentFields?: string[]
 }) => {
   const versions =
     await retellRequest<RetellVersionList>(
@@ -751,6 +785,17 @@ export const syncRetellSchedule = async ({
     )
   }
 
+  generalPrompt = appendManagedPrompt(
+    generalPrompt,
+    APPOINTMENT_FIELDS_PROMPT_MARKER,
+    [
+      'The Recepta dashboard is the authoritative source for additional appointment fields.',
+      'Configured fields: {{recepta_appointment_fields}}',
+      'Collect each configured field when it is relevant to the caller\'s request and include the label and value in the booking notes.',
+      'If no additional fields are configured, do not ask for invented fields.',
+    ]
+  )
+
   const siteUrl = process.env.URL?.trim().replace(/\/$/, '')
   const existingTools = currentLlm.general_tools ?? []
   let generalTools = existingTools
@@ -797,6 +842,12 @@ export const syncRetellSchedule = async ({
                 recepta_employee_schedule: employeeSchedule,
                 recepta_employee_schedule_timezone:
                   employeeScheduleTimeZone ?? schedule.timeZone,
+              }
+            : {}),
+          ...(appointmentFields
+            ? {
+                recepta_appointment_fields:
+                  formatAppointmentFields(appointmentFields),
               }
             : {}),
         },
