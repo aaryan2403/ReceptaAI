@@ -1,6 +1,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import {
+  assertRetellAgentAvailable,
   syncRetellPhoneBindings,
   syncRetellSchedule,
   syncRetellSubscription,
@@ -194,6 +195,28 @@ export default async (request: Request) => {
       error:
         'Retell Agent ID must start with agent_.',
     })
+  }
+
+  if (retellAgentId) {
+    if (!retellApiKey) {
+      return json(500, {
+        error: 'RETELL_API_KEY is missing.',
+      })
+    }
+
+    try {
+      await assertRetellAgentAvailable({
+        apiKey: retellApiKey,
+        agentId: retellAgentId,
+      })
+    } catch (error) {
+      return json(400, {
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Could not verify the Retell agent.',
+      })
+    }
   }
 
   if (
@@ -564,12 +587,6 @@ export default async (request: Request) => {
   }
 
   if (retellAgentId) {
-    if (!retellApiKey) {
-      return json(500, {
-        error: 'RETELL_API_KEY is missing.',
-      })
-    }
-
     try {
       await syncRetellSubscription({
         apiKey: retellApiKey,

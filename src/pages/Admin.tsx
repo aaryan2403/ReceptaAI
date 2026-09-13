@@ -1436,6 +1436,9 @@ export default function Admin() {
                 }
                 placeholder="agent_xxxxxxxxx"
               />
+              <small>
+                Paste the full Agent ID from the Retell workspace connected to Recepta.
+              </small>
             </label>
 
             <label>
@@ -2082,6 +2085,9 @@ export default function Admin() {
                     }
                     placeholder="agent_xxxxxxxxx"
                   />
+                  <small>
+                    Paste the full Agent ID from the Retell workspace connected to Recepta.
+                  </small>
                 </label>
 
                 <label>

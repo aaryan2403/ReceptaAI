@@ -1,4 +1,5 @@
-
+import { createClient } from '@supabase/supabase-js'
+import { assertRetellAgentAvailable } from '../lib/retell'
 
 const ADMIN_EMAIL =
   (
@@ -7,7 +8,7 @@ const ADMIN_EMAIL =
   ).toLowerCase()
 
 const isAdminUser = async (
-  supabaseAdmin: any,
+  supabaseAdmin: ReturnType<typeof createClient>,
   user: { id: string; email?: string | null }
 ) => {
   const emailMatches =
@@ -150,6 +151,43 @@ export default async (request: Request) => {
           headers: { 'Content-Type': 'application/json' },
         }
       )
+    }
+
+    if (normalizedRetellId) {
+      const retellApiKey =
+        process.env.RETELL_API_KEY
+
+      if (!retellApiKey) {
+        return new Response(
+          JSON.stringify({
+            error: 'RETELL_API_KEY is missing.',
+          }),
+          {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      }
+
+      try {
+        await assertRetellAgentAvailable({
+          apiKey: retellApiKey,
+          agentId: normalizedRetellId,
+        })
+      } catch (error) {
+        return new Response(
+          JSON.stringify({
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Could not verify the Retell agent.',
+          }),
+          {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      }
     }
 
     const { error } =

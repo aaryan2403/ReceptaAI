@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import {
+  assertRetellAgentAvailable,
   purchaseRetellPhoneNumber,
   releaseRetellPhoneNumber,
   syncRetellSchedule,
@@ -395,6 +396,34 @@ export default async (request: Request) => {
           },
         }
       )
+    }
+
+    if (
+      normalizedRetellId &&
+      retellApiKey
+    ) {
+      try {
+        await assertRetellAgentAvailable({
+          apiKey: retellApiKey,
+          agentId: normalizedRetellId,
+        })
+      } catch (error) {
+        return new Response(
+          JSON.stringify({
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Could not verify the Retell agent.',
+          }),
+          {
+            status: 400,
+            headers: {
+              'Content-Type':
+                'application/json',
+            },
+          }
+        )
+      }
     }
 
     const normalizedEmail =

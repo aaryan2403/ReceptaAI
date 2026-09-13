@@ -1201,12 +1201,19 @@ export default function CalendarPage() {
                   <input type="time" required value={form.time} onChange={(event) => updateForm('time', event.target.value)} />
                 </label>
                 <label>
-                  <span>Length *</span>
-                  <select value={form.durationMinutes} onChange={(event) => updateForm('durationMinutes', event.target.value)}>
-                    {[15, 30, 45, 60, 90, 120, 180, 240].map((duration) => (
-                      <option key={duration} value={duration}>{duration} minutes</option>
-                    ))}
-                  </select>
+                  <span>Duration (minutes) *</span>
+                  <input
+                    type="number"
+                    required
+                    min="5"
+                    max="480"
+                    step="1"
+                    inputMode="numeric"
+                    value={form.durationMinutes}
+                    onChange={(event) => updateForm('durationMinutes', event.target.value)}
+                    placeholder="30"
+                  />
+                  <small>Enter any whole number from 5 to 480.</small>
                 </label>
                 <label className="calendarModalColor">
                   <span>Calendar cube color</span>

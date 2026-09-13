@@ -184,6 +184,52 @@ const retellRequest = async <T>(
   return body as T
 }
 
+export const assertRetellAgentAvailable = async ({
+  apiKey,
+  agentId,
+}: {
+  apiKey: string
+  agentId: string
+}) => {
+  try {
+    const versions =
+      await retellRequest<RetellVersionList>(
+        apiKey,
+        `/list-agent-versions/${encodeURIComponent(
+          agentId
+        )}?limit=1&sort_order=descending`
+      )
+
+    if (
+      !Array.isArray(versions.items) ||
+      versions.items.length === 0
+    ) {
+      throw new Error(
+        'The Retell agent has no version to sync.'
+      )
+    }
+  } catch (error) {
+    const detail =
+      error instanceof Error
+        ? error.message
+        : 'Retell agent verification failed.'
+
+    if (
+      /not found|status 404|does not exist/i.test(
+        detail
+      )
+    ) {
+      throw new Error(
+        'Retell could not find this Agent ID in the workspace connected to Recepta. Copy the full Agent ID from Retell and make sure RETELL_API_KEY belongs to the same Retell workspace.'
+      )
+    }
+
+    throw new Error(
+      `Could not verify the Retell agent: ${detail}`
+    )
+  }
+}
+
 export const normalizeE164 = (
   phoneNumber?: string | null
 ) => {
