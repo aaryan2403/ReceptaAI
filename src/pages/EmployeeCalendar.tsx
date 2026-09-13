@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { syncEmployeeScheduleWithRetell } from '../lib/employeeSchedule'
 import './EmployeeCalendar.css'
 
-type AppointmentStatus = 'booked' | 'cancelled' | 'completed'
 type EntryKind = 'appointment' | 'block'
 
 type Employee = {
@@ -28,7 +27,7 @@ type Appointment = {
   appointment_time: string
   appointment_end_time: string | null
   duration_minutes: number
-  status: AppointmentStatus
+  status: 'booked' | 'cancelled' | 'completed'
   source: string
 }
 
@@ -42,29 +41,6 @@ type CalendarBlock = {
   ends_at: string
 }
 
-type CalendarResponse = {
-  calendar?: {
-    date: string
-    endDate: string
-    timeZone: string
-    businessSchedule: BusinessSchedule
-    employees: Employee[]
-    appointments: Appointment[]
-    blocks: CalendarBlock[]
-    warning?: string | null
-  }
-  appointment?: Appointment
-  block?: CalendarBlock
-  confirmationEmailSent?: boolean
-  confirmationWarning?: string | null
-  error?: string
-}
-
-type CustomField = {
-  id: string
-  value: string
-}
-
 type BusinessSchedule = {
   mode: '24/7' | 'custom'
   timeZone: string
@@ -76,113 +52,53 @@ type BusinessSchedule = {
   }>
 }
 
+type CalendarResponse = {
+  calendar?: {
+    date: string
+    endDate: string
+    timeZone: string
+    businessSchedule: BusinessSchedule
+    appointmentOverlapLimit: number
+    employees: Employee[]
+    appointments: Appointment[]
+    blocks: CalendarBlock[]
+    warning?: string | null
+  }
+  confirmationEmailSent?: boolean
+  confirmationWarning?: string | null
+  error?: string
+}
+
 type FormState = {
   kind: EntryKind
   employeeId: string
-  employeeName: string
   date: string
   time: string
   durationMinutes: string
   customerName: string
   customerPhone: string
   blockTitle: string
-  customFields: CustomField[]
+  customFields: Array<{ id: string; value: string }>
 }
 
-type TimetableEntry = {
+type CalendarItem = {
   id: string
   kind: EntryKind
-  employeeId: string
   employeeName: string
-  color: string
   date: string
-  startMinutes: number
-  endMinutes: number
+  time: string
   title: string
   detail: string
+  color: string
 }
 
 const DEFAULT_COLOR = '#00e676'
-const SLOT_MINUTES = 30
-const TOTAL_SLOTS = (24 * 60) / SLOT_MINUTES
-
-const getLocalDate = () => {
-  const now = new Date()
-
-  return [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, '0'),
-    String(now.getDate()).padStart(2, '0'),
-  ].join('-')
-}
-
-const parseDateValue = (value: string) => {
-  const [year, month, day] = value.split('-').map(Number)
-  return new Date(year, month - 1, day)
-}
-
-const formatDateValue = (date: Date) =>
-  [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0'),
-  ].join('-')
-
-const getNextBookableSlot = () => {
-  const slot = new Date(Date.now() + 5 * 60_000)
-  slot.setSeconds(0, 0)
-  slot.setMinutes(Math.ceil(slot.getMinutes() / 30) * 30)
-
-  return {
-    date: formatDateValue(slot),
-    time: `${String(slot.getHours()).padStart(2, '0')}:${String(
-      slot.getMinutes()
-    ).padStart(2, '0')}`,
-  }
-}
-
-const addDays = (value: string, amount: number) => {
-  const date = parseDateValue(value)
-  date.setDate(date.getDate() + amount)
-  return formatDateValue(date)
-}
-
-const getWeekStart = (value: string) => {
-  const date = parseDateValue(value)
-  const distanceFromMonday = (date.getDay() + 6) % 7
-  date.setDate(date.getDate() - distanceFromMonday)
-  return formatDateValue(date)
-}
-
-const getInitialForm = (): FormState => {
-  const nextSlot = getNextBookableSlot()
-
-  return {
-    kind: 'appointment',
-    employeeId: '',
-    employeeName: '',
-    date: nextSlot.date,
-    time: nextSlot.time,
-    durationMinutes: '30',
-    customerName: '',
-    customerPhone: '',
-    blockTitle: '',
-    customFields: [],
-  }
-}
-
-const makeCustomField = (value: string): CustomField => ({
-  id: crypto.randomUUID(),
-  value,
-})
-
-const DEFAULT_BUSINESS_SCHEDULE: BusinessSchedule = {
+const DEFAULT_SCHEDULE: BusinessSchedule = {
   mode: '24/7',
   timeZone: 'America/Toronto',
   hours: [],
 }
-
-const SCHEDULE_DAYS = [
+const DAYS = [
   'Sunday',
   'Monday',
   'Tuesday',
@@ -192,62 +108,125 @@ const SCHEDULE_DAYS = [
   'Saturday',
 ]
 
-const normalizeColor = (value: string | null | undefined) =>
-  /^#[0-9a-f]{6}$/i.test(value || '') ? value! : DEFAULT_COLOR
-
-const textColorFor = (color: string) => {
-  const normalized = normalizeColor(color).slice(1)
-  const red = Number.parseInt(normalized.slice(0, 2), 16)
-  const green = Number.parseInt(normalized.slice(2, 4), 16)
-  const blue = Number.parseInt(normalized.slice(4, 6), 16)
-  const luminance = (red * 299 + green * 587 + blue * 114) / 1000
-
-  return luminance > 150 ? '#041108' : '#ffffff'
+const localDate = () => {
+  const date = new Date()
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
 }
 
-const minutesToTime = (minutes: number) => {
-  const hour = Math.floor(minutes / 60)
-  const minute = minutes % 60
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+const parseDate = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+const dateValue = (date: Date) =>
+  [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
+
+const addDays = (value: string, amount: number) => {
+  const date = parseDate(value)
+  date.setDate(date.getDate() + amount)
+  return dateValue(date)
+}
+
+const monthStart = (value = localDate()) => {
+  const date = parseDate(value)
+  date.setDate(1)
+  return dateValue(date)
+}
+
+const changeMonth = (value: string, amount: number) => {
+  const date = parseDate(value)
+  date.setMonth(date.getMonth() + amount, 1)
+  return dateValue(date)
+}
+
+const calendarStart = (month: string) => {
+  const date = parseDate(monthStart(month))
+  date.setDate(date.getDate() - date.getDay())
+  return dateValue(date)
+}
+
+const nextSlot = () => {
+  const date = new Date(Date.now() + 5 * 60_000)
+  date.setSeconds(0, 0)
+  date.setMinutes(Math.ceil(date.getMinutes() / 30) * 30)
+  return {
+    date: dateValue(date),
+    time: `${String(date.getHours()).padStart(2, '0')}:${String(
+      date.getMinutes()
+    ).padStart(2, '0')}`,
+  }
+}
+
+const initialForm = (employeeId = '', chosenDate?: string): FormState => {
+  const next = nextSlot()
+  return {
+    kind: 'appointment',
+    employeeId,
+    date: chosenDate || next.date,
+    time: chosenDate && chosenDate !== next.date ? '09:00' : next.time,
+    durationMinutes: '30',
+    customerName: '',
+    customerPhone: '',
+    blockTitle: '',
+    customFields: [],
+  }
+}
+
+const colorValue = (value?: string | null) =>
+  /^#[0-9a-f]{6}$/i.test(value || '') ? value! : DEFAULT_COLOR
+
+const textColor = (color: string) => {
+  const value = colorValue(color).slice(1)
+  const red = Number.parseInt(value.slice(0, 2), 16)
+  const green = Number.parseInt(value.slice(2, 4), 16)
+  const blue = Number.parseInt(value.slice(4, 6), 16)
+  return (red * 299 + green * 587 + blue * 114) / 1000 > 150
+    ? '#041108'
+    : '#ffffff'
 }
 
 export default function CalendarPage() {
-  const [weekStart, setWeekStart] = useState(() => getWeekStart(getLocalDate()))
+  const [month, setMonth] = useState(monthStart)
   const [timeZone, setTimeZone] = useState('America/Toronto')
+  const [schedule, setSchedule] = useState<BusinessSchedule>(DEFAULT_SCHEDULE)
   const [employees, setEmployees] = useState<Employee[]>([])
-  const [businessSchedule, setBusinessSchedule] =
-    useState<BusinessSchedule>(DEFAULT_BUSINESS_SCHEDULE)
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [blocks, setBlocks] = useState<CalendarBlock[]>([])
-  const [form, setForm] = useState<FormState>(getInitialForm)
-  const [colorOverride, setColorOverride] = useState<string | null>(null)
+  const [form, setForm] = useState<FormState>(() => initialForm())
+  const [staffDraft, setStaffDraft] = useState('')
+  const [detailDraft, setDetailDraft] = useState('')
+  const [overlapLimit, setOverlapLimit] = useState(0)
+  const [composerOpen, setComposerOpen] = useState(false)
+  const [viewItem, setViewItem] = useState<CalendarItem | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [addingStaff, setAddingStaff] = useState(false)
-  const [additionalFieldDraft, setAdditionalFieldDraft] = useState('')
+  const [savingOverlap, setSavingOverlap] = useState(false)
   const [error, setError] = useState('')
   const [formError, setFormError] = useState('')
   const [message, setMessage] = useState('')
-  const timetableScrollerRef = useRef<HTMLDivElement | null>(null)
 
-  const weekDays = useMemo(
-    () => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)),
-    [weekStart]
+  const gridStart = useMemo(() => calendarStart(month), [month])
+  const gridDays = useMemo(
+    () => Array.from({ length: 42 }, (_, index) => addDays(gridStart, index)),
+    [gridStart]
   )
-  const weekEnd = weekDays[6]
+  const gridEnd = gridDays[41]
 
   const requestCalendar = useCallback(
-    async (
-      path: string,
-      init?: RequestInit
-    ): Promise<CalendarResponse> => {
+    async (path: string, init?: RequestInit): Promise<CalendarResponse> => {
       const {
         data: { session },
       } = await supabase.auth.getSession()
-
-      if (!session?.access_token) {
-        throw new Error('Please sign in again.')
-      }
+      if (!session?.access_token) throw new Error('Please sign in again.')
 
       const response = await fetch(path, {
         ...init,
@@ -257,25 +236,30 @@ export default function CalendarPage() {
           ...init?.headers,
         },
       })
-      const responseText = await response.text()
+      const raw = await response.text()
       let body: CalendarResponse = {}
 
       try {
-        body = responseText ? (JSON.parse(responseText) as CalendarResponse) : {}
+        body = raw ? (JSON.parse(raw) as CalendarResponse) : {}
       } catch {
-        throw new Error(
-          response.ok
-            ? 'The calendar returned an invalid response.'
-            : 'The calendar server could not complete the request.'
-        )
+        throw new Error('The calendar server returned an invalid response.')
       }
-
-      if (!response.ok) {
-        throw new Error(body.error || 'The calendar request failed.')
-      }
-
+      if (!response.ok) throw new Error(body.error || 'The calendar request failed.')
       return body
     },
+    []
+  )
+
+  const withStoredColors = useCallback(
+    (rows: Employee[]) =>
+      rows.map((employee) => ({
+        ...employee,
+        calendar_color:
+          employee.calendar_color ||
+          window.localStorage.getItem(
+            `recepta-employee-color:${employee.id}`
+          ),
+      })),
     []
   )
 
@@ -286,94 +270,56 @@ export default function CalendarPage() {
     try {
       const body = await requestCalendar(
         `/.netlify/functions/calendar?start=${encodeURIComponent(
-          weekStart
-        )}&end=${encodeURIComponent(weekEnd)}`
+          gridStart
+        )}&end=${encodeURIComponent(gridEnd)}`
       )
-      const calendar = body.calendar
+      if (!body.calendar) throw new Error('The calendar response was incomplete.')
 
-      if (!calendar) {
-        throw new Error('The calendar response was incomplete.')
-      }
-
-      setTimeZone(calendar.timeZone)
-      setBusinessSchedule(
-        calendar.businessSchedule || {
-          ...DEFAULT_BUSINESS_SCHEDULE,
-          timeZone: calendar.timeZone,
-        }
-      )
-      const calendarEmployees = calendar.employees.map((employee) => ({
-        ...employee,
-        calendar_color:
-          employee.calendar_color ||
-          window.localStorage.getItem(
-            `recepta-employee-color:${employee.id}`
-          ),
-      }))
-
+      const calendarEmployees = withStoredColors(body.calendar.employees)
+      const active = calendarEmployees.filter((employee) => employee.is_active)
+      setTimeZone(body.calendar.timeZone)
+      setSchedule(body.calendar.businessSchedule || DEFAULT_SCHEDULE)
       setEmployees(calendarEmployees)
-      setAppointments(calendar.appointments)
-      setBlocks(calendar.blocks)
-      setError(calendar.warning || '')
-
-      const activeEmployees = calendarEmployees.filter(
-        (employee) => employee.is_active
-      )
-
-      setForm((current) => {
-        const selected = activeEmployees.find(
-          (employee) =>
-            employee.id === current.employeeId ||
-            employee.name.toLowerCase() ===
-              current.employeeName.trim().toLowerCase()
-        )
-
-        return {
-          ...current,
-          employeeId: selected?.id || '',
-          employeeName: selected?.name || current.employeeName,
-        }
-      })
+      setAppointments(body.calendar.appointments)
+      setBlocks(body.calendar.blocks)
+      setOverlapLimit(body.calendar.appointmentOverlapLimit || 0)
+      setError(body.calendar.warning || '')
+      setForm((current) => ({
+        ...current,
+        employeeId: active.some((employee) => employee.id === current.employeeId)
+          ? current.employeeId
+          : active[0]?.id || '',
+      }))
     } catch (loadError) {
       const {
         data: { user },
       } = await supabase.auth.getUser()
-      const { data: fallbackEmployees } = user
+      const { data } = user
         ? await supabase
             .from('employees')
             .select('id, name, role, email, is_active')
             .eq('client_id', user.id)
             .order('created_at', { ascending: true })
         : { data: [] }
-      const restoredEmployees = (fallbackEmployees ?? []).map((employee) => ({
-        ...employee,
-        calendar_color: window.localStorage.getItem(
-          `recepta-employee-color:${employee.id}`
-        ),
-      })) as Employee[]
-
-      setEmployees(restoredEmployees)
+      const restored = withStoredColors(
+        (data ?? []).map((employee) => ({
+          ...employee,
+          calendar_color: null,
+        })) as Employee[]
+      )
+      const active = restored.filter((employee) => employee.is_active)
+      setEmployees(restored)
       setAppointments([])
       setBlocks([])
-
-      setForm((current) => {
-        const selected = restoredEmployees.find(
-          (employee) =>
-            employee.is_active &&
-            (employee.id === current.employeeId ||
-              employee.name.toLowerCase() ===
-                current.employeeName.trim().toLowerCase())
-        )
-
-        return {
-          ...current,
-          employeeId: selected?.id || '',
-          employeeName: selected?.name || current.employeeName,
-        }
-      })
+      setForm((current) => ({
+        ...current,
+        employeeId: active.some((employee) => employee.id === current.employeeId)
+          ? current.employeeId
+          : active[0]?.id || '',
+      }))
       setError(
-        restoredEmployees.length > 0
-          ? 'Your staff calendars are available, but the calendar database setup is incomplete. Run supabase_add_employee_calendar.sql in Supabase before adding appointments or blocked time.'
+        restored.length
+          ? 'Your employees loaded, but the calendar database setup is incomplete. Run supabase_add_employee_calendar.sql in Supabase.'
           : loadError instanceof Error
             ? loadError.message
             : 'Could not load the appointment calendar.'
@@ -381,7 +327,7 @@ export default function CalendarPage() {
     } finally {
       setLoading(false)
     }
-  }, [requestCalendar, weekEnd, weekStart])
+  }, [gridEnd, gridStart, requestCalendar, withStoredColors])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -391,28 +337,14 @@ export default function CalendarPage() {
     return () => window.clearTimeout(timer)
   }, [loadCalendar])
 
-  useEffect(() => {
-    if (loading) return
-
-    const timer = window.setTimeout(() => {
-      if (timetableScrollerRef.current) {
-        timetableScrollerRef.current.scrollTop =
-          (8 * 60 * 34) / SLOT_MINUTES
-      }
-    }, 0)
-
-    return () => window.clearTimeout(timer)
-  }, [loading, weekStart])
-
   const employeeById = useMemo(
     () => new Map(employees.map((employee) => [employee.id, employee])),
     [employees]
   )
+  const activeEmployees = employees.filter((employee) => employee.is_active)
   const selectedEmployee = employeeById.get(form.employeeId)
-  const employeeColor =
-    colorOverride ?? normalizeColor(selectedEmployee?.calendar_color)
 
-  const calendarDateFor = useCallback(
+  const dateInZone = useCallback(
     (value: string) => {
       const parts = new Intl.DateTimeFormat('en-CA', {
         timeZone,
@@ -420,55 +352,36 @@ export default function CalendarPage() {
         month: '2-digit',
         day: '2-digit',
       }).formatToParts(new Date(value))
-      const part = (type: string) =>
-        parts.find((item) => item.type === type)?.value || ''
-
-      return `${part('year')}-${part('month')}-${part('day')}`
+      const get = (type: string) =>
+        parts.find((part) => part.type === type)?.value || ''
+      return `${get('year')}-${get('month')}-${get('day')}`
     },
     [timeZone]
   )
 
-  const calendarMinutesFor = useCallback(
-    (value: string) => {
-      const parts = new Intl.DateTimeFormat('en-CA', {
+  const timeInZone = useCallback(
+    (value: string) =>
+      new Intl.DateTimeFormat('en-CA', {
         timeZone,
-        hour: '2-digit',
+        hour: 'numeric',
         minute: '2-digit',
-        hourCycle: 'h23',
-      }).formatToParts(new Date(value))
-      const part = (type: string) =>
-        parts.find((item) => item.type === type)?.value || '00'
-
-      return Number(part('hour')) * 60 + Number(part('minute'))
-    },
+      }).format(new Date(value)),
     [timeZone]
   )
 
-  const timetableEntries = useMemo(() => {
-    const appointmentEntries: TimetableEntry[] = appointments
+  const calendarItems = useMemo<CalendarItem[]>(() => {
+    const booked = appointments
       .filter((appointment) => appointment.status === 'booked')
       .map((appointment) => {
         const employee = appointment.employee_id
           ? employeeById.get(appointment.employee_id)
           : null
-        const date = calendarDateFor(appointment.appointment_time)
-        const endDate = appointment.appointment_end_time
-          ? calendarDateFor(appointment.appointment_end_time)
-          : date
-        const startMinutes = calendarMinutesFor(appointment.appointment_time)
-        const calculatedEnd = appointment.appointment_end_time
-          ? calendarMinutesFor(appointment.appointment_end_time)
-          : startMinutes + Math.max(appointment.duration_minutes || 30, 5)
-
         return {
           id: appointment.id,
-          kind: 'appointment',
-          employeeId: appointment.employee_id || '',
+          kind: 'appointment' as const,
           employeeName: employee?.name || 'Unassigned',
-          color: normalizeColor(employee?.calendar_color),
-          date,
-          startMinutes,
-          endMinutes: endDate === date ? calculatedEnd : 1440,
+          date: dateInZone(appointment.appointment_time),
+          time: timeInZone(appointment.appointment_time),
           title: appointment.customer_name || 'Appointment',
           detail: [
             appointment.customer_phone,
@@ -477,134 +390,86 @@ export default function CalendarPage() {
           ]
             .filter(Boolean)
             .join(' · '),
+          color: colorValue(employee?.calendar_color),
         }
       })
 
-    const blockEntries: TimetableEntry[] = blocks.map((block) => {
+    const unavailable = blocks.map((block) => {
       const employee = employeeById.get(block.employee_id)
-      const date = calendarDateFor(block.starts_at)
-      const endDate = calendarDateFor(block.ends_at)
-      const startMinutes = calendarMinutesFor(block.starts_at)
-      const calculatedEnd = calendarMinutesFor(block.ends_at)
-
       return {
         id: block.id,
-        kind: 'block',
-        employeeId: block.employee_id,
+        kind: 'block' as const,
         employeeName: employee?.name || 'Unassigned',
-        color: normalizeColor(employee?.calendar_color),
-        date,
-        startMinutes,
-        endMinutes: endDate === date ? calculatedEnd : 1440,
+        date: dateInZone(block.starts_at),
+        time: timeInZone(block.starts_at),
         title: block.title,
         detail: block.details || 'Unavailable',
+        color: colorValue(employee?.calendar_color),
       }
     })
 
-    return [...appointmentEntries, ...blockEntries]
-  }, [
-    appointments,
-    blocks,
-    calendarDateFor,
-    calendarMinutesFor,
-    employeeById,
-  ])
+    return [...booked, ...unavailable]
+  }, [appointments, blocks, dateInZone, employeeById, timeInZone])
+
+  const itemsByDate = useMemo(() => {
+    const grouped = new Map<string, CalendarItem[]>()
+    calendarItems.forEach((item) =>
+      grouped.set(item.date, [...(grouped.get(item.date) || []), item])
+    )
+    grouped.forEach((items) =>
+      items.sort((left, right) => left.time.localeCompare(right.time))
+    )
+    return grouped
+  }, [calendarItems])
 
   const updateForm = <Key extends keyof FormState>(
     key: Key,
     value: FormState[Key]
-  ) => {
-    setForm((current) => ({ ...current, [key]: value }))
-  }
-
-  const updateCustomField = (id: string, value: string) => {
-    setForm((current) => ({
-      ...current,
-      customFields: current.customFields.map((field) =>
-        field.id === id ? { ...field, value } : field
-      ),
-    }))
-  }
-
-  const addCustomField = () => {
-    const value = additionalFieldDraft.trim()
-
-    if (!value) {
-      setFormError('Type the additional information before clicking Add.')
-      return
-    }
-
-    setForm((current) => ({
-      ...current,
-      customFields: [...current.customFields, makeCustomField(value)],
-    }))
-    setAdditionalFieldDraft('')
-    setFormError('')
-  }
-
-  const removeCustomField = (id: string) => {
-    setForm((current) => ({
-      ...current,
-      customFields: current.customFields.filter((field) => field.id !== id),
-    }))
-  }
+  ) => setForm((current) => ({ ...current, [key]: value }))
 
   const addOrSelectStaff = async () => {
-    const staffName = form.employeeName.trim()
+    const name = staffDraft.trim()
+    if (!name) return
 
-    if (!staffName) {
-      setFormError('Type the staff member name before clicking Add.')
+    const existing = employees.find(
+      (employee) => employee.name.toLowerCase() === name.toLowerCase()
+    )
+    if (existing?.is_active) {
+      updateForm('employeeId', existing.id)
+      setStaffDraft('')
+      setMessage(`${existing.name} is selected.`)
       return
     }
 
     setAddingStaff(true)
-    setFormError('')
+    setError('')
     setMessage('')
 
     try {
-      const existingEmployee = employees.find(
-        (employee) =>
-          employee.name.toLowerCase() === staffName.toLowerCase()
-      )
-
-      if (existingEmployee?.is_active) {
-        setForm((current) => ({
-          ...current,
-          employeeId: existingEmployee.id,
-          employeeName: existingEmployee.name,
-        }))
-        setMessage(`${existingEmployee.name} is selected.`)
-        return
-      }
-
       const {
         data: { user },
       } = await supabase.auth.getUser()
-
       if (!user) throw new Error('Please sign in again.')
 
-      let employee = existingEmployee
-
-      if (employee) {
-        const { data, error: activateError } = await supabase
+      let employee: Employee
+      if (existing) {
+        const result = await supabase
           .from('employees')
           .update({ is_active: true, updated_at: new Date().toISOString() })
-          .eq('id', employee.id)
+          .eq('id', existing.id)
           .eq('client_id', user.id)
           .select('id, name, role, email, is_active')
           .single()
-
-        if (activateError || !data) {
-          throw new Error('Could not reactivate this staff member.')
+        if (result.error || !result.data) {
+          throw new Error(result.error?.message || 'Could not activate employee.')
         }
-
-        employee = { ...data, calendar_color: null }
+        employee = { ...result.data, calendar_color: existing.calendar_color }
       } else {
-        const { data, error: insertError } = await supabase
+        const result = await supabase
           .from('employees')
           .insert({
             client_id: user.id,
-            name: staffName,
+            name,
             email: null,
             phone: null,
             role: null,
@@ -612,140 +477,155 @@ export default function CalendarPage() {
           })
           .select('id, name, role, email, is_active')
           .single()
-
-        if (insertError || !data) {
-          throw new Error(insertError?.message || 'Could not add staff member.')
+        if (result.error || !result.data) {
+          throw new Error(result.error?.message || 'Could not add employee.')
         }
-
-        employee = { ...data, calendar_color: null }
+        employee = { ...result.data, calendar_color: DEFAULT_COLOR }
       }
 
-      const hoursByDay = new Map(
-        businessSchedule.hours.map((day) => [day.day, day])
-      )
-      const schedules = SCHEDULE_DAYS.map((day, dayOfWeek) => {
-        const businessDay = hoursByDay.get(day)
+      const hours = new Map(schedule.hours.map((day) => [day.day, day]))
+      const schedules = DAYS.map((day, dayOfWeek) => {
+        const businessDay = hours.get(day)
         const isWorking =
-          businessSchedule.mode === '24/7' || Boolean(businessDay?.open)
-
+          schedule.mode === '24/7' || Boolean(businessDay?.open)
         return {
           dayOfWeek,
           isWorking,
           startTime: isWorking
-            ? businessSchedule.mode === '24/7'
+            ? schedule.mode === '24/7'
               ? '00:00'
               : businessDay?.start || '09:00'
             : null,
           endTime: isWorking
-            ? businessSchedule.mode === '24/7'
+            ? schedule.mode === '24/7'
               ? '23:59'
               : businessDay?.end || '17:00'
             : null,
         }
       })
 
-      await syncEmployeeScheduleWithRetell({
-        employeeId: employee.id,
-        schedules,
-      })
-
-      const selectedEmployee: Employee = {
-        ...employee,
-        calendar_color: window.localStorage.getItem(
-          `recepta-employee-color:${employee.id}`
-        ),
+      let syncNote = ''
+      try {
+        await syncEmployeeScheduleWithRetell({
+          employeeId: employee.id,
+          schedules,
+        })
+      } catch (syncError) {
+        syncNote =
+          syncError instanceof Error
+            ? ` AI sync needs attention: ${syncError.message}`
+            : ' AI sync needs attention.'
       }
 
       setEmployees((current) => [
-        ...current.filter((item) => item.id !== selectedEmployee.id),
-        selectedEmployee,
+        ...current.filter((item) => item.id !== employee.id),
+        employee,
       ])
-      setForm((current) => ({
-        ...current,
-        employeeId: selectedEmployee.id,
-        employeeName: selectedEmployee.name,
-      }))
-      setMessage(`${selectedEmployee.name} was added and synced with the AI agent.`)
+      updateForm('employeeId', employee.id)
+      setStaffDraft('')
+      setMessage(`${employee.name} was added.${syncNote}`)
     } catch (staffError) {
-      setFormError(
-        staffError instanceof Error
-          ? staffError.message
-          : 'Could not add this staff member.'
+      setError(
+        staffError instanceof Error ? staffError.message : 'Could not add employee.'
       )
     } finally {
       setAddingStaff(false)
     }
   }
 
-  const saveEmployeeColor = async () => {
-    if (
-      !selectedEmployee ||
-      normalizeColor(selectedEmployee.calendar_color) === employeeColor
-    ) {
-      return
-    }
+  const changeEmployeeColor = async (employeeId: string, color: string) => {
+    const nextColor = colorValue(color)
+    setEmployees((current) =>
+      current.map((employee) =>
+        employee.id === employeeId
+          ? { ...employee, calendar_color: nextColor }
+          : employee
+      )
+    )
+    window.localStorage.setItem(
+      `recepta-employee-color:${employeeId}`,
+      nextColor
+    )
 
     const {
       data: { user },
     } = await supabase.auth.getUser()
-
-    if (!user) throw new Error('Please sign in again.')
+    if (!user) return
 
     const { error: colorError } = await supabase
       .from('employees')
       .update({
-        calendar_color: employeeColor,
+        calendar_color: nextColor,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', selectedEmployee.id)
+      .eq('id', employeeId)
       .eq('client_id', user.id)
-
-    if (colorError) {
-      window.localStorage.setItem(
-        `recepta-employee-color:${selectedEmployee.id}`,
-        employeeColor
-      )
-    } else {
-      window.localStorage.removeItem(
-        `recepta-employee-color:${selectedEmployee.id}`
-      )
+    if (!colorError) {
+      window.localStorage.removeItem(`recepta-employee-color:${employeeId}`)
     }
-
-    setEmployees((current) =>
-      current.map((employee) =>
-        employee.id === selectedEmployee.id
-          ? { ...employee, calendar_color: employeeColor }
-          : employee
-      )
-    )
-    setColorOverride(null)
   }
 
-  const submitCalendarEntry = async (event: React.FormEvent) => {
-    event.preventDefault()
-    setSaving(true)
+  const saveOverlapLimit = async () => {
+    const limit = Math.max(0, Math.min(10, Math.round(overlapLimit || 0)))
+    setOverlapLimit(limit)
+    setSavingOverlap(true)
     setError('')
-    setFormError('')
-    setMessage('')
 
     try {
-      if (!form.employeeName.trim()) {
-        throw new Error('Enter a staff member.')
-      }
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: { appointment_overlap_limit: limit },
+      })
+      if (updateError) throw updateError
+      setMessage(
+        limit === 0
+          ? 'Overlapping appointments are disabled.'
+          : `${limit} additional overlap${limit === 1 ? '' : 's'} allowed per employee.`
+      )
+    } catch (overlapError) {
+      setError(
+        overlapError instanceof Error
+          ? overlapError.message
+          : 'Could not save overlap setting.'
+      )
+    } finally {
+      setSavingOverlap(false)
+    }
+  }
 
-      if (!form.employeeId) {
-        throw new Error(
-          `No active staff member matches “${form.employeeName.trim()}”.`
-        )
-      }
+  const openComposer = (date = localDate()) => {
+    if (!form.employeeId) {
+      setError('Add or select an employee before creating an appointment.')
+      return
+    }
+    setForm(initialForm(form.employeeId, date))
+    setDetailDraft('')
+    setFormError('')
+    setComposerOpen(true)
+  }
 
-      const customDetails = form.customFields
+  const addDetail = () => {
+    const value = detailDraft.trim()
+    if (!value) return
+    setForm((current) => ({
+      ...current,
+      customFields: [
+        ...current.customFields,
+        { id: crypto.randomUUID(), value },
+      ],
+    }))
+    setDetailDraft('')
+  }
+
+  const submitEntry = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setSaving(true)
+    setFormError('')
+
+    try {
+      const details = form.customFields
         .map((field) => field.value.trim())
         .filter(Boolean)
         .join('\n')
-
-      await saveEmployeeColor()
-
       const body = await requestCalendar('/.netlify/functions/calendar', {
         method: 'POST',
         body: JSON.stringify({
@@ -759,47 +639,29 @@ export default function CalendarPage() {
           customerEmail: null,
           companyName: null,
           service: 'Appointment',
-          notes: customDetails || null,
+          notes: details || null,
           internalNotes: null,
           title: form.blockTitle || 'Blocked time',
-          details: customDetails || null,
+          details: details || null,
           blockType: 'unavailable',
         }),
       })
 
-      if (form.kind === 'appointment') {
-        setMessage(
-          body.confirmationEmailSent
-            ? 'Appointment added, available to your AI agent, and confirmation emails were sent.'
-            : `Appointment added and available to your AI agent immediately. ${
-                body.confirmationWarning || ''
-              }`.trim()
-        )
-      } else {
-        setMessage(
-          'The selected time is blocked. Your AI agent will no longer offer it.'
-        )
-      }
-
-      const nextWeekStart = getWeekStart(form.date)
-      setForm((current) => ({
-        ...getInitialForm(),
-        employeeId: current.employeeId,
-        employeeName: current.employeeName,
-        date: current.date,
-        kind: current.kind,
-      }))
-
-      if (nextWeekStart === weekStart) {
-        await loadCalendar()
-      } else {
-        setWeekStart(nextWeekStart)
-      }
+      setComposerOpen(false)
+      setMessage(
+        form.kind === 'block'
+          ? 'Time blocked. The AI agent will not offer this slot.'
+          : body.confirmationEmailSent
+            ? 'Appointment added and confirmation emails sent.'
+            : `Appointment added and available to the AI agent. ${body.confirmationWarning || ''}`.trim()
+      )
+      setMonth(monthStart(form.date))
+      await loadCalendar()
     } catch (submitError) {
       setFormError(
         submitError instanceof Error
           ? submitError.message
-          : 'Could not add this time to the calendar.'
+          : 'Could not add this calendar entry.'
       )
     } finally {
       setSaving(false)
@@ -808,40 +670,27 @@ export default function CalendarPage() {
 
   const deleteBlock = async (id: string) => {
     if (!window.confirm('Remove this blocked time?')) return
-
-    setError('')
-
     try {
       await requestCalendar(
         `/.netlify/functions/calendar?kind=block&id=${encodeURIComponent(id)}`,
         { method: 'DELETE' }
       )
       setBlocks((current) => current.filter((block) => block.id !== id))
+      setViewItem(null)
       setMessage('Blocked time removed.')
     } catch (deleteError) {
       setError(
         deleteError instanceof Error
           ? deleteError.message
-          : 'Could not remove the blocked time.'
+          : 'Could not remove blocked time.'
       )
     }
   }
 
-  const selectDate = (date: string) => {
-    updateForm('date', date)
-    document
-      .getElementById('employee-calendar-form')
-      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-
-  const displayWeek = `${parseDateValue(weekStart).toLocaleDateString([], {
-    month: 'short',
-    day: 'numeric',
-  })} – ${parseDateValue(weekEnd).toLocaleDateString([], {
-    month: 'short',
-    day: 'numeric',
+  const monthLabel = parseDate(month).toLocaleDateString([], {
+    month: 'long',
     year: 'numeric',
-  })}`
+  })
 
   return (
     <main className="dashboardPage calendarResponsivePage">
@@ -849,491 +698,348 @@ export default function CalendarPage() {
         <a href="/" className="dashboardBrand">
           <img src="/components/logoR.png" alt="Recepta" />
         </a>
-
         <nav className="dashboardNav">
-          <a href="/dashboard" className="dashboardNavItem">
-            Overview
-          </a>
-          <a href="/dashboard/calls" className="dashboardNavItem">
-            Calls
-          </a>
-          <a
-            href="/dashboard/calendar"
-            className="dashboardNavItem dashboardNavItemActive"
-          >
-            Calendar
-          </a>
-          <a href="/dashboard/agent" className="dashboardNavItem">
-            Agent
-          </a>
-          <a href="/dashboard/billing" className="dashboardNavItem">
-            Billing
-          </a>
-          <a href="/dashboard/settings" className="dashboardNavItem">
-            Settings
-          </a>
+          <a href="/dashboard" className="dashboardNavItem">Overview</a>
+          <a href="/dashboard/calls" className="dashboardNavItem">Calls</a>
+          <a href="/dashboard/calendar" className="dashboardNavItem dashboardNavItemActive">Calendar</a>
+          <a href="/dashboard/agent" className="dashboardNavItem">Agent</a>
+          <a href="/dashboard/billing" className="dashboardNavItem">Billing</a>
+          <a href="/dashboard/settings" className="dashboardNavItem">Settings</a>
         </nav>
       </aside>
 
       <section className="dashboardMain calendarResponsiveMain">
-        <div className="dashboardHeader appointmentPageHeader">
+        <header className="calendarSketchHeader">
           <div>
             <p className="dashboardEyebrow">CALENDAR</p>
-            <h1>Appointment Calendar</h1>
-            <p>
-              View every booked appointment in one timetable or reserve a time
-              slot directly. Retell uses this same calendar when booking calls.
-            </p>
+            <h1>Appointments</h1>
+            <p>Manage employees, bookings and availability in one place.</p>
           </div>
-        </div>
+          <button className="btn btnPrimary" type="button" onClick={() => openComposer()}>
+            + Add appointment
+          </button>
+        </header>
 
         {error && <div className="calendarAlert calendarAlert--error">{error}</div>}
         {message && <div className="calendarAlert">{message}</div>}
 
-        <section
-          className="employeeAppointmentComposer"
-          id="employee-calendar-form"
-        >
-          <div className="employeeTimetableSectionHeading">
-            <div>
-              <span className="appointmentSectionLabel">BOOK A TIME</span>
-              <h2>
-                {form.kind === 'appointment'
-                  ? 'Add appointment'
-                  : 'Block employee time'}
-              </h2>
-            </div>
-
-            <div className="calendarSegmentedControl">
-              <button
-                type="button"
-                className={form.kind === 'appointment' ? 'active' : ''}
-                onClick={() => updateForm('kind', 'appointment')}
-              >
-                Appointment
-              </button>
-              <button
-                type="button"
-                className={form.kind === 'block' ? 'active' : ''}
-                onClick={() => updateForm('kind', 'block')}
-              >
-                Block time
-              </button>
-            </div>
+        <section className="calendarSketchCard calendarOverlapCard">
+          <div>
+            <span className="appointmentSectionLabel">BOOKING RULE</span>
+            <h2>Amount of appointment overlaps allowed</h2>
+            <p>Use 0 to prevent double-booking. Each number allows one additional appointment at the same time for one employee.</p>
           </div>
-
-          <form className="employeeQuickAppointmentForm" onSubmit={submitCalendarEntry}>
-            <div className="employeeQuickFormGrid">
-              <label className="calendarStaffField">
-                <span>Staff member *</span>
-                <div className="calendarStaffInputRow">
-                  <input
-                    type="text"
-                    required
-                    value={form.employeeName}
-                    onChange={(event) => {
-                      const employeeName = event.target.value
-                      const matchingEmployee = employees.find(
-                        (employee) =>
-                          employee.is_active &&
-                          employee.name.toLowerCase() ===
-                            employeeName.trim().toLowerCase()
-                      )
-
-                      setForm((current) => ({
-                        ...current,
-                        employeeName,
-                        employeeId: matchingEmployee?.id || '',
-                      }))
-                      setColorOverride(null)
-                      setFormError('')
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault()
-                        void addOrSelectStaff()
-                      }
-                    }}
-                    placeholder="Staff name"
-                    autoComplete="off"
-                  />
-                  <button
-                    type="button"
-                    className="btn btnOutline"
-                    onClick={() => void addOrSelectStaff()}
-                    disabled={addingStaff || !form.employeeName.trim()}
-                  >
-                    {addingStaff ? 'Adding...' : 'Add'}
-                  </button>
-                </div>
-                <small
-                  className={
-                    form.employeeName && !form.employeeId
-                      ? 'calendarFieldHint calendarFieldHint--error'
-                      : 'calendarFieldHint'
-                  }
-                >
-                  {form.employeeName && !form.employeeId
-                    ? 'Click Add to create or select this staff member.'
-                    : employees.filter((employee) => employee.is_active)
-                          .length > 0
-                      ? form.employeeId
-                        ? `${form.employeeName} is ready for this appointment.`
-                        : 'Type a staff name and click Add.'
-                      : 'Type the first staff name and click Add.'}
-                </small>
-              </label>
-
-              <label>
-                <span>Date *</span>
-                <input
-                  type="date"
-                  required
-                  value={form.date}
-                  onChange={(event) => updateForm('date', event.target.value)}
-                />
-              </label>
-
-              <label>
-                <span>Start time *</span>
-                <input
-                  type="time"
-                  required
-                  value={form.time}
-                  onChange={(event) => updateForm('time', event.target.value)}
-                />
-              </label>
-
-              <label>
-                <span>Length *</span>
-                <select
-                  value={form.durationMinutes}
-                  onChange={(event) =>
-                    updateForm('durationMinutes', event.target.value)
-                  }
-                >
-                  {[15, 30, 45, 60, 90, 120, 180, 240].map((duration) => (
-                    <option key={duration} value={duration}>
-                      {duration} minutes
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="employeeColorField">
-                <span>Calendar color</span>
-                <div>
-                  <input
-                    type="color"
-                    value={employeeColor}
-                    onChange={(event) => setColorOverride(event.target.value)}
-                    aria-label="Choose employee calendar color"
-                  />
-                  <strong>{employeeColor.toUpperCase()}</strong>
-                </div>
-              </label>
-            </div>
-
-            {form.kind === 'appointment' ? (
-              <div className="employeeQuickFormGrid employeeQuickFormGrid--customer">
-                <label>
-                  <span>Name *</span>
-                  <input
-                    required
-                    value={form.customerName}
-                    onChange={(event) =>
-                      updateForm('customerName', event.target.value)
-                    }
-                    placeholder="Customer name"
-                  />
-                </label>
-
-                <label>
-                  <span>Phone number</span>
-                  <input
-                    value={form.customerPhone}
-                    onChange={(event) =>
-                      updateForm('customerPhone', event.target.value)
-                    }
-                    placeholder="+1 416 555 0123"
-                  />
-                </label>
-              </div>
-            ) : (
-              <label className="calendarFullField">
-                <span>Block label *</span>
-                <input
-                  required
-                  value={form.blockTitle}
-                  onChange={(event) =>
-                    updateForm('blockTitle', event.target.value)
-                  }
-                  placeholder="Lunch, unavailable, meeting..."
-                />
-              </label>
-            )}
-
-            <div className="employeeCustomFields">
-              <div className="employeeCustomFieldsHeading">
-                <div>
-                  <strong>Additional fields</strong>
-                  <span>
-                    Type one detail and click Add. It will be saved with the
-                    appointment and shown on its calendar entry.
-                  </span>
-                </div>
-              </div>
-
-              <div className="calendarAdditionalFieldComposer">
-                <input
-                  value={additionalFieldDraft}
-                  onChange={(event) => {
-                    setAdditionalFieldDraft(event.target.value)
-                    setFormError('')
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault()
-                      addCustomField()
-                    }
-                  }}
-                  placeholder="Extra detail"
-                  aria-label="Additional appointment detail"
-                />
-                <button
-                  type="button"
-                  className="btn btnOutline"
-                  onClick={addCustomField}
-                  disabled={!additionalFieldDraft.trim()}
-                >
-                  Add
-                </button>
-              </div>
-
-              {form.customFields.map((field) => (
-                <div className="employeeCustomFieldRow" key={field.id}>
-                  <input
-                    value={field.value}
-                    onChange={(event) =>
-                      updateCustomField(field.id, event.target.value)
-                    }
-                    placeholder="Extra detail"
-                    aria-label="Edit additional appointment detail"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeCustomField(field.id)}
-                    aria-label="Remove additional field"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {formError && (
-              <div className="calendarAlert calendarAlert--error" role="alert">
-                {formError}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              className="btn btnPrimary employeeAddCalendarButton"
-              disabled={saving || !form.employeeId}
-            >
-              {saving
+          <label>
+            <span>Overlap amount</span>
+            <input
+              type="number"
+              min="0"
+              max="10"
+              step="1"
+              value={overlapLimit}
+              onChange={(event) => setOverlapLimit(Number(event.target.value))}
+              onBlur={() => void saveOverlapLimit()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur()
+              }}
+            />
+            <small>
+              {savingOverlap
                 ? 'Saving...'
-                : form.kind === 'appointment'
-                  ? 'Add Appointment to Calendar'
-                  : 'Block This Time'}
-            </button>
-          </form>
+                : 'Saved automatically and used by the AI agent'}
+            </small>
+          </label>
         </section>
 
-        <section className="employeeWeeklyTimetable">
-          <div className="employeeTimetableSectionHeading">
+        <section className="calendarSketchCard calendarEmployeesCard">
+          <div className="calendarCardHeading">
             <div>
-              <span className="appointmentSectionLabel">WEEKLY CALENDAR</span>
-              <h2>{displayWeek}</h2>
-              <p>
-                Each staff member has their own color. Select a date heading to
-                add a new appointment or blocked time for that day.
-              </p>
+              <span className="appointmentSectionLabel">EMPLOYEE</span>
+              <h2>Add an employee</h2>
             </div>
+            <span>{activeEmployees.length} active</span>
+          </div>
 
-            <div className="appointmentMonthControls">
-              <button
-                type="button"
-                className="btn btnOutline"
-                onClick={() => setWeekStart(addDays(weekStart, -7))}
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                className="btn btnOutline"
-                onClick={() => setWeekStart(getWeekStart(getLocalDate()))}
-              >
-                Today
-              </button>
-              <button
-                type="button"
-                className="btn btnOutline"
-                onClick={() => setWeekStart(addDays(weekStart, 7))}
-              >
-                Next
-              </button>
+          <div className="calendarEmployeeComposer">
+            <input
+              value={staffDraft}
+              onChange={(event) => setStaffDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void addOrSelectStaff()
+                }
+              }}
+              placeholder="Employee name"
+              aria-label="Employee name"
+            />
+            <button
+              type="button"
+              className="btn btnOutline"
+              disabled={addingStaff || !staffDraft.trim()}
+              onClick={() => void addOrSelectStaff()}
+            >
+              {addingStaff ? 'Adding...' : '+ Add'}
+            </button>
+          </div>
+
+          <div className="calendarEmployeeList">
+            {activeEmployees.map((employee) => {
+              const color = colorValue(employee.calendar_color)
+              const selected = employee.id === form.employeeId
+              return (
+                <div
+                  key={employee.id}
+                  className={selected ? 'calendarEmployeeChip selected' : 'calendarEmployeeChip'}
+                >
+                  <button
+                    type="button"
+                    onClick={() => updateForm('employeeId', employee.id)}
+                  >
+                    <i style={{ backgroundColor: color }} />
+                    <span>{employee.name}</span>
+                    {selected && <small>Selected</small>}
+                  </button>
+                  <label title={`Change ${employee.name}'s calendar cube color`}>
+                    <input
+                      type="color"
+                      value={color}
+                      onChange={(event) =>
+                        void changeEmployeeColor(employee.id, event.target.value)
+                      }
+                      aria-label={`Change ${employee.name}'s calendar color`}
+                    />
+                  </label>
+                </div>
+              )
+            })}
+            {!loading && !activeEmployees.length && (
+              <p className="calendarEmptyEmployees">Type a name above and click Add.</p>
+            )}
+          </div>
+        </section>
+
+        <section className="calendarSketchCard calendarMonthCard">
+          <div className="calendarMonthHeading">
+            <div>
+              <span className="appointmentSectionLabel">MONTH CALENDAR</span>
+              <h2>{monthLabel}</h2>
+              <p>Click a date to add an appointment for the selected employee.</p>
+            </div>
+            <div className="calendarMonthControls">
+              <button type="button" className="btn btnOutline" onClick={() => setMonth(changeMonth(month, -1))}>Previous</button>
+              <button type="button" className="btn btnOutline" onClick={() => setMonth(monthStart())}>Today</button>
+              <button type="button" className="btn btnOutline" onClick={() => setMonth(changeMonth(month, 1))}>Next</button>
             </div>
           </div>
 
-          <div className="employeeColorLegend">
-            {employees
-              .filter((employee) => employee.is_active)
-              .map((employee) => (
-                <span key={employee.id}>
-                  <i
-                    style={{
-                      backgroundColor: normalizeColor(employee.calendar_color),
-                    }}
-                  />
-                  {employee.name}
-                </span>
-              ))}
+          <div className="calendarWeekdayRow">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+              <span key={day}>{day}</span>
+            ))}
           </div>
 
           {loading ? (
-            <div className="appointmentInnerEmpty">
-              <strong>Loading appointment calendar...</strong>
-            </div>
-          ) : employees.filter((employee) => employee.is_active).length === 0 ? (
-            <div className="appointmentInnerEmpty">
-              <strong>No booking calendars are configured</strong>
-              <p>Contact Recepta to configure a staff calendar for bookings.</p>
-            </div>
+            <div className="calendarMonthLoading">Loading calendar...</div>
           ) : (
-            <div
-              className="employeeTimetableScroller"
-              ref={timetableScrollerRef}
-            >
-              <div className="employeeTimetableHeader">
-                <div className="employeeTimetableCorner">TIME</div>
-                {weekDays.map((date) => {
-                  const parsed = parseDateValue(date)
-                  const isToday = date === getLocalDate()
-
-                  return (
-                    <button
-                      type="button"
-                      key={date}
-                      className={
-                        isToday
-                          ? 'employeeTimetableDay employeeTimetableDay--today'
-                          : 'employeeTimetableDay'
-                      }
-                      onClick={() => selectDate(date)}
-                    >
-                      <span>
-                        {parsed.toLocaleDateString([], { weekday: 'short' })}
-                      </span>
-                      <strong>{parsed.getDate()}</strong>
-                    </button>
-                  )
-                })}
-              </div>
-
-              <div
-                className="employeeTimetableGrid"
-                style={{
-                  gridTemplateRows: `repeat(${TOTAL_SLOTS}, 34px)`,
-                }}
-              >
-                {Array.from({ length: TOTAL_SLOTS }, (_, slotIndex) => {
-                  const minutes = slotIndex * SLOT_MINUTES
-
-                  return (
-                    <div
-                      key={`time-${minutes}`}
-                      className="employeeTimetableTime"
-                      style={{
-                        gridColumn: 1,
-                        gridRow: slotIndex + 1,
-                      }}
-                    >
-                      {minutes % 60 === 0 ? minutesToTime(minutes) : ''}
-                    </div>
-                  )
-                })}
-
-                {weekDays.flatMap((date, dayIndex) =>
-                  Array.from({ length: TOTAL_SLOTS }, (_, slotIndex) => (
-                    <button
-                      type="button"
-                      aria-label={`Add entry on ${date} at ${minutesToTime(
-                        slotIndex * SLOT_MINUTES
-                      )}`}
-                      key={`${date}-${slotIndex}`}
-                      className="employeeTimetableCell"
-                      style={{
-                        gridColumn: dayIndex + 2,
-                        gridRow: slotIndex + 1,
-                      }}
-                      onClick={() => {
-                        updateForm('date', date)
-                        updateForm('time', minutesToTime(slotIndex * SLOT_MINUTES))
-                      }}
-                    />
-                  ))
-                )}
-
-                {timetableEntries.map((entry) => {
-                  const dayIndex = weekDays.indexOf(entry.date)
-
-                  if (dayIndex < 0) return null
-
-                  const rowStart =
-                    Math.floor(entry.startMinutes / SLOT_MINUTES) + 1
-                  const rowEnd = Math.max(
-                    rowStart + 1,
-                    Math.ceil(entry.endMinutes / SLOT_MINUTES) + 1
-                  )
-
-                  return (
-                    <article
-                      key={`${entry.kind}-${entry.id}`}
-                      className={`employeeTimetableEntry employeeTimetableEntry--${entry.kind}`}
-                      style={{
-                        gridColumn: dayIndex + 2,
-                        gridRow: `${rowStart} / ${Math.min(
-                          rowEnd,
-                          TOTAL_SLOTS + 1
-                        )}`,
-                        backgroundColor: entry.color,
-                        color: textColorFor(entry.color),
-                      }}
-                      title={`${entry.employeeName} · ${entry.title} · ${entry.detail}`}
-                    >
-                      <span>
-                        {minutesToTime(entry.startMinutes)} · {entry.employeeName}
-                      </span>
-                      <strong>{entry.title}</strong>
-                      {entry.detail && <small>{entry.detail}</small>}
-                      {entry.kind === 'block' && (
-                        <button
-                          type="button"
-                          onClick={() => void deleteBlock(entry.id)}
+            <div className="calendarMonthGrid">
+              {gridDays.map((date) => {
+                const items = itemsByDate.get(date) || []
+                const outside = date.slice(0, 7) !== month.slice(0, 7)
+                const today = date === localDate()
+                return (
+                  <button
+                    type="button"
+                    key={date}
+                    className={`calendarMonthDay${outside ? ' outside' : ''}${today ? ' today' : ''}`}
+                    onClick={() => openComposer(date)}
+                  >
+                    <span className="calendarDayNumber">{parseDate(date).getDate()}</span>
+                    <span className="calendarDayItems">
+                      {items.slice(0, 3).map((item) => (
+                        <span
+                          key={`${item.kind}-${item.id}`}
+                          className={`calendarEventCube ${item.kind === 'block' ? 'blocked' : ''}`}
+                          style={{
+                            backgroundColor: item.color,
+                            color: textColor(item.color),
+                          }}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setViewItem(item)
+                          }}
                         >
-                          Remove
-                        </button>
-                      )}
-                    </article>
-                  )
-                })}
-              </div>
+                          <b>{item.time}</b>
+                          <em>{item.title}</em>
+                        </span>
+                      ))}
+                      {items.length > 3 && <small>+{items.length - 3} more</small>}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           )}
         </section>
       </section>
+
+      {composerOpen && (
+        <div className="calendarModalBackdrop" onMouseDown={() => setComposerOpen(false)}>
+          <section
+            className="calendarModal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="calendar-modal-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="calendarModalHeader">
+              <div>
+                <span className="appointmentSectionLabel">APPOINTMENT DETAILS</span>
+                <h2 id="calendar-modal-title">
+                  {form.kind === 'appointment' ? 'Add appointment' : 'Block time'}
+                </h2>
+                <p>{selectedEmployee?.name || 'Select an employee'}</p>
+              </div>
+              <button type="button" onClick={() => setComposerOpen(false)} aria-label="Close">×</button>
+            </div>
+
+            <div className="calendarModalTabs">
+              <button type="button" className={form.kind === 'appointment' ? 'active' : ''} onClick={() => updateForm('kind', 'appointment')}>Appointment</button>
+              <button type="button" className={form.kind === 'block' ? 'active' : ''} onClick={() => updateForm('kind', 'block')}>Block time</button>
+            </div>
+
+            <form onSubmit={submitEntry} className="calendarModalForm">
+              <div className="calendarModalGrid">
+                <label>
+                  <span>Date *</span>
+                  <input type="date" required value={form.date} onChange={(event) => updateForm('date', event.target.value)} />
+                </label>
+                <label>
+                  <span>Start time *</span>
+                  <input type="time" required value={form.time} onChange={(event) => updateForm('time', event.target.value)} />
+                </label>
+                <label>
+                  <span>Length *</span>
+                  <select value={form.durationMinutes} onChange={(event) => updateForm('durationMinutes', event.target.value)}>
+                    {[15, 30, 45, 60, 90, 120, 180, 240].map((duration) => (
+                      <option key={duration} value={duration}>{duration} minutes</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="calendarModalColor">
+                  <span>Calendar cube color</span>
+                  <input
+                    type="color"
+                    value={colorValue(selectedEmployee?.calendar_color)}
+                    onChange={(event) =>
+                      form.employeeId &&
+                      void changeEmployeeColor(form.employeeId, event.target.value)
+                    }
+                  />
+                </label>
+              </div>
+
+              {form.kind === 'appointment' ? (
+                <div className="calendarModalGrid two">
+                  <label>
+                    <span>Name *</span>
+                    <input required value={form.customerName} onChange={(event) => updateForm('customerName', event.target.value)} placeholder="Customer name" />
+                  </label>
+                  <label>
+                    <span>Phone number</span>
+                    <input value={form.customerPhone} onChange={(event) => updateForm('customerPhone', event.target.value)} placeholder="+1 416 555 0123" />
+                  </label>
+                </div>
+              ) : (
+                <label className="calendarModalFullField">
+                  <span>Block label *</span>
+                  <input required value={form.blockTitle} onChange={(event) => updateForm('blockTitle', event.target.value)} placeholder="Lunch, unavailable, meeting..." />
+                </label>
+              )}
+
+              <div className="calendarModalExtras">
+                <div>
+                  <strong>Additional appointment details</strong>
+                  <span>Type one detail and click Add.</span>
+                </div>
+                <div className="calendarAdditionalFieldComposer">
+                  <input
+                    value={detailDraft}
+                    onChange={(event) => setDetailDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        addDetail()
+                      }
+                    }}
+                    placeholder="Appointment detail"
+                  />
+                  <button type="button" className="btn btnOutline" onClick={addDetail} disabled={!detailDraft.trim()}>+ Add field</button>
+                </div>
+                {form.customFields.map((field) => (
+                  <div className="calendarAddedField" key={field.id}>
+                    <span>{field.value}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          customFields: current.customFields.filter(
+                            (item) => item.id !== field.id
+                          ),
+                        }))
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {formError && <div className="calendarAlert calendarAlert--error">{formError}</div>}
+              <div className="calendarModalActions">
+                <button type="button" className="btn btnOutline" onClick={() => setComposerOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btnPrimary" disabled={saving}>
+                  {saving ? 'Saving...' : form.kind === 'appointment' ? 'Add to calendar' : 'Block time'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {viewItem && (
+        <div className="calendarModalBackdrop" onMouseDown={() => setViewItem(null)}>
+          <section
+            className="calendarModal calendarDetailsModal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="calendarModalHeader">
+              <div>
+                <span className="appointmentSectionLabel">
+                  {viewItem.kind === 'block' ? 'BLOCKED TIME' : 'APPOINTMENT DETAILS'}
+                </span>
+                <h2>{viewItem.title}</h2>
+              </div>
+              <button type="button" onClick={() => setViewItem(null)} aria-label="Close">×</button>
+            </div>
+            <dl className="calendarDetailsList">
+              <div><dt>Employee</dt><dd><i style={{ backgroundColor: viewItem.color }} />{viewItem.employeeName}</dd></div>
+              <div><dt>Date</dt><dd>{parseDate(viewItem.date).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</dd></div>
+              <div><dt>Time</dt><dd>{viewItem.time}</dd></div>
+              {viewItem.detail && <div><dt>Details</dt><dd>{viewItem.detail}</dd></div>}
+            </dl>
+            <div className="calendarModalActions">
+              {viewItem.kind === 'block' && (
+                <button type="button" className="btn btnDanger" onClick={() => void deleteBlock(viewItem.id)}>Remove block</button>
+              )}
+              <button type="button" className="btn btnPrimary" onClick={() => setViewItem(null)}>Done</button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   )
 }

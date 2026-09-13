@@ -67,6 +67,12 @@ const DAY_NAMES = [
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/
 
+const normalizeOverlapLimit = (value: unknown) => {
+  const parsed = Number(value)
+
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 10 ? parsed : 0
+}
+
 export const normalizeCalendarDate = (value: unknown) => {
   if (typeof value !== 'string' || !DATE_PATTERN.test(value)) {
     throw new Error('Use a date in YYYY-MM-DD format.')
@@ -279,7 +285,7 @@ export const getClientCalendar = async ({
   if (rangeDays < 0 || rangeDays > 41) {
     throw new Error('Calendar ranges must contain between 1 and 42 days.')
   }
-  const [agentResult, clientResult] = await Promise.all([
+  const [agentResult, clientResult, userResult] = await Promise.all([
     supabase
       .from('agents')
       .select('business_hours')
@@ -290,6 +296,7 @@ export const getClientCalendar = async ({
       .select('company_name, contact_email')
       .eq('id', clientId)
       .maybeSingle(),
+    supabase.auth.admin.getUserById(clientId),
   ])
 
   if (agentResult.error) throw agentResult.error
@@ -324,6 +331,9 @@ export const getClientCalendar = async ({
 
   const schedule = getStoredBusinessSchedule(
     agentResult.data?.business_hours ?? null
+  )
+  const appointmentOverlapLimit = normalizeOverlapLimit(
+    userResult.data.user?.user_metadata?.appointment_overlap_limit
   )
   const dayStart = localDateTimeToUtc(
     calendarDate,
@@ -432,6 +442,7 @@ export const getClientCalendar = async ({
     endDate: calendarEndDate,
     timeZone: schedule.timeZone,
     businessSchedule: schedule,
+    appointmentOverlapLimit,
     business: clientResult.data,
     employees,
     employeeSchedules,
@@ -550,7 +561,7 @@ export const findAvailableSlots = async ({
 
       if (start <= new Date()) continue
 
-      const busyAppointment = calendar.appointments.some(
+      const overlappingAppointments = calendar.appointments.filter(
         (appointment) =>
           appointment.employee_id === employee.id &&
           appointment.status === 'booked' &&
@@ -560,7 +571,9 @@ export const findAvailableSlots = async ({
             appointment.appointment_time,
             appointmentEnd(appointment)
           )
-      )
+      ).length
+      const busyAppointment =
+        overlappingAppointments > calendar.appointmentOverlapLimit
       const busyBlock = calendar.blocks.some(
         (block) =>
           block.employee_id === employee.id &&
@@ -655,5 +668,6 @@ export const assertExactSlotAvailable = async ({
     end: available.end,
     timeZone: result.timeZone,
     business: result.business,
+    appointmentOverlapLimit: result.appointmentOverlapLimit,
   }
 }

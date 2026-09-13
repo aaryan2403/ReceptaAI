@@ -259,28 +259,64 @@ export default async (request: Request) => {
       durationMinutes,
     })
 
-    const { data: appointmentId, error: rpcError } =
-      await supabaseAdmin.rpc('recepta_book_employee_appointment', {
-        p_client_id: clientId,
-        p_employee_id: employee.id,
-        p_start: exactSlot.start,
-        p_duration_minutes: durationMinutes,
-        p_customer_name: customerName,
-        p_customer_email: customerEmail,
-        p_customer_phone: customerPhone,
-        p_company_name: customerCompany,
-        p_service: service,
-        p_notes: notes,
-        p_internal_notes: null,
-        p_source: 'retell',
-        p_retell_call_id: bookingKey,
-      })
+    let appointmentId: string | null = null
+    let bookingError: { message?: string } | null = null
 
-    if (rpcError || !appointmentId) {
+    if (exactSlot.appointmentOverlapLimit > 0) {
+      const result = await supabaseAdmin
+        .from('appointments')
+        .insert({
+          client_id: clientId,
+          employee_id: employee.id,
+          customer_name: customerName,
+          customer_email: customerEmail,
+          customer_phone: customerPhone,
+          company_name: customerCompany,
+          service,
+          notes,
+          internal_notes: null,
+          appointment_time: exactSlot.start,
+          appointment_end_time: exactSlot.end,
+          duration_minutes: durationMinutes,
+          status: 'booked',
+          source: 'retell',
+          retell_call_id: bookingKey,
+          updated_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single()
+
+      appointmentId = result.data?.id ?? null
+      bookingError = result.error
+    } else {
+      const result = await supabaseAdmin.rpc(
+        'recepta_book_employee_appointment',
+        {
+          p_client_id: clientId,
+          p_employee_id: employee.id,
+          p_start: exactSlot.start,
+          p_duration_minutes: durationMinutes,
+          p_customer_name: customerName,
+          p_customer_email: customerEmail,
+          p_customer_phone: customerPhone,
+          p_company_name: customerCompany,
+          p_service: service,
+          p_notes: notes,
+          p_internal_notes: null,
+          p_source: 'retell',
+          p_retell_call_id: bookingKey,
+        }
+      )
+
+      appointmentId = result.data
+      bookingError = result.error
+    }
+
+    if (bookingError || !appointmentId) {
       return json(409, {
         success: false,
         error:
-          rpcError?.message ||
+          bookingError?.message ||
           'That time was taken before the booking completed. Check availability again.',
       })
     }
