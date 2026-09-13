@@ -79,6 +79,8 @@ type FormState = {
   customFields: Array<{ id: string; label: string; value: string }>
 }
 
+type AppointmentCustomField = FormState['customFields'][number]
+
 type CalendarItem = {
   id: string
   kind: EntryKind
@@ -189,6 +191,34 @@ const textColor = (color: string) => {
     : '#ffffff'
 }
 
+const normalizeFieldLabels = (value: unknown) => {
+  if (!Array.isArray(value)) return []
+
+  const labels: string[] = []
+  value.forEach((item) => {
+    if (typeof item !== 'string') return
+    const label = item.trim().slice(0, 60)
+    if (
+      label &&
+      !labels.some((existing) => existing.toLowerCase() === label.toLowerCase())
+    ) {
+      labels.push(label)
+    }
+  })
+  return labels.slice(0, 20)
+}
+
+const fieldsFromLabels = (
+  labels: string[],
+  current: AppointmentCustomField[] = []
+) =>
+  labels.map((label) => {
+    const existing = current.find(
+      (field) => field.label.toLowerCase() === label.toLowerCase()
+    )
+    return existing || { id: crypto.randomUUID(), label, value: '' }
+  })
+
 export default function CalendarPage() {
   const [month, setMonth] = useState(monthStart)
   const [timeZone, setTimeZone] = useState('America/Toronto')
@@ -199,12 +229,14 @@ export default function CalendarPage() {
   const [form, setForm] = useState<FormState>(() => initialForm())
   const [staffDraft, setStaffDraft] = useState('')
   const [detailDraft, setDetailDraft] = useState('')
+  const [appointmentFieldLabels, setAppointmentFieldLabels] = useState<string[]>([])
   const [overlapLimit, setOverlapLimit] = useState(0)
   const [composerOpen, setComposerOpen] = useState(false)
   const [viewItem, setViewItem] = useState<CalendarItem | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [addingStaff, setAddingStaff] = useState(false)
+  const [savingFieldSchema, setSavingFieldSchema] = useState(false)
   const [savingOverlap, setSavingOverlap] = useState(false)
   const [error, setError] = useState('')
   const [formError, setFormError] = useState('')
@@ -332,6 +364,26 @@ export default function CalendarPage() {
 
     return () => window.clearTimeout(timer)
   }, [loadCalendar])
+
+  useEffect(() => {
+    let active = true
+
+    void supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!active || !user) return
+      const labels = normalizeFieldLabels(
+        user.user_metadata?.appointment_custom_fields
+      )
+      setAppointmentFieldLabels(labels)
+      setForm((current) => ({
+        ...current,
+        customFields: fieldsFromLabels(labels, current.customFields),
+      }))
+    })
+
+    return () => {
+      active = false
+    }
+  }, [])
 
   const employeeById = useMemo(
     () => new Map(employees.map((employee) => [employee.id, employee])),
@@ -652,24 +704,88 @@ export default function CalendarPage() {
   }
 
   const openComposer = (date = localDate()) => {
-    setForm(initialForm(form.employeeId, date))
+    setForm({
+      ...initialForm(form.employeeId, date),
+      customFields: fieldsFromLabels(appointmentFieldLabels),
+    })
     setStaffDraft('')
     setDetailDraft('')
     setFormError('')
     setComposerOpen(true)
   }
 
-  const addDetail = () => {
-    const label = detailDraft.trim()
+  const addDetail = async () => {
+    const label = detailDraft.trim().slice(0, 60)
     if (!label) return
-    setForm((current) => ({
-      ...current,
-      customFields: [
-        ...current.customFields,
-        { id: crypto.randomUUID(), label, value: '' },
-      ],
-    }))
-    setDetailDraft('')
+    if (appointmentFieldLabels.length >= 20) {
+      setFormError('You can add up to 20 shared appointment fields.')
+      return
+    }
+    if (
+      appointmentFieldLabels.some(
+        (existing) => existing.toLowerCase() === label.toLowerCase()
+      )
+    ) {
+      setFormError(`${label} is already included for every employee.`)
+      return
+    }
+
+    const nextLabels = [...appointmentFieldLabels, label]
+    setSavingFieldSchema(true)
+    setFormError('')
+
+    try {
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: { appointment_custom_fields: nextLabels },
+      })
+      if (updateError) throw updateError
+
+      setAppointmentFieldLabels(nextLabels)
+      setForm((current) => ({
+        ...current,
+        customFields: fieldsFromLabels(nextLabels, current.customFields),
+      }))
+      setDetailDraft('')
+    } catch (fieldError) {
+      setFormError(
+        fieldError instanceof Error
+          ? fieldError.message
+          : 'Could not save this field for every employee.'
+      )
+    } finally {
+      setSavingFieldSchema(false)
+    }
+  }
+
+  const deleteDetail = async (field: AppointmentCustomField) => {
+    const nextLabels = appointmentFieldLabels.filter(
+      (label) => label.toLowerCase() !== field.label.toLowerCase()
+    )
+    setSavingFieldSchema(true)
+    setFormError('')
+
+    try {
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: { appointment_custom_fields: nextLabels },
+      })
+      if (updateError) throw updateError
+
+      setAppointmentFieldLabels(nextLabels)
+      setForm((current) => ({
+        ...current,
+        customFields: current.customFields.filter(
+          (item) => item.id !== field.id
+        ),
+      }))
+    } catch (fieldError) {
+      setFormError(
+        fieldError instanceof Error
+          ? fieldError.message
+          : 'Could not remove this shared field.'
+      )
+    } finally {
+      setSavingFieldSchema(false)
+    }
   }
 
   const submitEntry = async (event: React.FormEvent) => {
@@ -1064,14 +1180,8 @@ export default function CalendarPage() {
                       <b>{field.label}</b>
                       <button
                         type="button"
-                        onClick={() =>
-                          setForm((current) => ({
-                            ...current,
-                            customFields: current.customFields.filter(
-                              (item) => item.id !== field.id
-                            ),
-                          }))
-                        }
+                        disabled={savingFieldSchema}
+                        onClick={() => void deleteDetail(field)}
                       >
                         Delete field
                       </button>
@@ -1097,7 +1207,7 @@ export default function CalendarPage() {
               <div className="calendarModalExtras">
                 <div>
                   <strong>Add another field</strong>
-                  <span>Type a field name, then click Add field.</span>
+                  <span>Fields added here appear for every employee.</span>
                 </div>
                 <div className="calendarAdditionalFieldComposer">
                   <input
@@ -1106,12 +1216,19 @@ export default function CalendarPage() {
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') {
                         event.preventDefault()
-                        addDetail()
+                        void addDetail()
                       }
                     }}
                     placeholder="Field name (for example: Email)"
                   />
-                  <button type="button" className="btn btnOutline" onClick={addDetail} disabled={!detailDraft.trim()}>+ Add field</button>
+                  <button
+                    type="button"
+                    className="btn btnOutline"
+                    onClick={() => void addDetail()}
+                    disabled={savingFieldSchema || !detailDraft.trim()}
+                  >
+                    {savingFieldSchema ? 'Saving...' : '+ Add field'}
+                  </button>
                 </div>
               </div>
 
