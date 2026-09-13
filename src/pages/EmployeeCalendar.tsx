@@ -70,15 +70,13 @@ type CalendarResponse = {
 }
 
 type FormState = {
-  kind: EntryKind
   employeeId: string
   date: string
   time: string
   durationMinutes: string
   customerName: string
   customerPhone: string
-  blockTitle: string
-  customFields: Array<{ id: string; value: string }>
+  customFields: Array<{ id: string; label: string; value: string }>
 }
 
 type CalendarItem = {
@@ -168,14 +166,12 @@ const nextSlot = () => {
 const initialForm = (employeeId = '', chosenDate?: string): FormState => {
   const next = nextSlot()
   return {
-    kind: 'appointment',
     employeeId,
     date: chosenDate || next.date,
     time: chosenDate && chosenDate !== next.date ? '09:00' : next.time,
     durationMinutes: '30',
     customerName: '',
     customerPhone: '',
-    blockTitle: '',
     customFields: [],
   }
 }
@@ -565,6 +561,67 @@ export default function CalendarPage() {
     }
   }
 
+  const deleteEmployee = async (employee: Employee) => {
+    if (
+      !window.confirm(
+        `Delete ${employee.name}? Existing appointments will stay in the calendar as unassigned.`
+      )
+    ) {
+      return
+    }
+
+    setError('')
+    setMessage('')
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) throw new Error('Please sign in again.')
+
+      const { error: deleteError } = await supabase
+        .from('employees')
+        .delete()
+        .eq('id', employee.id)
+        .eq('client_id', user.id)
+      if (deleteError) throw deleteError
+
+      const remainingEmployees = employees.filter(
+        (item) => item.id !== employee.id && item.is_active
+      )
+      setEmployees((current) =>
+        current.filter((item) => item.id !== employee.id)
+      )
+      setForm((current) => ({
+        ...current,
+        employeeId:
+          current.employeeId === employee.id
+            ? remainingEmployees[0]?.id || ''
+            : current.employeeId,
+      }))
+      window.localStorage.removeItem(
+        `recepta-employee-color:${employee.id}`
+      )
+
+      let syncNote = ''
+      try {
+        await syncEmployeeScheduleWithRetell()
+      } catch (syncError) {
+        syncNote =
+          syncError instanceof Error
+            ? ` AI sync needs attention: ${syncError.message}`
+            : ' AI sync needs attention.'
+      }
+      setMessage(`${employee.name} was deleted.${syncNote}`)
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : 'Could not delete employee.'
+      )
+    }
+  }
+
   const saveOverlapLimit = async () => {
     const limit = Math.max(0, Math.min(10, Math.round(overlapLimit || 0)))
     setOverlapLimit(limit)
@@ -604,13 +661,13 @@ export default function CalendarPage() {
   }
 
   const addDetail = () => {
-    const value = detailDraft.trim()
-    if (!value) return
+    const label = detailDraft.trim()
+    if (!label) return
     setForm((current) => ({
       ...current,
       customFields: [
         ...current.customFields,
-        { id: crypto.randomUUID(), value },
+        { id: crypto.randomUUID(), label, value: '' },
       ],
     }))
     setDetailDraft('')
@@ -623,13 +680,18 @@ export default function CalendarPage() {
 
     try {
       const details = form.customFields
-        .map((field) => field.value.trim())
+        .map((field) => {
+          const label = field.label.trim()
+          const value = field.value.trim()
+          if (!label && !value) return ''
+          return label ? `${label}: ${value || 'Not provided'}` : value
+        })
         .filter(Boolean)
         .join('\n')
       const body = await requestCalendar('/.netlify/functions/calendar', {
         method: 'POST',
         body: JSON.stringify({
-          kind: form.kind,
+          kind: 'appointment',
           employeeId: form.employeeId,
           date: form.date,
           time: form.time,
@@ -641,19 +703,14 @@ export default function CalendarPage() {
           service: 'Appointment',
           notes: details || null,
           internalNotes: null,
-          title: form.blockTitle || 'Blocked time',
-          details: details || null,
-          blockType: 'unavailable',
         }),
       })
 
       setComposerOpen(false)
       setMessage(
-        form.kind === 'block'
-          ? 'Time blocked. The AI agent will not offer this slot.'
-          : body.confirmationEmailSent
-            ? 'Appointment added and confirmation emails sent.'
-            : `Appointment added and available to the AI agent. ${body.confirmationWarning || ''}`.trim()
+        body.confirmationEmailSent
+          ? 'Appointment added and confirmation emails sent.'
+          : `Appointment added and available to the AI agent. ${body.confirmationWarning || ''}`.trim()
       )
       setMonth(monthStart(form.date))
       await loadCalendar()
@@ -683,6 +740,32 @@ export default function CalendarPage() {
         deleteError instanceof Error
           ? deleteError.message
           : 'Could not remove blocked time.'
+      )
+    }
+  }
+
+  const deleteAppointment = async (id: string) => {
+    if (!window.confirm('Delete this appointment from the calendar?')) return
+
+    setError('')
+    setMessage('')
+    try {
+      await requestCalendar('/.netlify/functions/calendar', {
+        method: 'PATCH',
+        body: JSON.stringify({ id, status: 'cancelled' }),
+      })
+      setAppointments((current) =>
+        current.filter((appointment) => appointment.id !== id)
+      )
+      setViewItem(null)
+      setMessage(
+        'Appointment deleted. The AI agent can offer this time again.'
+      )
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : 'Could not delete the appointment.'
       )
     }
   }
@@ -810,6 +893,15 @@ export default function CalendarPage() {
                       aria-label={`Change ${employee.name}'s calendar color`}
                     />
                   </label>
+                  <button
+                    type="button"
+                    className="calendarEmployeeDelete"
+                    onClick={() => void deleteEmployee(employee)}
+                    aria-label={`Delete ${employee.name}`}
+                    title={`Delete ${employee.name}`}
+                  >
+                    Delete
+                  </button>
                 </div>
               )
             })}
@@ -895,17 +987,10 @@ export default function CalendarPage() {
             <div className="calendarModalHeader">
               <div>
                 <span className="appointmentSectionLabel">APPOINTMENT DETAILS</span>
-                <h2 id="calendar-modal-title">
-                  {form.kind === 'appointment' ? 'Add appointment' : 'Block time'}
-                </h2>
+                <h2 id="calendar-modal-title">Add appointment</h2>
                 <p>{selectedEmployee?.name || 'Select an employee'}</p>
               </div>
               <button type="button" onClick={() => setComposerOpen(false)} aria-label="Close">×</button>
-            </div>
-
-            <div className="calendarModalTabs">
-              <button type="button" className={form.kind === 'appointment' ? 'active' : ''} onClick={() => updateForm('kind', 'appointment')}>Appointment</button>
-              <button type="button" className={form.kind === 'block' ? 'active' : ''} onClick={() => updateForm('kind', 'block')}>Block time</button>
             </div>
 
             <form onSubmit={submitEntry} className="calendarModalForm">
@@ -939,28 +1024,55 @@ export default function CalendarPage() {
                 </label>
               </div>
 
-              {form.kind === 'appointment' ? (
-                <div className="calendarModalGrid two">
-                  <label>
-                    <span>Name *</span>
-                    <input required value={form.customerName} onChange={(event) => updateForm('customerName', event.target.value)} placeholder="Customer name" />
-                  </label>
-                  <label>
-                    <span>Phone number</span>
-                    <input value={form.customerPhone} onChange={(event) => updateForm('customerPhone', event.target.value)} placeholder="+1 416 555 0123" />
-                  </label>
-                </div>
-              ) : (
-                <label className="calendarModalFullField">
-                  <span>Block label *</span>
-                  <input required value={form.blockTitle} onChange={(event) => updateForm('blockTitle', event.target.value)} placeholder="Lunch, unavailable, meeting..." />
+              <div className="calendarModalGrid two">
+                <label>
+                  <span>Name *</span>
+                  <input required value={form.customerName} onChange={(event) => updateForm('customerName', event.target.value)} placeholder="Customer name" />
                 </label>
-              )}
+                <label>
+                  <span>Phone number</span>
+                  <input value={form.customerPhone} onChange={(event) => updateForm('customerPhone', event.target.value)} placeholder="+1 416 555 0123" />
+                </label>
+                {form.customFields.map((field) => (
+                  <label className="calendarDynamicField" key={field.id}>
+                    <span>
+                      <b>{field.label}</b>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setForm((current) => ({
+                            ...current,
+                            customFields: current.customFields.filter(
+                              (item) => item.id !== field.id
+                            ),
+                          }))
+                        }
+                      >
+                        Delete field
+                      </button>
+                    </span>
+                    <input
+                      value={field.value}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          customFields: current.customFields.map((item) =>
+                            item.id === field.id
+                              ? { ...item, value: event.target.value }
+                              : item
+                          ),
+                        }))
+                      }
+                      placeholder={`Enter ${field.label}`}
+                    />
+                  </label>
+                ))}
+              </div>
 
               <div className="calendarModalExtras">
                 <div>
-                  <strong>Additional appointment details</strong>
-                  <span>Type one detail and click Add.</span>
+                  <strong>Add another field</strong>
+                  <span>Type a field name, then click Add field.</span>
                 </div>
                 <div className="calendarAdditionalFieldComposer">
                   <input
@@ -972,35 +1084,17 @@ export default function CalendarPage() {
                         addDetail()
                       }
                     }}
-                    placeholder="Appointment detail"
+                    placeholder="Field name (for example: Email)"
                   />
                   <button type="button" className="btn btnOutline" onClick={addDetail} disabled={!detailDraft.trim()}>+ Add field</button>
                 </div>
-                {form.customFields.map((field) => (
-                  <div className="calendarAddedField" key={field.id}>
-                    <span>{field.value}</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setForm((current) => ({
-                          ...current,
-                          customFields: current.customFields.filter(
-                            (item) => item.id !== field.id
-                          ),
-                        }))
-                      }
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
               </div>
 
               {formError && <div className="calendarAlert calendarAlert--error">{formError}</div>}
               <div className="calendarModalActions">
                 <button type="button" className="btn btnOutline" onClick={() => setComposerOpen(false)}>Cancel</button>
                 <button type="submit" className="btn btnPrimary" disabled={saving}>
-                  {saving ? 'Saving...' : form.kind === 'appointment' ? 'Add to calendar' : 'Block time'}
+                  {saving ? 'Saving...' : 'Add to calendar'}
                 </button>
               </div>
             </form>
@@ -1032,6 +1126,9 @@ export default function CalendarPage() {
               {viewItem.detail && <div><dt>Details</dt><dd>{viewItem.detail}</dd></div>}
             </dl>
             <div className="calendarModalActions">
+              {viewItem.kind === 'appointment' && (
+                <button type="button" className="btn btnDanger" onClick={() => void deleteAppointment(viewItem.id)}>Delete appointment</button>
+              )}
               {viewItem.kind === 'block' && (
                 <button type="button" className="btn btnDanger" onClick={() => void deleteBlock(viewItem.id)}>Remove block</button>
               )}
