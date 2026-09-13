@@ -474,6 +474,38 @@
   margin-top: 22px;
 }
 
+.calendarAppointmentEmployee {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(300px, 1.2fr);
+  gap: 16px;
+  align-items: end;
+  padding: 18px;
+  background: rgba(0, 230, 118, 0.045);
+  border: 1px solid rgba(0, 230, 118, 0.16);
+  border-radius: 16px;
+}
+
+.calendarAppointmentEmployeeAdd {
+  display: grid;
+  gap: 8px;
+}
+
+.calendarAppointmentEmployeeAdd > span {
+  color: rgba(231, 242, 235, 0.64);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.calendarAppointmentEmployeeAdd > small {
+  color: rgba(203, 222, 210, 0.48);
+  font-size: 10px;
+}
+
+.calendarAppointmentEmployee .calendarEmployeeComposer {
+  max-width: none;
+  margin-top: 0;
+}
+
 .calendarModalGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -631,6 +663,7 @@
   }
 
   .calendarEmployeeComposer,
+  .calendarAppointmentEmployee,
   .calendarAdditionalFieldComposer,
   .calendarModalGrid,
   .calendarModalGrid.two {

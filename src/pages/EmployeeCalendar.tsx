@@ -439,6 +439,7 @@ export default function CalendarPage() {
 
     setAddingStaff(true)
     setError('')
+    setFormError('')
     setMessage('')
 
     try {
@@ -521,9 +522,10 @@ export default function CalendarPage() {
       setStaffDraft('')
       setMessage(`${employee.name} was added.${syncNote}`)
     } catch (staffError) {
-      setError(
+      const staffMessage =
         staffError instanceof Error ? staffError.message : 'Could not add employee.'
-      )
+      setError(staffMessage)
+      if (composerOpen) setFormError(staffMessage)
     } finally {
       setAddingStaff(false)
     }
@@ -650,11 +652,8 @@ export default function CalendarPage() {
   }
 
   const openComposer = (date = localDate()) => {
-    if (!form.employeeId) {
-      setError('Add or select an employee before creating an appointment.')
-      return
-    }
     setForm(initialForm(form.employeeId, date))
+    setStaffDraft('')
     setDetailDraft('')
     setFormError('')
     setComposerOpen(true)
@@ -675,6 +674,10 @@ export default function CalendarPage() {
 
   const submitEntry = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (!form.employeeId) {
+      setFormError('Choose or add an employee before saving the appointment.')
+      return
+    }
     setSaving(true)
     setFormError('')
 
@@ -837,33 +840,10 @@ export default function CalendarPage() {
         <section className="calendarSketchCard calendarEmployeesCard">
           <div className="calendarCardHeading">
             <div>
-              <span className="appointmentSectionLabel">EMPLOYEE</span>
-              <h2>Add an employee</h2>
+              <span className="appointmentSectionLabel">EMPLOYEES</span>
+              <h2>Current employees</h2>
             </div>
             <span>{activeEmployees.length} active</span>
-          </div>
-
-          <div className="calendarEmployeeComposer">
-            <input
-              value={staffDraft}
-              onChange={(event) => setStaffDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  void addOrSelectStaff()
-                }
-              }}
-              placeholder="Employee name"
-              aria-label="Employee name"
-            />
-            <button
-              type="button"
-              className="btn btnOutline"
-              disabled={addingStaff || !staffDraft.trim()}
-              onClick={() => void addOrSelectStaff()}
-            >
-              {addingStaff ? 'Adding...' : '+ Add'}
-            </button>
           </div>
 
           <div className="calendarEmployeeList">
@@ -906,7 +886,7 @@ export default function CalendarPage() {
               )
             })}
             {!loading && !activeEmployees.length && (
-              <p className="calendarEmptyEmployees">Type a name above and click Add.</p>
+              <p className="calendarEmptyEmployees">Click Add appointment to add your first employee.</p>
             )}
           </div>
         </section>
@@ -916,7 +896,7 @@ export default function CalendarPage() {
             <div>
               <span className="appointmentSectionLabel">MONTH CALENDAR</span>
               <h2>{monthLabel}</h2>
-              <p>Click a date to add an appointment for the selected employee.</p>
+              <p>Click a date, then choose the employee for the appointment.</p>
             </div>
             <div className="calendarMonthControls">
               <button type="button" className="btn btnOutline" onClick={() => setMonth(changeMonth(month, -1))}>Previous</button>
@@ -994,6 +974,51 @@ export default function CalendarPage() {
             </div>
 
             <form onSubmit={submitEntry} className="calendarModalForm">
+              <section className="calendarAppointmentEmployee">
+                <label>
+                  <span>Choose employee *</span>
+                  <select
+                    required
+                    value={form.employeeId}
+                    onChange={(event) => updateForm('employeeId', event.target.value)}
+                  >
+                    <option value="">Choose an employee</option>
+                    {activeEmployees.map((employee) => (
+                      <option key={employee.id} value={employee.id}>
+                        {employee.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="calendarAppointmentEmployeeAdd">
+                  <span>Add a new employee</span>
+                  <div className="calendarEmployeeComposer">
+                    <input
+                      value={staffDraft}
+                      onChange={(event) => setStaffDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          void addOrSelectStaff()
+                        }
+                      }}
+                      placeholder="Employee name"
+                      aria-label="New employee name"
+                    />
+                    <button
+                      type="button"
+                      className="btn btnOutline"
+                      disabled={addingStaff || !staffDraft.trim()}
+                      onClick={() => void addOrSelectStaff()}
+                    >
+                      {addingStaff ? 'Adding...' : '+ Add'}
+                    </button>
+                  </div>
+                  <small>New employees are selected automatically.</small>
+                </div>
+              </section>
+
               <div className="calendarModalGrid">
                 <label>
                   <span>Date *</span>
