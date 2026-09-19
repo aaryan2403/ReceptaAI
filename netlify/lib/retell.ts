@@ -515,6 +515,9 @@ const APPOINTMENT_BOOKING_PROMPT_MARKER =
 const APPOINTMENT_FIELDS_PROMPT_MARKER =
   '[RECEPTA MANAGED APPOINTMENT FIELDS]'
 
+const KNOWLEDGE_BASE_PROMPT_MARKER =
+  '[RECEPTA MANAGED KNOWLEDGE BASE]'
+
 const RECEPTA_CALENDAR_TOOL_NAMES = new Set([
   'recepta_list_employees',
   'recepta_check_availability',
@@ -738,6 +741,15 @@ export const formatAppointmentFields = (fields: string[]) =>
     ? fields.map((field) => `- ${field}`).join('\n')
     : 'No additional appointment fields are configured.'
 
+export const normalizeAgentKnowledgeBase = (value: unknown) =>
+  typeof value === 'string'
+    ? value.trim().slice(0, 12000)
+    : ''
+
+export const formatAgentKnowledgeBase = (value: unknown) =>
+  normalizeAgentKnowledgeBase(value) ||
+  'No business knowledge base is configured.'
+
 export const syncRetellSchedule = async ({
   apiKey,
   agentId,
@@ -745,6 +757,7 @@ export const syncRetellSchedule = async ({
   employeeSchedule,
   employeeScheduleTimeZone,
   appointmentFields,
+  knowledgeBase,
 }: {
   apiKey: string
   agentId: string
@@ -752,6 +765,7 @@ export const syncRetellSchedule = async ({
   employeeSchedule?: string
   employeeScheduleTimeZone?: string
   appointmentFields?: string[]
+  knowledgeBase?: string
 }) => {
   const versions =
     await retellRequest<RetellVersionList>(
@@ -842,6 +856,16 @@ export const syncRetellSchedule = async ({
     ]
   )
 
+  generalPrompt = appendManagedPrompt(
+    generalPrompt,
+    KNOWLEDGE_BASE_PROMPT_MARKER,
+    [
+      'Use {{recepta_knowledge_base}} as the customer-approved business reference when answering questions and handling appointment conversations.',
+      'Live Recepta calendar availability, saved store hours, employee schedules, and authorized tool results override the knowledge base if there is any conflict.',
+      'Never invent missing addresses, policies, prices, inventory, product availability, or promises. If a fact is not configured, say that a business team member must confirm it.',
+    ]
+  )
+
   const siteUrl = process.env.URL?.trim().replace(/\/$/, '')
   const existingTools = currentLlm.general_tools ?? []
   let generalTools = existingTools
@@ -883,6 +907,8 @@ export const syncRetellSchedule = async ({
           recepta_schedule_mode: schedule.mode,
           recepta_business_hours: formatBusinessHours(schedule),
           recepta_business_timezone: schedule.timeZone,
+          recepta_knowledge_base:
+            formatAgentKnowledgeBase(knowledgeBase),
           ...(employeeSchedule
             ? {
                 recepta_employee_schedule: employeeSchedule,
@@ -908,11 +934,9 @@ export const syncRetellSchedule = async ({
       method: 'POST',
       body: JSON.stringify({
         version: draftAgent.version,
-        version_title: 'Recepta schedule sync',
+        version_title: 'Recepta dashboard sync',
         version_description:
-          schedule.mode === '24/7'
-            ? 'Set Recepta availability to 24/7.'
-            : `Updated Recepta custom hours (${schedule.timeZone}).`,
+          `Updated Recepta hours, employees, appointments, fields and business knowledge (${schedule.timeZone}).`,
       }),
     }
   )

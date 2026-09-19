@@ -8388,6 +8388,49 @@
   font-size: 14px;
 }
 
+.agentKnowledgePanel .agentPanelHeading p {
+  max-width: 760px;
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.agentKnowledgeEditor {
+  width: 100%;
+  min-height: 430px;
+  box-sizing: border-box;
+  margin-top: 22px;
+  padding: 18px;
+  resize: vertical;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  outline: none;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text-light);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.agentKnowledgeEditor:focus {
+  border-color: rgba(0, 200, 83, 0.55);
+  box-shadow: 0 0 0 3px rgba(0, 200, 83, 0.08);
+}
+
+.agentKnowledgeFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.agentKnowledgeFooter > span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 /* Mobile */
 
 @media (max-width: 700px) {
@@ -8418,6 +8461,21 @@
 
   .agentHoursActions .btn {
     width: 100%;
+  }
+
+  .agentKnowledgePanel .agentPanelHeading,
+  .agentKnowledgeFooter {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .agentKnowledgePanel .agentPanelHeading .btn,
+  .agentKnowledgeFooter .btn {
+    width: 100%;
+  }
+
+  .agentKnowledgeEditor {
+    min-height: 520px;
   }
 }
 

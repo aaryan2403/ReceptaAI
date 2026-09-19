@@ -5,6 +5,7 @@ import {
   getStoredBusinessSchedule,
 } from '../lib/employeeSchedule'
 import {
+  normalizeAgentKnowledgeBase,
   normalizeAppointmentFields,
   syncRetellSchedule,
 } from '../lib/retell'
@@ -298,6 +299,9 @@ export default async (request: Request) => {
   const appointmentFields = normalizeAppointmentFields(
     user.user_metadata?.appointment_custom_fields
   )
+  const knowledgeBase = normalizeAgentKnowledgeBase(
+    user.user_metadata?.agent_knowledge_base
+  )
 
   try {
     const result = await syncRetellSchedule({
@@ -307,6 +311,7 @@ export default async (request: Request) => {
       employeeSchedule,
       employeeScheduleTimeZone: timeZone,
       appointmentFields,
+      knowledgeBase,
     })
 
     return json(200, {
