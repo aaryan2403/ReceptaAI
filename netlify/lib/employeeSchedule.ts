@@ -1,8 +1,6 @@
-import {
-  normalizeAgentKnowledgeBase,
-  normalizeAppointmentFields,
-  type RetellOperatingDay,
-  type RetellSchedule,
+import type {
+  RetellOperatingDay,
+  RetellSchedule,
 } from './retell'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -219,10 +217,6 @@ export const loadClientScheduleContext = async ({
   }
 
   const schedule = getStoredBusinessSchedule(storedBusinessHours)
-  const { data: clientUserResult, error: clientUserError } =
-    await supabase.auth.admin.getUserById(clientId)
-
-  if (clientUserError) throw clientUserError
 
   return {
     schedule,
@@ -232,11 +226,5 @@ export const loadClientScheduleContext = async ({
       timeZone: schedule.timeZone,
     }),
     employeeScheduleTimeZone: schedule.timeZone,
-    appointmentFields: normalizeAppointmentFields(
-      clientUserResult.user?.user_metadata?.appointment_custom_fields
-    ),
-    knowledgeBase: normalizeAgentKnowledgeBase(
-      clientUserResult.user?.user_metadata?.agent_knowledge_base
-    ),
   }
 }

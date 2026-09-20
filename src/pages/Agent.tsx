@@ -4,11 +4,6 @@ import {
   fetchClientCalls,
   saveSchedulePreference,
 } from '../lib/clientCalls'
-import { syncDashboardContextWithRetell } from '../lib/dashboardSync'
-import {
-  isShivoraCompany,
-  SHIVORA_APPOINTMENT_KNOWLEDGE_BASE,
-} from '../lib/shivoraKnowledgeBase'
 
 type AgentStatus = 'setup' | 'testing' | 'live' | 'paused'
 
@@ -54,10 +49,6 @@ export default function Agent() {
   const [hoursMessage, setHoursMessage] = useState('')
   const [savingScheduleMode, setSavingScheduleMode] = useState(false)
   const [scheduleModeMessage, setScheduleModeMessage] = useState('')
-  const [companyName, setCompanyName] = useState('')
-  const [knowledgeBase, setKnowledgeBase] = useState('')
-  const [savingKnowledgeBase, setSavingKnowledgeBase] = useState(false)
-  const [knowledgeBaseMessage, setKnowledgeBaseMessage] = useState('')
   const [scheduleMode, setScheduleMode] =
     useState<'24/7' | 'custom' | null>(null)
   const [businessTimeZone, setBusinessTimeZone] = useState(
@@ -81,7 +72,6 @@ export default function Agent() {
         { data: agentData, error: agentError },
         { data: subscriptionData },
         { data: phoneNumberData },
-        { data: clientData },
       ] = await Promise.all([
         supabase
           .from('agents')
@@ -103,27 +93,7 @@ export default function Agent() {
           .eq('client_id', user.id)
           .order('is_primary', { ascending: false })
           .order('created_at', { ascending: true }),
-
-        supabase
-          .from('clients')
-          .select('company_name')
-          .eq('id', user.id)
-          .maybeSingle(),
       ])
-
-      const loadedCompanyName = clientData?.company_name?.trim() || ''
-      const storedKnowledgeBase =
-        typeof user.user_metadata?.agent_knowledge_base === 'string'
-          ? user.user_metadata.agent_knowledge_base.trim()
-          : ''
-
-      setCompanyName(loadedCompanyName)
-      setKnowledgeBase(
-        storedKnowledgeBase ||
-          (isShivoraCompany(loadedCompanyName)
-            ? SHIVORA_APPOINTMENT_KNOWLEDGE_BASE
-            : '')
-      )
 
       if (!agentError && agentData) {
         setAgent(agentData)
@@ -308,72 +278,6 @@ export default function Agent() {
       )
     } finally {
       setSavingScheduleMode(false)
-    }
-  }
-
-  const loadShivoraKnowledgeBase = () => {
-    if (
-      knowledgeBase.trim() &&
-      knowledgeBase.trim() !== SHIVORA_APPOINTMENT_KNOWLEDGE_BASE &&
-      !window.confirm(
-        'Replace the current knowledge base with the Shivora appointment template?'
-      )
-    ) {
-      return
-    }
-
-    setKnowledgeBase(SHIVORA_APPOINTMENT_KNOWLEDGE_BASE)
-    setKnowledgeBaseMessage(
-      'Shivora template loaded. Select Save & Update Agent to publish it.'
-    )
-  }
-
-  const saveKnowledgeBase = async () => {
-    const normalizedKnowledgeBase = knowledgeBase.trim()
-
-    if (!normalizedKnowledgeBase) {
-      setKnowledgeBaseMessage(
-        'Add business information before updating the AI agent.'
-      )
-      return
-    }
-
-    setSavingKnowledgeBase(true)
-    setKnowledgeBaseMessage('')
-
-    try {
-      const { error: updateError } = await supabase.auth.updateUser({
-        data: {
-          agent_knowledge_base: normalizedKnowledgeBase,
-        },
-      })
-
-      if (updateError) throw updateError
-
-      try {
-        await syncDashboardContextWithRetell()
-      } catch (syncError) {
-        throw new Error(
-          `The knowledge base was saved to Recepta, but Retell could not be updated: ${
-            syncError instanceof Error
-              ? syncError.message
-              : 'Retell synchronization failed.'
-          }`
-        )
-      }
-
-      setKnowledgeBase(normalizedKnowledgeBase)
-      setKnowledgeBaseMessage(
-        'Knowledge base saved and published to the assigned AI agent.'
-      )
-    } catch (error) {
-      setKnowledgeBaseMessage(
-        error instanceof Error
-          ? error.message
-          : 'Could not save and publish the knowledge base.'
-      )
-    } finally {
-      setSavingKnowledgeBase(false)
     }
   }
 
@@ -820,72 +724,6 @@ export default function Agent() {
               Request a change
             </a>
           </div>
-        </section>
-
-        <section className="agentPanel agentKnowledgePanel">
-          <div className="agentPanelHeading">
-            <div>
-              <span className="agentSectionLabel">
-                KNOWLEDGE BASE
-              </span>
-
-              <h2>
-                {isShivoraCompany(companyName)
-                  ? 'Shivora in-store appointments'
-                  : 'Business knowledge'}
-              </h2>
-
-              <p>
-                This information is published directly into the assigned
-                receptionist when you save. Live hours, employees and calendar
-                availability still come from the Recepta dashboard.
-              </p>
-            </div>
-
-            {isShivoraCompany(companyName) && (
-              <button
-                type="button"
-                className="btn btnOutline"
-                onClick={loadShivoraKnowledgeBase}
-                disabled={savingKnowledgeBase}
-              >
-                Reload Shivora Template
-              </button>
-            )}
-          </div>
-
-          <textarea
-            className="agentKnowledgeEditor"
-            value={knowledgeBase}
-            maxLength={12000}
-            onChange={(event) => {
-              setKnowledgeBase(event.target.value)
-              setKnowledgeBaseMessage('')
-            }}
-            placeholder="Add the business information your receptionist should use during calls."
-            aria-label="AI agent knowledge base"
-          />
-
-          <div className="agentKnowledgeFooter">
-            <span>{knowledgeBase.length.toLocaleString()} / 12,000 characters</span>
-
-            <button
-              type="button"
-              className="btn btnPrimary"
-              onClick={() => void saveKnowledgeBase()}
-              disabled={savingKnowledgeBase || !knowledgeBase.trim()}
-            >
-              {savingKnowledgeBase
-                ? 'Saving & Updating Agent...'
-                : 'Save & Update Agent'}
-            </button>
-          </div>
-
-          {knowledgeBaseMessage && (
-            <p className="agentHoursMessage" role="status">
-              {knowledgeBaseMessage}
-            </p>
-          )}
         </section>
 
       {/* OPERATING HOURS */}
