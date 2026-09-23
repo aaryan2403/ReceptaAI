@@ -216,10 +216,33 @@ export default async (request: Request) => {
       )
     }
 
+    const clientRows = await Promise.all(
+      (clientsResult.data || []).map(async (client) => {
+        const { data: clientUserResult, error: clientUserError } =
+          await supabaseAdmin.auth.admin.getUserById(client.id)
+
+        if (clientUserError) {
+          console.error(
+            `Could not load notification settings for client ${client.id}:`,
+            clientUserError
+          )
+        }
+
+        return {
+          ...client,
+          appointment_email_notifications_enabled:
+            clientUserResult.user?.user_metadata
+              ?.appointment_email_notifications_enabled !== false,
+          appointment_sms_notifications_enabled:
+            clientUserResult.user?.user_metadata
+              ?.appointment_sms_notifications_enabled === true,
+        }
+      })
+    )
+
     return new Response(
       JSON.stringify({
-        clients:
-          clientsResult.data || [],
+        clients: clientRows,
         subscriptions:
           subscriptionsResult.data || [],
         agents:

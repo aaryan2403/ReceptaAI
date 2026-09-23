@@ -175,7 +175,14 @@ export default async (request: Request) => {
       phoneAreaCode,
       piiRedactionEnabled,
       safetyGuardrailsEnabled,
+      buyerEmailNotificationsEnabled,
+      buyerSmsNotificationsEnabled,
     } = await request.json()
+
+    const buyerEmailEnabled =
+      buyerEmailNotificationsEnabled !== false
+    const buyerSmsEnabled =
+      buyerSmsNotificationsEnabled === true
 
     if (
       !companyName ||
@@ -444,6 +451,12 @@ export default async (request: Request) => {
           email: normalizedEmail,
           password,
           email_confirm: true,
+          user_metadata: {
+            appointment_email_notifications_enabled:
+              buyerEmailEnabled,
+            appointment_sms_notifications_enabled:
+              buyerSmsEnabled,
+          },
         })
 
     if (
@@ -783,8 +796,10 @@ export default async (request: Request) => {
           apiKey: retellApiKey,
           agentId: normalizedRetellId,
           ...scheduleContext,
-          emailNotificationsEnabled: true,
-          smsNotificationsEnabled: false,
+          emailNotificationsEnabled:
+            buyerEmailEnabled,
+          smsNotificationsEnabled:
+            buyerSmsEnabled,
         })
       } catch (error) {
         await rollback()

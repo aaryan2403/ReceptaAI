@@ -4825,89 +4825,6 @@
   font-size: 20px;
 }
 
-.agentEmailSyncPanel {
-  border-color: rgba(0, 230, 118, 0.16);
-}
-
-.agentEmailSyncPanel .agentPanelHeading p {
-  max-width: 650px;
-  margin: 8px 0 0;
-  color: rgba(235, 244, 238, 0.52);
-  line-height: 1.6;
-}
-
-.agentEmailSyncStatus {
-  flex-shrink: 0;
-  padding: 8px 12px;
-  border-radius: 999px;
-  color: rgba(235, 244, 238, 0.55);
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.agentEmailSyncStatus--on {
-  color: #00e676;
-  background: rgba(0, 230, 118, 0.09);
-  border-color: rgba(0, 230, 118, 0.22);
-}
-
-.agentEmailRecipientGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 20px;
-}
-
-.agentEmailRecipientGrid > div {
-  padding: 16px;
-  border-radius: 13px;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.055);
-}
-
-.agentEmailRecipientGrid .btn {
-  width: 100%;
-  margin-top: 14px;
-}
-
-.agentEmailRecipientGrid strong,
-.agentEmailRecipientGrid span {
-  display: block;
-}
-
-.agentEmailRecipientGrid strong {
-  color: #ffffff;
-  font-size: 13px;
-}
-
-.agentEmailRecipientGrid span {
-  margin-top: 6px;
-  color: rgba(235, 244, 238, 0.42);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.agentEmailSyncActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 18px;
-}
-
-@media (max-width: 720px) {
-  .agentEmailRecipientGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .agentEmailSyncPanel .agentPanelHeading {
-    flex-direction: column;
-  }
-}
-
 /* LIVE */
 
 .agentLivePanel {
@@ -8023,6 +7940,101 @@
   white-space: nowrap;
 }
 
+.adminNotificationPanel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(0, 230, 118, 0.2);
+  border-radius: 14px;
+  background: rgba(0, 230, 118, 0.035);
+}
+
+.adminNotificationHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.adminNotificationHeading strong {
+  color: #fff;
+  font-size: 13px;
+}
+
+.adminNotificationHeading p,
+.adminNotificationGrid p {
+  margin: 5px 0 0;
+  color: rgba(235, 244, 238, 0.5);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.adminNotificationHeading > span,
+.adminNotificationAlwaysOn {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border: 1px solid rgba(0, 230, 118, 0.24);
+  border-radius: 999px;
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.08);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.adminNotificationGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.adminNotificationGrid > div,
+.adminNotificationGrid > label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
+  align-items: center;
+  gap: 7px 9px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.adminNotificationGrid > div > strong {
+  grid-column: 1;
+  color: #fff;
+  font-size: 11px;
+}
+
+.adminNotificationGrid input[type='checkbox'] {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: #00e676;
+}
+
+.adminNotificationGrid label > span {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.adminNotificationGrid p {
+  grid-column: 1 / -1;
+}
+
+.adminNotificationOption--disabled {
+  opacity: 0.48;
+}
+
+.adminNotificationPanel > .btn {
+  justify-self: start;
+}
+
 .adminFormMessage {
   margin: 12px 0 0;
   padding: 10px 12px;
@@ -8279,6 +8291,10 @@
   .adminSearch {
     width: 100%;
   }
+
+  .adminNotificationGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 520px) {
@@ -8288,6 +8304,14 @@
   }
 
   .adminHeader .btn {
+    width: 100%;
+  }
+
+  .adminNotificationHeading {
+    flex-direction: column;
+  }
+
+  .adminNotificationPanel > .btn {
     width: 100%;
   }
 }

@@ -27,6 +27,8 @@ type ClientRecord = {
   company_name: string | null
   contact_email: string | null
   created_at: string
+  appointment_email_notifications_enabled: boolean
+  appointment_sms_notifications_enabled: boolean
 }
 
 type SubscriptionRecord = {
@@ -112,6 +114,95 @@ const parsePhoneNumberInput = (value: string) =>
     )
   )
 
+const NotificationSettingsPanel = ({
+  planName,
+  buyerEmailEnabled,
+  buyerSmsEnabled,
+  onBuyerEmailChange,
+  onBuyerSmsChange,
+  showSaveButton = false,
+  saving = false,
+}: {
+  planName: PlanName
+  buyerEmailEnabled: boolean
+  buyerSmsEnabled: boolean
+  onBuyerEmailChange: (enabled: boolean) => void
+  onBuyerSmsChange: (enabled: boolean) => void
+  showSaveButton?: boolean
+  saving?: boolean
+}) => {
+  const isPro = planName === 'Recepta Pro'
+
+  return (
+    <div className="adminNotificationPanel">
+      <div className="adminNotificationHeading">
+        <div>
+          <strong>Call &amp; appointment notifications</strong>
+          <p>
+            These settings are controlled by Recepta Admin and sync with the
+            client’s assigned AI agent when saved.
+          </p>
+        </div>
+        <span>ADMIN CONTROLLED</span>
+      </div>
+
+      <div className="adminNotificationGrid">
+        <div>
+          <strong>Recepta customer email</strong>
+          <span className="adminNotificationAlwaysOn">Always on</span>
+          <p>
+            {isPro
+              ? 'Receives complete appointment details and the AI call summary.'
+              : 'Receives the basic call-notification email.'}
+          </p>
+        </div>
+
+        <label className={!isPro ? 'adminNotificationOption--disabled' : ''}>
+          <input
+            type="checkbox"
+            checked={buyerEmailEnabled}
+            disabled={!isPro}
+            onChange={(event) => onBuyerEmailChange(event.target.checked)}
+          />
+          <span>Buyer appointment email</span>
+          <p>
+            {isPro
+              ? 'Optional confirmation email sent to the appointment buyer.'
+              : 'Available only with Recepta Pro appointment booking.'}
+          </p>
+        </label>
+
+        <label className={!isPro ? 'adminNotificationOption--disabled' : ''}>
+          <input
+            type="checkbox"
+            checked={buyerSmsEnabled}
+            disabled={!isPro}
+            onChange={(event) => onBuyerSmsChange(event.target.checked)}
+          />
+          <span>Buyer appointment SMS</span>
+          <p>
+            {isPro
+              ? 'Optional SMS after explicit buyer consent. Requires Twilio.'
+              : 'Available only with Recepta Pro appointment booking.'}
+          </p>
+        </label>
+      </div>
+
+      {showSaveButton && (
+        <button
+          type="submit"
+          className="btn btnPrimary"
+          disabled={saving}
+        >
+          {saving
+            ? 'Saving & Updating Agent...'
+            : 'Save Notifications & Update Agent'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default function Admin() {
   const [clients, setClients] =
     useState<ClientWithSubscription[]>([])
@@ -158,6 +249,10 @@ export default function Admin() {
     useState(false)
   const [safetyGuardrails, setSafetyGuardrails] =
     useState(false)
+  const [buyerEmailEnabled, setBuyerEmailEnabled] =
+    useState(true)
+  const [buyerSmsEnabled, setBuyerSmsEnabled] =
+    useState(false)
   const [creating, setCreating] =
     useState(false)
   const [createError, setCreateError] =
@@ -191,6 +286,10 @@ export default function Admin() {
   const [editPhoneNumber, setEditPhoneNumber] =
     useState('')
   const [editPiiRedaction, setEditPiiRedaction] =
+    useState(false)
+  const [editBuyerEmailEnabled, setEditBuyerEmailEnabled] =
+    useState(true)
+  const [editBuyerSmsEnabled, setEditBuyerSmsEnabled] =
     useState(false)
   const [
     editSafetyGuardrails,
@@ -559,6 +658,10 @@ export default function Admin() {
               piiRedaction,
             safetyGuardrailsEnabled:
               safetyGuardrails,
+            buyerEmailNotificationsEnabled:
+              buyerEmailEnabled,
+            buyerSmsNotificationsEnabled:
+              buyerSmsEnabled,
           }),
         }
       )
@@ -596,6 +699,8 @@ export default function Admin() {
       setPhoneAreaCode('')
       setPiiRedaction(false)
       setSafetyGuardrails(false)
+      setBuyerEmailEnabled(true)
+      setBuyerSmsEnabled(false)
 
       await loadData()
     } catch (error) {
@@ -655,6 +760,12 @@ export default function Admin() {
     setEditSafetyGuardrails(
       client.subscription
         ?.safety_guardrails_enabled === true
+    )
+    setEditBuyerEmailEnabled(
+      client.appointment_email_notifications_enabled !== false
+    )
+    setEditBuyerSmsEnabled(
+      client.appointment_sms_notifications_enabled === true
     )
     setEditPassword('')
     setEditPurchaseQuantity('1')
@@ -780,6 +891,10 @@ export default function Admin() {
               editPiiRedaction,
             safetyGuardrailsEnabled:
               editSafetyGuardrails,
+            buyerEmailNotificationsEnabled:
+              editBuyerEmailEnabled,
+            buyerSmsNotificationsEnabled:
+              editBuyerSmsEnabled,
           }),
         }
       )
@@ -1524,6 +1639,14 @@ export default function Admin() {
               </p>
             )}
 
+            <NotificationSettingsPanel
+              planName={planName}
+              buyerEmailEnabled={buyerEmailEnabled}
+              buyerSmsEnabled={buyerSmsEnabled}
+              onBuyerEmailChange={setBuyerEmailEnabled}
+              onBuyerSmsChange={setBuyerSmsEnabled}
+            />
+
             <div
               style={{
                 gridColumn: '1 / -1',
@@ -2199,6 +2322,16 @@ export default function Admin() {
                   </small>
                 </div>
 
+                <NotificationSettingsPanel
+                  planName={editPlanName}
+                  buyerEmailEnabled={editBuyerEmailEnabled}
+                  buyerSmsEnabled={editBuyerSmsEnabled}
+                  onBuyerEmailChange={setEditBuyerEmailEnabled}
+                  onBuyerSmsChange={setEditBuyerSmsEnabled}
+                  showSaveButton
+                  saving={savingEdit}
+                />
+
                 <div
                   style={{
                     gridColumn: '1 / -1',
@@ -2363,8 +2496,8 @@ export default function Admin() {
                     disabled={savingEdit}
                   >
                     {savingEdit
-                      ? 'Saving...'
-                      : 'Save Client'}
+                      ? 'Saving & Updating Agent...'
+                      : 'Save Client & Update Agent'}
                   </button>
                 </div>
               </form>

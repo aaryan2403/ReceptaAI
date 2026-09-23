@@ -114,6 +114,8 @@ export default async (request: Request) => {
     reactivateSubscription?: boolean
     piiRedactionEnabled?: boolean
     safetyGuardrailsEnabled?: boolean
+    buyerEmailNotificationsEnabled?: boolean
+    buyerSmsNotificationsEnabled?: boolean
   }
 
   try {
@@ -149,6 +151,10 @@ export default async (request: Request) => {
     body.piiRedactionEnabled === true
   const safetyGuardrailsEnabled =
     body.safetyGuardrailsEnabled === true
+  const buyerEmailNotificationsEnabled =
+    body.buyerEmailNotificationsEnabled !== false
+  const buyerSmsNotificationsEnabled =
+    body.buyerSmsNotificationsEnabled === true
 
   if (
     !clientId ||
@@ -278,9 +284,21 @@ export default async (request: Request) => {
 
   const userId = client.id
 
+  const { data: clientAuthUser, error: clientAuthUserError } =
+    await supabaseAdmin.auth.admin.getUserById(userId)
+
+  if (clientAuthUserError || !clientAuthUser.user) {
+    return json(400, {
+      error:
+        clientAuthUserError?.message ||
+        'Could not load the client notification settings.',
+    })
+  }
+
   const authChanges: {
     email?: string
     password?: string
+    user_metadata?: Record<string, unknown>
   } = {}
 
   if (
@@ -295,6 +313,14 @@ export default async (request: Request) => {
   if (newPassword) {
     authChanges.password =
       newPassword
+  }
+
+  authChanges.user_metadata = {
+    ...(clientAuthUser.user.user_metadata || {}),
+    appointment_email_notifications_enabled:
+      buyerEmailNotificationsEnabled,
+    appointment_sms_notifications_enabled:
+      buyerSmsNotificationsEnabled,
   }
 
   if (
@@ -605,23 +631,18 @@ export default async (request: Request) => {
         supabase: supabaseAdmin,
         clientId,
       })
-      const { data: clientUserResult } =
-        await supabaseAdmin.auth.admin.getUserById(clientId)
-      const emailNotificationsEnabled = normalizeEmailNotificationsEnabled(
-        clientUserResult.user?.user_metadata
-          ?.appointment_email_notifications_enabled
-      )
-      const smsNotificationsEnabled = normalizeSmsNotificationsEnabled(
-        clientUserResult.user?.user_metadata
-          ?.appointment_sms_notifications_enabled
-      )
-
       await syncRetellSchedule({
         apiKey: retellApiKey,
         agentId: retellAgentId,
         ...scheduleContext,
-        emailNotificationsEnabled,
-        smsNotificationsEnabled,
+        emailNotificationsEnabled:
+          normalizeEmailNotificationsEnabled(
+            buyerEmailNotificationsEnabled
+          ),
+        smsNotificationsEnabled:
+          normalizeSmsNotificationsEnabled(
+            buyerSmsNotificationsEnabled
+          ),
       })
 
       if (removedManualPhoneNumbers.length > 0) {
@@ -646,5 +667,7 @@ export default async (request: Request) => {
     success: true,
     monthlyPrice,
     phoneNumbers,
+    buyerEmailNotificationsEnabled,
+    buyerSmsNotificationsEnabled,
   })
 }
