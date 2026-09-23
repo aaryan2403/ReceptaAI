@@ -783,6 +783,8 @@ export default async (request: Request) => {
           apiKey: retellApiKey,
           agentId: normalizedRetellId,
           ...scheduleContext,
+          emailNotificationsEnabled: true,
+          smsNotificationsEnabled: false,
         })
       } catch (error) {
         await rollback()

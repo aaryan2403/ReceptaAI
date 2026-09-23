@@ -66,7 +66,9 @@ type CalendarResponse = {
     warning?: string | null
   }
   confirmationEmailSent?: boolean
+  confirmationSmsSent?: boolean
   confirmationWarning?: string | null
+  smsWarning?: string | null
   error?: string
 }
 
@@ -77,6 +79,8 @@ type FormState = {
   durationMinutes: string
   customerName: string
   customerPhone: string
+  customerEmail: string
+  sendCustomerSms: boolean
   customFields: Array<{ id: string; label: string; value: string }>
 }
 
@@ -175,6 +179,8 @@ const initialForm = (employeeId = '', chosenDate?: string): FormState => {
     durationMinutes: '30',
     customerName: '',
     customerPhone: '',
+    customerEmail: '',
+    sendCustomerSms: false,
     customFields: [],
   }
 }
@@ -229,8 +235,10 @@ export default function CalendarPage() {
   const [blocks, setBlocks] = useState<CalendarBlock[]>([])
   const [form, setForm] = useState<FormState>(() => initialForm())
   const [staffDraft, setStaffDraft] = useState('')
+  const [staffEmailDraft, setStaffEmailDraft] = useState('')
   const [detailDraft, setDetailDraft] = useState('')
   const [appointmentFieldLabels, setAppointmentFieldLabels] = useState<string[]>([])
+  const [smsNotificationsEnabled, setSmsNotificationsEnabled] = useState(false)
   const [overlapLimit, setOverlapLimit] = useState(0)
   const [composerOpen, setComposerOpen] = useState(false)
   const [viewItem, setViewItem] = useState<CalendarItem | null>(null)
@@ -375,6 +383,9 @@ export default function CalendarPage() {
       const labels = normalizeFieldLabels(
         user.user_metadata?.appointment_custom_fields
       )
+      setSmsNotificationsEnabled(
+        user.user_metadata?.appointment_sms_notifications_enabled === true
+      )
       setAppointmentFieldLabels(labels)
       setForm((current) => ({
         ...current,
@@ -479,14 +490,19 @@ export default function CalendarPage() {
 
   const addOrSelectStaff = async () => {
     const name = staffDraft.trim()
+    const employeeEmail = staffEmailDraft.trim()
     if (!name) return
 
     const existing = employees.find(
       (employee) => employee.name.toLowerCase() === name.toLowerCase()
     )
-    if (existing?.is_active) {
+    if (
+      existing?.is_active &&
+      (!employeeEmail || existing.email === employeeEmail)
+    ) {
       updateForm('employeeId', existing.id)
       setStaffDraft('')
+      setStaffEmailDraft('')
       setMessage(`${existing.name} is selected.`)
       return
     }
@@ -506,7 +522,11 @@ export default function CalendarPage() {
       if (existing) {
         const result = await supabase
           .from('employees')
-          .update({ is_active: true, updated_at: new Date().toISOString() })
+          .update({
+            is_active: true,
+            ...(employeeEmail ? { email: employeeEmail } : {}),
+            updated_at: new Date().toISOString(),
+          })
           .eq('id', existing.id)
           .eq('client_id', user.id)
           .select('id, name, role, email, is_active')
@@ -521,7 +541,7 @@ export default function CalendarPage() {
           .insert({
             client_id: user.id,
             name,
-            email: null,
+            email: employeeEmail || null,
             phone: null,
             role: null,
             is_active: true,
@@ -574,6 +594,7 @@ export default function CalendarPage() {
       ])
       updateForm('employeeId', employee.id)
       setStaffDraft('')
+      setStaffEmailDraft('')
       setMessage(`${employee.name} was added.${syncNote}`)
     } catch (staffError) {
       const staffMessage =
@@ -746,6 +767,7 @@ export default function CalendarPage() {
       customFields: fieldsFromLabels(appointmentFieldLabels),
     })
     setStaffDraft('')
+    setStaffEmailDraft('')
     setDetailDraft('')
     setFormError('')
     setComposerOpen(true)
@@ -884,7 +906,8 @@ export default function CalendarPage() {
           durationMinutes: Number(form.durationMinutes),
           customerName: form.customerName,
           customerPhone: form.customerPhone,
-          customerEmail: null,
+          customerEmail: form.customerEmail || null,
+          sendCustomerSms: form.sendCustomerSms,
           companyName: null,
           service: 'Appointment',
           notes: details || null,
@@ -904,10 +927,20 @@ export default function CalendarPage() {
       }
 
       setComposerOpen(false)
+      const deliveryNotes = [
+        body.confirmationEmailSent ? 'confirmation emails sent' : null,
+        body.confirmationSmsSent ? 'buyer SMS sent' : null,
+      ].filter(Boolean)
+      const warnings = [
+        body.confirmationWarning,
+        body.smsWarning,
+      ].filter(Boolean)
       setMessage(
-        body.confirmationEmailSent
-          ? `Appointment added and confirmation emails sent.${syncNote}`
-          : `Appointment added and available to the AI agent. ${body.confirmationWarning || ''}${syncNote}`.trim()
+        `Appointment added${
+          deliveryNotes.length > 0
+            ? ` and ${deliveryNotes.join(' and ')}`
+            : ' and available to the AI agent'
+        }.${warnings.length > 0 ? ` ${warnings.join(' ')}` : ''}${syncNote}`.trim()
       )
       setMonth(monthStart(form.date))
       await loadCalendar()
@@ -1237,6 +1270,13 @@ export default function CalendarPage() {
                       placeholder="Employee name"
                       aria-label="New employee name"
                     />
+                    <input
+                      type="email"
+                      value={staffEmailDraft}
+                      onChange={(event) => setStaffEmailDraft(event.target.value)}
+                      placeholder="Employee email"
+                      aria-label="New employee email"
+                    />
                     <button
                       type="button"
                       className="btn btnOutline"
@@ -1298,6 +1338,34 @@ export default function CalendarPage() {
                   <span>Phone number</span>
                   <input value={form.customerPhone} onChange={(event) => updateForm('customerPhone', event.target.value)} placeholder="+1 416 555 0123" />
                 </label>
+                <label>
+                  <span>Customer email</span>
+                  <input
+                    type="email"
+                    value={form.customerEmail}
+                    onChange={(event) => updateForm('customerEmail', event.target.value)}
+                    placeholder="customer@example.com"
+                  />
+                </label>
+                {smsNotificationsEnabled && (
+                  <label className="calendarSmsConsent">
+                    <input
+                      type="checkbox"
+                      checked={form.sendCustomerSms}
+                      disabled={!form.customerPhone.trim()}
+                      onChange={(event) =>
+                        updateForm('sendCustomerSms', event.target.checked)
+                      }
+                    />
+                    <span>
+                      Buyer agreed to receive this appointment confirmation by SMS
+                    </span>
+                    <small>
+                      Enter the buyer’s phone number in international format. Only
+                      check this after they consent.
+                    </small>
+                  </label>
+                )}
                 {form.customFields.map((field) => (
                   <label className="calendarDynamicField" key={field.id}>
                     <span>

@@ -515,6 +515,9 @@ const APPOINTMENT_BOOKING_PROMPT_MARKER =
 const APPOINTMENT_FIELDS_PROMPT_MARKER =
   '[RECEPTA MANAGED APPOINTMENT FIELDS]'
 
+const EMAIL_CONFIRMATIONS_PROMPT_MARKER =
+  '[RECEPTA MANAGED EMAIL CONFIRMATIONS]'
+
 const RECEPTA_CALENDAR_TOOL_NAMES = new Set([
   'recepta_list_employees',
   'recepta_check_availability',
@@ -586,7 +589,6 @@ const buildReceptaCalendarTools = (siteUrl: string) => {
           'time',
           'duration_minutes',
           'customer_name',
-          'customer_email',
         ],
         properties: {
           employee_name: {
@@ -613,11 +615,16 @@ const buildReceptaCalendarTools = (siteUrl: string) => {
           customer_email: {
             type: 'string',
             description:
-              'Caller’s email address, read back and confirmed before booking.',
+              'Caller’s email address when buyer email confirmations are enabled or the caller chooses to provide it. Read it back before booking.',
           },
           customer_phone: {
             type: 'string',
             description: 'Caller’s phone number when provided.',
+          },
+          customer_sms_consent: {
+            type: 'boolean',
+            description:
+              'True only when buyer SMS confirmations are enabled and the caller explicitly agrees to receive this appointment confirmation by SMS.',
           },
           customer_company: {
             type: 'string',
@@ -684,6 +691,31 @@ const appendManagedPrompt = (
   return currentPrompt
 }
 
+const replaceManagedPrompt = (
+  currentPrompt: string,
+  marker: string,
+  lines: string[]
+) => {
+  const managedBlock = [marker, ...lines].join('\n')
+  const markerIndex = currentPrompt.indexOf(marker)
+
+  if (markerIndex === -1) {
+    return `${currentPrompt.trim()}\n\n${managedBlock}`.trim()
+  }
+
+  const nextMarkerIndex = currentPrompt.indexOf(
+    '\n\n[RECEPTA MANAGED ',
+    markerIndex + marker.length
+  )
+  const before = currentPrompt.slice(0, markerIndex).trimEnd()
+  const after =
+    nextMarkerIndex === -1
+      ? ''
+      : currentPrompt.slice(nextMarkerIndex).trimStart()
+
+  return [before, managedBlock, after].filter(Boolean).join('\n\n')
+}
+
 const formatBusinessHours = (schedule: RetellSchedule) => {
   if (schedule.mode === '24/7') {
     return `The business and AI receptionist are available 24 hours a day, 7 days a week. Timezone: ${schedule.timeZone}.`
@@ -733,6 +765,12 @@ export const normalizeAppointmentFields = (value: unknown) => {
   return labels.slice(0, 20)
 }
 
+export const normalizeEmailNotificationsEnabled = (value: unknown) =>
+  value !== false
+
+export const normalizeSmsNotificationsEnabled = (value: unknown) =>
+  value === true
+
 export const formatAppointmentFields = (fields: string[]) =>
   fields.length > 0
     ? fields.map((field) => `- ${field}`).join('\n')
@@ -745,6 +783,8 @@ export const syncRetellSchedule = async ({
   employeeSchedule,
   employeeScheduleTimeZone,
   appointmentFields,
+  emailNotificationsEnabled = true,
+  smsNotificationsEnabled = false,
 }: {
   apiKey: string
   agentId: string
@@ -752,6 +792,8 @@ export const syncRetellSchedule = async ({
   employeeSchedule?: string
   employeeScheduleTimeZone?: string
   appointmentFields?: string[]
+  emailNotificationsEnabled?: boolean
+  smsNotificationsEnabled?: boolean
 }) => {
   const versions =
     await retellRequest<RetellVersionList>(
@@ -842,6 +884,21 @@ export const syncRetellSchedule = async ({
     ]
   )
 
+  generalPrompt = replaceManagedPrompt(
+    generalPrompt,
+    EMAIL_CONFIRMATIONS_PROMPT_MARKER,
+    [
+      'The Recepta business customer always receives the plan-appropriate call notification email.',
+      emailNotificationsEnabled
+        ? 'Buyer appointment email confirmations are enabled. Collect and confirm the buyer’s email address before booking.'
+        : 'Buyer appointment email confirmations are disabled. Do not require the buyer’s email address or promise a buyer email.',
+      smsNotificationsEnabled
+        ? 'Buyer appointment SMS is available. Ask the buyer whether they want a confirmation text and set customer_sms_consent to true only after explicit consent.'
+        : 'Buyer appointment SMS is disabled. Do not promise or claim that a confirmation text will be sent.',
+      'Tell the buyer that email or SMS was sent only when the booking tool reports that delivery as successful.',
+    ]
+  )
+
   const siteUrl = process.env.URL?.trim().replace(/\/$/, '')
   const existingTools = currentLlm.general_tools ?? []
   let generalTools = existingTools
@@ -854,8 +911,8 @@ export const syncRetellSchedule = async ({
         'For appointment requests, the live Recepta calendar tools are the only authoritative source for employees, availability, and completed bookings.',
         'Ask whether the caller wants a particular employee. If not, use recepta_check_availability without an employee preference and offer the earliest suitable options.',
         'Always call recepta_check_availability before offering a time. Never invent availability from the weekly schedule alone.',
-        'Before booking, collect and confirm the caller\'s full name, email address, selected employee, date, time, duration, and reason for the appointment.',
-        'Read the email address back for confirmation. Call recepta_book_appointment only after the caller explicitly approves the final details.',
+        'Before booking, collect and confirm the caller\'s full name, selected employee, date, time, duration, and reason for the appointment. Follow the managed email and SMS rules for optional buyer contact details.',
+        'Call recepta_book_appointment only after the caller explicitly approves the final details.',
         'Never say an appointment is booked unless recepta_book_appointment returns success. If it fails, apologize and check availability again.',
       ]
     )
@@ -883,6 +940,12 @@ export const syncRetellSchedule = async ({
           recepta_schedule_mode: schedule.mode,
           recepta_business_hours: formatBusinessHours(schedule),
           recepta_business_timezone: schedule.timeZone,
+          recepta_email_confirmations: emailNotificationsEnabled
+            ? 'enabled'
+            : 'disabled',
+          recepta_sms_confirmations: smsNotificationsEnabled
+            ? 'enabled'
+            : 'disabled',
           ...(employeeSchedule
             ? {
                 recepta_employee_schedule: employeeSchedule,

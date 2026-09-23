@@ -4,6 +4,7 @@ import {
   fetchClientCalls,
   saveSchedulePreference,
 } from '../lib/clientCalls'
+import { syncDashboardContextWithRetell } from '../lib/dashboardSync'
 
 type AgentStatus = 'setup' | 'testing' | 'live' | 'paused'
 
@@ -35,6 +36,10 @@ export default function Agent() {
   const [calls, setCalls] = useState<CallRecord[]>([])
   const [isPro, setIsPro] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [emailSyncEnabled, setEmailSyncEnabled] = useState(true)
+  const [smsSyncEnabled, setSmsSyncEnabled] = useState(false)
+  const [savingEmailSync, setSavingEmailSync] = useState(false)
+  const [emailSyncMessage, setEmailSyncMessage] = useState('')
 
   const [operatingHours, setOperatingHours] = useState<OperatingDay[]>([
     { day: 'Monday', open: true, start: '09:00', end: '17:00' },
@@ -67,6 +72,13 @@ export default function Agent() {
         setLoading(false)
         return
       }
+
+      setEmailSyncEnabled(
+        user.user_metadata?.appointment_email_notifications_enabled !== false
+      )
+      setSmsSyncEnabled(
+        user.user_metadata?.appointment_sms_notifications_enabled === true
+      )
 
       const [
         { data: agentData, error: agentError },
@@ -278,6 +290,54 @@ export default function Agent() {
       )
     } finally {
       setSavingScheduleMode(false)
+    }
+  }
+
+  const saveNotificationSettings = async ({
+    emailEnabled = emailSyncEnabled,
+    smsEnabled = smsSyncEnabled,
+  }: {
+    emailEnabled?: boolean
+    smsEnabled?: boolean
+  }) => {
+    setSavingEmailSync(true)
+    setEmailSyncMessage('')
+
+    try {
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: {
+          appointment_email_notifications_enabled: emailEnabled,
+          appointment_sms_notifications_enabled: smsEnabled,
+        },
+      })
+
+      if (updateError) throw updateError
+
+      setEmailSyncEnabled(emailEnabled)
+      setSmsSyncEnabled(smsEnabled)
+
+      try {
+        await syncDashboardContextWithRetell()
+        setEmailSyncMessage(
+          'Notification settings were saved and synced with your AI agent.'
+        )
+      } catch (syncError) {
+        setEmailSyncMessage(
+          `The email setting was saved, but the AI agent sync needs attention: ${
+            syncError instanceof Error
+              ? syncError.message
+              : 'Retell synchronization failed.'
+          }`
+        )
+      }
+    } catch (error) {
+      setEmailSyncMessage(
+        error instanceof Error
+          ? error.message
+          : 'Could not save the email confirmation setting.'
+      )
+    } finally {
+      setSavingEmailSync(false)
     }
   }
 
@@ -725,6 +785,116 @@ export default function Agent() {
             </a>
           </div>
         </section>
+
+        <section className="agentPanel agentEmailSyncPanel">
+            <div className="agentPanelHeading">
+              <div>
+                <span className="agentSectionLabel">
+                  CALL &amp; APPOINTMENT NOTIFICATIONS
+                </span>
+
+                <h2>Customer notifications</h2>
+
+                <p>
+                  Your business always receives a call email. Buyer email
+                  and SMS are optional appointment confirmations.
+                </p>
+              </div>
+
+              <span
+                className={
+                  'agentEmailSyncStatus agentEmailSyncStatus--on'
+                }
+              >
+                Owner Email Always On
+              </span>
+            </div>
+
+            <div className="agentEmailRecipientGrid">
+              <div>
+                <strong>Recepta customer</strong>
+                <span>
+                  {isPro
+                    ? 'Receives appointment details and the post-call summary.'
+                    : 'Receives a basic call-notification email.'}
+                </span>
+              </div>
+              {isPro && (
+                <>
+                  <div>
+                    <strong>Buyer email</strong>
+                    <span>
+                      {emailSyncEnabled
+                        ? 'On — the appointment buyer receives confirmation.'
+                        : 'Off — no appointment email is sent to the buyer.'}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btnOutline"
+                      disabled={savingEmailSync}
+                      onClick={() =>
+                        void saveNotificationSettings({
+                          emailEnabled: !emailSyncEnabled,
+                        })
+                      }
+                    >
+                      {emailSyncEnabled
+                        ? 'Turn Buyer Email Off'
+                        : 'Turn Buyer Email On'}
+                    </button>
+                  </div>
+                  <div>
+                    <strong>Buyer SMS</strong>
+                    <span>
+                      {smsSyncEnabled
+                        ? 'On — the agent asks for consent before texting.'
+                        : 'Off — no appointment SMS is offered.'}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btnOutline"
+                      disabled={savingEmailSync}
+                      onClick={() =>
+                        void saveNotificationSettings({
+                          smsEnabled: !smsSyncEnabled,
+                        })
+                      }
+                    >
+                      {smsSyncEnabled
+                        ? 'Turn Buyer SMS Off'
+                        : 'Turn Buyer SMS On'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="agentEmailSyncActions">
+              <button
+                type="button"
+                className="btn btnPrimary"
+                disabled={savingEmailSync}
+                onClick={() => void saveNotificationSettings({})}
+              >
+                {savingEmailSync
+                  ? 'Syncing Notifications...'
+                  : 'Sync Notification Settings'}
+              </button>
+            </div>
+
+            {isPro && smsSyncEnabled && (
+              <p className="agentHoursMessage">
+                Buyer SMS also requires configured Twilio credentials, an
+                SMS-capable sender and the buyer’s explicit consent.
+              </p>
+            )}
+
+            {emailSyncMessage && (
+              <p className="agentHoursMessage" role="status">
+                {emailSyncMessage}
+              </p>
+            )}
+          </section>
 
       {/* OPERATING HOURS */}
 

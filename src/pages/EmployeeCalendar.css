@@ -527,6 +527,32 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.calendarModalForm .calendarSmsConsent {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  align-items: center;
+  column-gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(0, 230, 118, 0.16);
+  border-radius: 12px;
+  background: rgba(0, 230, 118, 0.04);
+}
+
+.calendarModalForm .calendarSmsConsent input[type='checkbox'] {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  accent-color: #00e676;
+}
+
+.calendarSmsConsent small {
+  grid-column: 2;
+  color: rgba(203, 222, 210, 0.46);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
 .calendarDynamicField > span {
   display: flex;
   align-items: center;

@@ -4,7 +4,9 @@ import {
   getStoredBusinessSchedule,
 } from '../lib/employeeSchedule'
 import {
+  normalizeEmailNotificationsEnabled,
   normalizeAppointmentFields,
+  normalizeSmsNotificationsEnabled,
   syncRetellSchedule,
 } from '../lib/retell'
 
@@ -140,6 +142,14 @@ export default async (request: Request) => {
       const appointmentFields = normalizeAppointmentFields(
         clientUserResult.user?.user_metadata?.appointment_custom_fields
       )
+      const emailNotificationsEnabled = normalizeEmailNotificationsEnabled(
+        clientUserResult.user?.user_metadata
+          ?.appointment_email_notifications_enabled
+      )
+      const smsNotificationsEnabled = normalizeSmsNotificationsEnabled(
+        clientUserResult.user?.user_metadata
+          ?.appointment_sms_notifications_enabled
+      )
 
       await syncRetellSchedule({
         apiKey: retellApiKey,
@@ -148,6 +158,8 @@ export default async (request: Request) => {
         employeeSchedule,
         employeeScheduleTimeZone: storeSchedule.timeZone,
         appointmentFields,
+        emailNotificationsEnabled,
+        smsNotificationsEnabled,
       })
 
       results.push({

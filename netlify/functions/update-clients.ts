@@ -2,6 +2,8 @@
 import { createClient } from '@supabase/supabase-js'
 import {
   assertRetellAgentAvailable,
+  normalizeEmailNotificationsEnabled,
+  normalizeSmsNotificationsEnabled,
   syncRetellPhoneBindings,
   syncRetellSchedule,
   syncRetellSubscription,
@@ -603,11 +605,23 @@ export default async (request: Request) => {
         supabase: supabaseAdmin,
         clientId,
       })
+      const { data: clientUserResult } =
+        await supabaseAdmin.auth.admin.getUserById(clientId)
+      const emailNotificationsEnabled = normalizeEmailNotificationsEnabled(
+        clientUserResult.user?.user_metadata
+          ?.appointment_email_notifications_enabled
+      )
+      const smsNotificationsEnabled = normalizeSmsNotificationsEnabled(
+        clientUserResult.user?.user_metadata
+          ?.appointment_sms_notifications_enabled
+      )
 
       await syncRetellSchedule({
         apiKey: retellApiKey,
         agentId: retellAgentId,
         ...scheduleContext,
+        emailNotificationsEnabled,
+        smsNotificationsEnabled,
       })
 
       if (removedManualPhoneNumbers.length > 0) {

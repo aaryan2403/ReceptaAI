@@ -8,6 +8,11 @@ import {
   normalizeDuration,
 } from '../lib/calendar'
 import { sendAppointmentConfirmations } from '../lib/appointmentEmail'
+import { sendAppointmentSms } from '../lib/appointmentSms'
+import {
+  normalizeEmailNotificationsEnabled,
+  normalizeSmsNotificationsEnabled,
+} from '../lib/retell'
 
 const json = (status: number, body: Record<string, unknown>) =>
   new Response(JSON.stringify(body), {
@@ -306,6 +311,7 @@ export default async (request: Request) => {
     const service = text(body.service, 300)
     const notes = text(body.notes, 2000)
     const internalNotes = text(body.internalNotes, 2000)
+    const sendCustomerSms = body.sendCustomerSms === true
     const exactSlot = await assertExactSlotAvailable({
       supabase: supabaseAdmin,
       clientId: user.id,
@@ -388,9 +394,14 @@ export default async (request: Request) => {
     }
 
     const emailResult = await sendAppointmentConfirmations({
+      sendCustomerEmail: normalizeEmailNotificationsEnabled(
+        user.user_metadata?.appointment_email_notifications_enabled
+      ),
+      includeFullDetails: subscription.plan_name === 'Recepta Pro',
       businessName:
         exactSlot.business?.company_name || 'the business',
-      businessOwnerEmail: exactSlot.business?.contact_email,
+      businessOwnerEmail:
+        exactSlot.business?.contact_email || user.email,
       customerName,
       customerEmail,
       customerPhone,
@@ -399,15 +410,32 @@ export default async (request: Request) => {
       employeeEmail: exactSlot.employee.email,
       service,
       notes,
+      durationMinutes,
       start: exactSlot.start,
       end: exactSlot.end,
+      timeZone: exactSlot.timeZone,
+    })
+    const smsResult = await sendAppointmentSms({
+      enabled:
+        normalizeSmsNotificationsEnabled(
+          user.user_metadata?.appointment_sms_notifications_enabled
+        ) && sendCustomerSms,
+      consent: sendCustomerSms,
+      customerPhone,
+      businessName: exactSlot.business?.company_name || 'the business',
+      employeeName: exactSlot.employee.name,
+      start: exactSlot.start,
+      durationMinutes,
       timeZone: exactSlot.timeZone,
     })
 
     return json(201, {
       appointment,
       confirmationEmailSent: emailResult.sent,
+      confirmationEmailRecipients: emailResult.deliveredRecipients,
       confirmationWarning: emailResult.warning,
+      confirmationSmsSent: smsResult.sent,
+      smsWarning: smsResult.warning,
     })
   } catch (error) {
     return json(400, {

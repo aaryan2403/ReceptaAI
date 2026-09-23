@@ -8,8 +8,11 @@ import {
   normalizeDuration,
 } from '../lib/calendar'
 import { sendAppointmentConfirmations } from '../lib/appointmentEmail'
+import { sendAppointmentSms } from '../lib/appointmentSms'
 import {
   normalizeAppointmentFields,
+  normalizeEmailNotificationsEnabled,
+  normalizeSmsNotificationsEnabled,
   verifyRetellSignature,
 } from '../lib/retell'
 
@@ -132,14 +135,28 @@ export default async (request: Request) => {
   }
 
   let appointmentFields: string[] = []
+  let emailNotificationsEnabled = true
+  let smsNotificationsEnabled = false
+  let businessOwnerAccountEmail: string | null = null
   try {
     const { data: clientUserResult, error: clientUserError } =
       await supabaseAdmin.auth.admin.getUserById(clientId)
 
     if (clientUserError) throw clientUserError
 
+    businessOwnerAccountEmail =
+      clientUserResult.user?.email?.trim() || null
+
     appointmentFields = normalizeAppointmentFields(
       clientUserResult.user?.user_metadata?.appointment_custom_fields
+    )
+    emailNotificationsEnabled = normalizeEmailNotificationsEnabled(
+      clientUserResult.user?.user_metadata
+        ?.appointment_email_notifications_enabled
+    )
+    smsNotificationsEnabled = normalizeSmsNotificationsEnabled(
+      clientUserResult.user?.user_metadata
+        ?.appointment_sms_notifications_enabled
     )
   } catch (error) {
     console.error(
@@ -217,8 +234,11 @@ export default async (request: Request) => {
     const time = normalizeCalendarTime(args.time)
     const durationMinutes = normalizeDuration(args.duration_minutes)
     const customerName = requiredText(args.customer_name, 'Customer name', 160)
-    const customerEmail = requiredText(args.customer_email, 'Customer email', 320)
+    const customerEmail = emailNotificationsEnabled
+      ? requiredText(args.customer_email, 'Customer email', 320)
+      : optionalText(args.customer_email, 320)
     const customerPhone = optionalText(args.customer_phone, 60)
+    const customerSmsConsent = args.customer_sms_consent === true
     const customerCompany = optionalText(args.customer_company, 200)
     const service = optionalText(args.service, 300)
     const notes = optionalText(args.notes, 1000)
@@ -296,7 +316,9 @@ export default async (request: Request) => {
           company_name: customerCompany,
           service,
           notes,
-          internal_notes: null,
+          internal_notes: customerSmsConsent
+            ? 'Buyer consented to an appointment confirmation SMS during the Retell call.'
+            : null,
           appointment_time: exactSlot.start,
           appointment_end_time: exactSlot.end,
           duration_minutes: durationMinutes,
@@ -324,7 +346,9 @@ export default async (request: Request) => {
           p_company_name: customerCompany,
           p_service: service,
           p_notes: notes,
-          p_internal_notes: null,
+          p_internal_notes: customerSmsConsent
+            ? 'Buyer consented to an appointment confirmation SMS during the Retell call.'
+            : null,
           p_source: 'retell',
           p_retell_call_id: bookingKey,
         }
@@ -344,8 +368,11 @@ export default async (request: Request) => {
     }
 
     const emailResult = await sendAppointmentConfirmations({
+      sendCustomerEmail: emailNotificationsEnabled,
+      includeFullDetails: true,
       businessName: exactSlot.business?.company_name || 'the business',
-      businessOwnerEmail: exactSlot.business?.contact_email,
+      businessOwnerEmail:
+        exactSlot.business?.contact_email || businessOwnerAccountEmail,
       customerName,
       customerEmail,
       customerPhone,
@@ -354,8 +381,19 @@ export default async (request: Request) => {
       employeeEmail: employee.email,
       service,
       notes,
+      durationMinutes,
       start: exactSlot.start,
       end: exactSlot.end,
+      timeZone: exactSlot.timeZone,
+    })
+    const smsResult = await sendAppointmentSms({
+      enabled: smsNotificationsEnabled,
+      consent: customerSmsConsent,
+      customerPhone,
+      businessName: exactSlot.business?.company_name || 'the business',
+      employeeName: employee.name,
+      start: exactSlot.start,
+      durationMinutes,
       timeZone: exactSlot.timeZone,
     })
 
@@ -368,7 +406,11 @@ export default async (request: Request) => {
       end_iso: exactSlot.end,
       time_zone: exactSlot.timeZone,
       confirmation_email_sent: emailResult.sent,
+      confirmation_email_recipients: emailResult.deliveredRecipients,
+      buyer_email_sent: emailResult.deliveredRecipients.includes('customer'),
+      confirmation_sms_sent: smsResult.sent,
       email_warning: emailResult.warning,
+      sms_warning: smsResult.warning,
       confirmation:
         'The appointment is booked. Tell the caller the employee, date, and time exactly as returned.',
     })

@@ -2,7 +2,9 @@ import { createClient } from '@supabase/supabase-js'
 import {
   formatAppointmentFields,
   normalizeAppointmentFields,
+  normalizeEmailNotificationsEnabled,
   normalizeE164,
+  normalizeSmsNotificationsEnabled,
   syncRetellPhoneBinding,
   verifyRetellSignature,
 } from '../lib/retell'
@@ -392,6 +394,8 @@ export default async (request: Request) => {
   )
   let employeeSchedule = `Business timezone: ${employeeScheduleTimeZone}. No active employees are configured.`
   let appointmentFields: string[] = []
+  let emailNotificationsEnabled = true
+  let smsNotificationsEnabled = false
 
   try {
     const { data: employees, error: employeesError } =
@@ -447,6 +451,14 @@ export default async (request: Request) => {
 
     appointmentFields = normalizeAppointmentFields(
       clientUserResult.user?.user_metadata?.appointment_custom_fields
+    )
+    emailNotificationsEnabled = normalizeEmailNotificationsEnabled(
+      clientUserResult.user?.user_metadata
+        ?.appointment_email_notifications_enabled
+    )
+    smsNotificationsEnabled = normalizeSmsNotificationsEnabled(
+      clientUserResult.user?.user_metadata
+        ?.appointment_sms_notifications_enabled
     )
   } catch (error) {
     console.error(
@@ -647,6 +659,12 @@ export default async (request: Request) => {
           employeeScheduleTimeZone,
         recepta_appointment_fields:
           formatAppointmentFields(appointmentFields),
+        recepta_email_confirmations: emailNotificationsEnabled
+          ? 'enabled'
+          : 'disabled',
+        recepta_sms_confirmations: smsNotificationsEnabled
+          ? 'enabled'
+          : 'disabled',
       },
       metadata: {
         recepta_client_id: agent.client_id,

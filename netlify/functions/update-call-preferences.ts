@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import {
+  normalizeEmailNotificationsEnabled,
   normalizeAppointmentFields,
+  normalizeSmsNotificationsEnabled,
   syncRetellSchedule,
   type RetellOperatingDay,
   type RetellSchedule,
@@ -273,6 +275,12 @@ export default async (request: Request) => {
   const appointmentFields = normalizeAppointmentFields(
     user.user_metadata?.appointment_custom_fields
   )
+  const emailNotificationsEnabled = normalizeEmailNotificationsEnabled(
+    user.user_metadata?.appointment_email_notifications_enabled
+  )
+  const smsNotificationsEnabled = normalizeSmsNotificationsEnabled(
+    user.user_metadata?.appointment_sms_notifications_enabled
+  )
 
   const { error: updateError } = await supabaseAdmin
     .from('agents')
@@ -293,6 +301,8 @@ export default async (request: Request) => {
       employeeSchedule,
       employeeScheduleTimeZone: schedule.timeZone,
       appointmentFields,
+      emailNotificationsEnabled,
+      smsNotificationsEnabled,
     })
 
     return json(200, {

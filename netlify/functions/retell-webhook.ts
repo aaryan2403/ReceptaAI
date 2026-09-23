@@ -3,6 +3,8 @@ import {
   syncRetellPhoneBindings,
   verifyRetellSignature,
 } from '../lib/retell'
+import { getStoredBusinessSchedule } from '../lib/employeeSchedule'
+import { sendCallNotification } from '../lib/callNotificationEmail'
 
 type RetellEvent =
   | 'call_started'
@@ -208,7 +210,7 @@ export default async (
     error: agentError,
   } = await supabaseAdmin
     .from('agents')
-    .select('client_id, phone_number')
+    .select('client_id, phone_number, business_hours')
     .eq('retell_agent_id', agentId)
     .maybeSingle()
 
@@ -241,7 +243,7 @@ export default async (
   } = await supabaseAdmin
     .from('subscriptions')
     .select(
-      'status, monthly_minutes, rollover_seconds, current_period_start, pii_redaction_enabled'
+      'plan_name, status, monthly_minutes, rollover_seconds, current_period_start, pii_redaction_enabled'
     )
     .eq('client_id', agent.client_id)
     .maybeSingle()
@@ -254,7 +256,7 @@ export default async (
     const fallback = await supabaseAdmin
       .from('subscriptions')
       .select(
-        'status, monthly_minutes, current_period_start, pii_redaction_enabled'
+        'plan_name, status, monthly_minutes, current_period_start, pii_redaction_enabled'
       )
       .eq('client_id', agent.client_id)
       .maybeSingle()
@@ -379,6 +381,35 @@ export default async (
     }
   }
 
+  let analysisWasAlreadySaved = false
+  let callWasAlreadyEnded = false
+
+  if (
+    payload.event === 'call_ended' ||
+    payload.event === 'call_analyzed'
+  ) {
+    const { data: existingCall, error: existingCallError } =
+      await supabaseAdmin
+        .from('calls')
+        .select('call_status, summary, user_sentiment, call_successful')
+        .eq('retell_call_id', callId)
+        .maybeSingle()
+
+    if (existingCallError) {
+      console.error(
+        'Could not check whether the call notification was already handled:',
+        existingCallError
+      )
+    } else {
+      callWasAlreadyEnded = existingCall?.call_status === 'ended'
+      analysisWasAlreadySaved = Boolean(
+        existingCall?.summary ||
+          existingCall?.user_sentiment ||
+          typeof existingCall?.call_successful === 'boolean'
+      )
+    }
+  }
+
   const { error: upsertError } =
     await supabaseAdmin
       .from('calls')
@@ -403,6 +434,146 @@ export default async (
     clientId: agent.client_id,
     callStatus,
   })
+
+  const shouldSendStandardNotification =
+    subscription?.plan_name === 'Recepta Standard' &&
+    ((payload.event === 'call_ended' && !callWasAlreadyEnded) ||
+      (payload.event === 'call_analyzed' && !callWasAlreadyEnded))
+  const shouldSendProNotification =
+    subscription?.plan_name === 'Recepta Pro' &&
+    payload.event === 'call_analyzed' &&
+    !analysisWasAlreadySaved
+
+  if (
+    (shouldSendStandardNotification || shouldSendProNotification) &&
+    subscription?.status === 'active' &&
+    (subscription.plan_name === 'Recepta Standard' ||
+      subscription.plan_name === 'Recepta Pro')
+  ) {
+    try {
+      const { data: business, error: businessError } =
+        await supabaseAdmin
+          .from('clients')
+          .select('company_name, contact_email')
+          .eq('id', agent.client_id)
+          .maybeSingle()
+
+      if (businessError) throw businessError
+
+      let ownerEmail = getString(business?.contact_email)
+
+      if (!ownerEmail) {
+        const { data: ownerUser, error: ownerUserError } =
+          await supabaseAdmin.auth.admin.getUserById(agent.client_id)
+
+        if (ownerUserError) {
+          console.error(
+            'Could not load the Recepta customer account email:',
+            ownerUserError
+          )
+        } else {
+          ownerEmail = getString(ownerUser.user?.email)
+        }
+      }
+
+      let appointment: {
+        customer_name: string | null
+        customer_email: string | null
+        customer_phone: string | null
+        company_name: string | null
+        service: string | null
+        notes: string | null
+        appointment_time: string
+        appointment_end_time: string | null
+        duration_minutes: number
+        employee_id: string | null
+      } | null = null
+      let employeeName: string | null = null
+
+      if (subscription.plan_name === 'Recepta Pro') {
+        const { data: appointmentRow, error: appointmentError } =
+          await supabaseAdmin
+            .from('appointments')
+            .select(
+              'customer_name, customer_email, customer_phone, company_name, service, notes, appointment_time, appointment_end_time, duration_minutes, employee_id'
+            )
+            .eq('client_id', agent.client_id)
+            .like('retell_call_id', `${callId}:%`)
+            .order('appointment_time', { ascending: true })
+            .limit(1)
+            .maybeSingle()
+
+        if (appointmentError) {
+          console.error(
+            'Could not load the appointment for the Pro call email:',
+            appointmentError
+          )
+        } else {
+          appointment = appointmentRow
+        }
+
+        if (appointment?.employee_id) {
+          const { data: employee, error: employeeError } =
+            await supabaseAdmin
+              .from('employees')
+              .select('name')
+              .eq('id', appointment.employee_id)
+              .eq('client_id', agent.client_id)
+              .maybeSingle()
+
+          if (employeeError) {
+            console.error(
+              'Could not load the assigned employee for the Pro call email:',
+              employeeError
+            )
+          } else {
+            employeeName = getString(employee?.name)
+          }
+        }
+      }
+
+      const schedule = getStoredBusinessSchedule(agent.business_hours)
+      const notification = await sendCallNotification({
+        planName: subscription.plan_name,
+        businessName: getString(business?.company_name) || 'your business',
+        ownerEmail,
+        callerName,
+        callerNumber,
+        startedAt,
+        durationSeconds: getDurationSeconds(call),
+        timeZone: schedule.timeZone,
+        outcome: getString(record.outcome),
+        summary: getString(analysis?.call_summary),
+        appointment: appointment
+          ? {
+              customerName: appointment.customer_name,
+              customerEmail: appointment.customer_email,
+              customerPhone: appointment.customer_phone,
+              customerCompany: appointment.company_name,
+              employeeName,
+              service: appointment.service,
+              notes: appointment.notes,
+              start: appointment.appointment_time,
+              end: appointment.appointment_end_time,
+              durationMinutes: appointment.duration_minutes,
+              timeZone: schedule.timeZone,
+            }
+          : null,
+      })
+
+      if (!notification.sent) {
+        console.error(
+          'Recepta customer call notification was not sent:',
+          notification.warning
+        )
+      }
+    } catch (notificationError) {
+      console.error(
+        'Recepta customer call notification failed:',
+        notificationError
+      )
+    }
+  }
 
   if (
     payload.event === 'call_ended' ||
