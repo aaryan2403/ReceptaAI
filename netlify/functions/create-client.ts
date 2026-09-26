@@ -350,26 +350,6 @@ export default async (request: Request) => {
       )
     }
 
-    if (
-      normalizedRetellId &&
-      !normalizedRetellId.startsWith(
-        'agent_'
-      )
-    ) {
-      return new Response(
-        JSON.stringify({
-          error:
-            'Retell Agent ID must start with agent_.',
-        }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
-        }
-      )
-    }
 
     if (
       phonePurchase.purchaseCount > 0 &&

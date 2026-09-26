@@ -195,16 +195,6 @@ export default async (request: Request) => {
     })
   }
 
-  if (
-    retellAgentId &&
-    !retellAgentId.startsWith('agent_')
-  ) {
-    return json(400, {
-      error:
-        'Retell Agent ID must start with agent_.',
-    })
-  }
-
   if (retellAgentId) {
     if (!retellApiKey) {
       return json(500, {

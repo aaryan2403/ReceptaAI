@@ -74,6 +74,7 @@ type RetellVersionList = {
 }
 
 type RetellAgent = {
+  agent_id?: string
   version?: number
   response_engine?: {
     type?: string
@@ -192,20 +193,17 @@ export const assertRetellAgentAvailable = async ({
   agentId: string
 }) => {
   try {
-    const versions =
-      await retellRequest<RetellVersionList>(
-        apiKey,
-        `/list-agent-versions/${encodeURIComponent(
-          agentId
-        )}?limit=1&sort_order=descending`
-      )
+    const agent = await retellRequest<RetellAgent>(
+      apiKey,
+      `/get-agent/${encodeURIComponent(agentId)}`
+    )
 
     if (
-      !Array.isArray(versions.items) ||
-      versions.items.length === 0
+      agent.agent_id &&
+      agent.agent_id !== agentId
     ) {
       throw new Error(
-        'The Retell agent has no version to sync.'
+        'Retell returned a different agent than the one requested.'
       )
     }
   } catch (error) {
@@ -214,10 +212,14 @@ export const assertRetellAgentAvailable = async ({
         ? error.message
         : 'Retell agent verification failed.'
 
-    if (
-      /not found|status 404|does not exist/i.test(
-        detail
+    if (/api key is missing or invalid|unauthorized/i.test(detail)) {
+      throw new Error(
+        'RETELL_API_KEY is invalid. Replace it with an API key from the Retell workspace that owns this agent.'
       )
+    }
+
+    if (
+      /not found|status 404|does not exist|cannot find requested asset/i.test(detail)
     ) {
       throw new Error(
         'Retell could not find this Agent ID in the workspace connected to Recepta. Copy the full Agent ID from Retell and make sure RETELL_API_KEY belongs to the same Retell workspace.'

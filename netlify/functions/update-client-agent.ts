@@ -135,24 +135,6 @@ export default async (request: Request) => {
         ? retellAgentId.trim()
         : null
 
-    if (
-      normalizedRetellId &&
-      !normalizedRetellId.startsWith(
-        'agent_'
-      )
-    ) {
-      return new Response(
-        JSON.stringify({
-          error:
-            'Retell Agent ID must start with agent_.',
-        }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
     if (normalizedRetellId) {
       const retellApiKey =
         process.env.RETELL_API_KEY

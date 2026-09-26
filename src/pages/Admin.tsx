@@ -596,17 +596,6 @@ export default function Admin() {
         )
       }
 
-      if (
-        normalizedRetellId &&
-        !normalizedRetellId.startsWith(
-          'agent_'
-        )
-      ) {
-        throw new Error(
-          'Retell Agent ID must start with agent_.'
-        )
-      }
-
       if (requestedPurchaseCount > 0 && !normalizedRetellId) {
         throw new Error(
           'Enter the Retell Agent ID before purchasing phone numbers.'
@@ -827,17 +816,6 @@ export default function Admin() {
       if (editedPhoneNumbers.length > 21) {
         throw new Error(
           'A client can have at most 21 phone numbers, including the primary number.'
-        )
-      }
-
-      if (
-        normalizedRetellId &&
-        !normalizedRetellId.startsWith(
-          'agent_'
-        )
-      ) {
-        throw new Error(
-          'Retell Agent ID must start with agent_.'
         )
       }
 
