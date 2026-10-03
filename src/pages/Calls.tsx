@@ -281,10 +281,10 @@ export default function Calls() {
 
           {isPro && (
             <a
-              href="/dashboard/calendar"
+              href="/dashboard/appointments"
               className="dashboardNavItem"
             >
-              Calendar
+              Appointments
             </a>
           )}
 

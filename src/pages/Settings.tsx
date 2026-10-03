@@ -332,10 +332,10 @@ export default function Settings() {
 
           {isPro && (
             <a
-              href="/dashboard/calendar"
+              href="/dashboard/appointments"
               className="dashboardNavItem"
             >
-              Calendar
+              Appointments
             </a>
           )}
 

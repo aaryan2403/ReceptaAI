@@ -29,6 +29,7 @@ type ClientRecord = {
   created_at: string
   appointment_email_notifications_enabled: boolean
   appointment_sms_notifications_enabled: boolean
+  appointment_custom_fields: string[]
 }
 
 type SubscriptionRecord = {
@@ -113,6 +114,17 @@ const parsePhoneNumberInput = (value: string) =>
         .filter(Boolean)
     )
   )
+
+const parseAppointmentFields = (value: string) =>
+  Array.from(
+    new Map(
+      value
+        .split(/[\n,;]+/)
+        .map((field) => field.trim().slice(0, 60))
+        .filter(Boolean)
+        .map((field) => [field.toLowerCase(), field])
+    ).values()
+  ).slice(0, 20)
 
 const NotificationSettingsPanel = ({
   planName,
@@ -291,6 +303,8 @@ export default function Admin() {
     useState(true)
   const [editBuyerSmsEnabled, setEditBuyerSmsEnabled] =
     useState(false)
+  const [editAppointmentFields, setEditAppointmentFields] =
+    useState('')
   const [
     editSafetyGuardrails,
     setEditSafetyGuardrails,
@@ -756,6 +770,9 @@ export default function Admin() {
     setEditBuyerSmsEnabled(
       client.appointment_sms_notifications_enabled === true
     )
+    setEditAppointmentFields(
+      (client.appointment_custom_fields || []).join('\n')
+    )
     setEditPassword('')
     setEditPurchaseQuantity('1')
     setEditPhoneCountry('CA')
@@ -873,6 +890,8 @@ export default function Admin() {
               editBuyerEmailEnabled,
             buyerSmsNotificationsEnabled:
               editBuyerSmsEnabled,
+            appointmentFields:
+              parseAppointmentFields(editAppointmentFields),
           }),
         }
       )
@@ -1369,7 +1388,7 @@ export default function Admin() {
 
               <p>
                 Standard gets Overview,
-                Calls, Calendar, Agent, Billing and
+                Calls, Appointments, Agent, Billing and
                 Settings. Pro also gets AI appointment booking.
               </p>
             </div>
@@ -2309,6 +2328,23 @@ export default function Admin() {
                   showSaveButton
                   saving={savingEdit}
                 />
+
+                <label style={{ gridColumn: '1 / -1' }}>
+                  <span>AI appointment fields</span>
+                  <textarea
+                    value={editAppointmentFields}
+                    onChange={(event) =>
+                      setEditAppointmentFields(event.target.value)
+                    }
+                    rows={7}
+                    placeholder={"Customer name\nNumber of windows\nWindow measurements\nPreferred installation date\nProperty address"}
+                  />
+                  <small>
+                    Admin controlled. Enter one field per line. The AI will ask
+                    the caller for these details and save the answers in the
+                    customer’s Appointments page. Maximum 20 fields.
+                  </small>
+                </label>
 
                 <div
                   style={{

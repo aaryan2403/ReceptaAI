@@ -468,7 +468,7 @@ export default function EmployeeHours() {
           </div>
 
           <a href="/dashboard/employees" className="btn btnOutline">
-            Back to Team Calendar
+            Back to Appointments
           </a>
         </div>
 

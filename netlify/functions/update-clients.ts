@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import {
   assertRetellAgentAvailable,
   normalizeEmailNotificationsEnabled,
+  normalizeAppointmentFields,
   normalizeSmsNotificationsEnabled,
   syncRetellPhoneBindings,
   syncRetellSchedule,
@@ -116,6 +117,7 @@ export default async (request: Request) => {
     safetyGuardrailsEnabled?: boolean
     buyerEmailNotificationsEnabled?: boolean
     buyerSmsNotificationsEnabled?: boolean
+    appointmentFields?: string[]
   }
 
   try {
@@ -155,6 +157,7 @@ export default async (request: Request) => {
     body.buyerEmailNotificationsEnabled !== false
   const buyerSmsNotificationsEnabled =
     body.buyerSmsNotificationsEnabled === true
+  const appointmentFields = normalizeAppointmentFields(body.appointmentFields)
 
   if (
     !clientId ||
@@ -311,6 +314,7 @@ export default async (request: Request) => {
       buyerEmailNotificationsEnabled,
     appointment_sms_notifications_enabled:
       buyerSmsNotificationsEnabled,
+    appointment_custom_fields: appointmentFields,
   }
 
   if (
@@ -625,6 +629,7 @@ export default async (request: Request) => {
         apiKey: retellApiKey,
         agentId: retellAgentId,
         ...scheduleContext,
+        appointmentFields,
         emailNotificationsEnabled:
           normalizeEmailNotificationsEnabled(
             buyerEmailNotificationsEnabled

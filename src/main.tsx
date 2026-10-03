@@ -7,7 +7,7 @@ import App from './App.tsx'
 import Login from './pages/Login.tsx'
 import Dashboard from './pages/Dashboard.tsx'
 import Calls from './pages/Calls.tsx'
-import CalendarPage from './pages/EmployeeCalendar.tsx'
+import Appointments from './pages/Appointments.tsx'
 import Agent from './pages/Agent.tsx'
 import Billing from './pages/Billing.tsx'
 import Settings from './pages/Settings.tsx'
@@ -67,22 +67,22 @@ createRoot(document.getElementById('root')!).render(
 
         {/* ACTIVE PRO ONLY */}
         <Route
-          path="/dashboard/calendar"
+          path="/dashboard/appointments"
           element={
             <ProtectedRoute>
               <ProRoute>
-                <CalendarPage />
+                <Appointments />
               </ProRoute>
             </ProtectedRoute>
           }
         />
 
-        {/* Legacy links now open the single calendar workspace. */}
+        {/* Old calendar links now open the appointment records workspace. */}
         <Route
-          path="/dashboard/appointments"
+          path="/dashboard/calendar"
           element={
             <ProtectedRoute>
-              <Navigate to="/dashboard/calendar" replace />
+              <Navigate to="/dashboard/appointments" replace />
             </ProtectedRoute>
           }
         />
@@ -91,7 +91,7 @@ createRoot(document.getElementById('root')!).render(
           path="/dashboard/employees"
           element={
             <ProtectedRoute>
-              <Navigate to="/dashboard/calendar" replace />
+              <Navigate to="/dashboard/appointments" replace />
             </ProtectedRoute>
           }
         />
@@ -100,7 +100,7 @@ createRoot(document.getElementById('root')!).render(
           path="/dashboard/employee-hours"
           element={
             <ProtectedRoute>
-              <Navigate to="/dashboard/calendar" replace />
+              <Navigate to="/dashboard/appointments" replace />
             </ProtectedRoute>
           }
         />

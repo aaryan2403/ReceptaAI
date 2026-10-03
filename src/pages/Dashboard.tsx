@@ -703,10 +703,10 @@ export default function Dashboard() {
 
           {isPro && (
             <a
-              href="/dashboard/calendar"
+              href="/dashboard/appointments"
               className="dashboardNavItem"
             >
-              Calendar
+              Appointments
             </a>
           )}
 
@@ -855,7 +855,7 @@ export default function Dashboard() {
 
           {isPro && (
             <a
-              href="/dashboard/calendar"
+              href="/dashboard/appointments"
               className="dashboardStatCard dashboardStatCardLink"
             >
               <span>Appointments Today</span>
@@ -867,7 +867,7 @@ export default function Dashboard() {
               <small>
                 {stats.appointmentsToday === 1
                   ? '1 appointment scheduled today'
-                  : `${stats.appointmentsToday} appointments scheduled today`}
+                  : `${stats.appointmentsToday} appointment requests captured today`}
               </small>
             </a>
           )}
@@ -971,16 +971,16 @@ export default function Dashboard() {
 
               <p>
                 {stats.appointmentsToday === 0
-                  ? 'Your receptionist has no customer appointments scheduled for today.'
+                  ? 'Your receptionist has not captured an appointment request today.'
                   : 'View today’s booked customers and appointment times.'}
               </p>
             </div>
 
             <a
-              href="/dashboard/calendar"
+              href="/dashboard/appointments"
               className="btn btnOutline"
             >
-              View Calendar
+              View Appointments
             </a>
           </div>
         )}

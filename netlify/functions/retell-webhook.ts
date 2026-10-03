@@ -370,6 +370,26 @@ export default async (
         customAnalysis.appointment_booked
       )
 
+    if (record.appointment_booked !== true) {
+      const { data: capturedAppointment, error: capturedAppointmentError } =
+        await supabaseAdmin
+          .from('appointments')
+          .select('id')
+          .eq('client_id', agent.client_id)
+          .like('retell_call_id', `${callId}%`)
+          .limit(1)
+          .maybeSingle()
+
+      if (capturedAppointmentError) {
+        console.error(
+          'Could not check captured appointment details:',
+          capturedAppointmentError
+        )
+      } else if (capturedAppointment) {
+        record.appointment_booked = true
+      }
+    }
+
     if (
       typeof analysis?.call_successful ===
       'boolean'
@@ -498,7 +518,7 @@ export default async (
               'customer_name, customer_email, customer_phone, company_name, service, notes, appointment_time, appointment_end_time, duration_minutes, employee_id'
             )
             .eq('client_id', agent.client_id)
-            .like('retell_call_id', `${callId}:%`)
+            .like('retell_call_id', `${callId}%`)
             .order('appointment_time', { ascending: true })
             .limit(1)
             .maybeSingle()
