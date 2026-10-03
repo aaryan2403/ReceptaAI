@@ -139,16 +139,6 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
-        {/* The retired customer-request page returns to Overview. */}
-        <Route
-          path="/dashboard/requests"
-          element={
-            <ProtectedRoute>
-              <Navigate to="/dashboard" replace />
-            </ProtectedRoute>
-          }
-        />
-
         {/* =====================================================
             RECEPTA ADMIN
            ===================================================== */}
@@ -171,14 +161,6 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
-        <Route
-          path="/admin/requests"
-          element={
-            <AdminRoute>
-              <Navigate to="/admin" replace />
-            </AdminRoute>
-          }
-        />
       </Routes>
     </BrowserRouter>
   </StrictMode>,

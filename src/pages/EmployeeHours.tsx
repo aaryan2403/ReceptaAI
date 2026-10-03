@@ -428,13 +428,6 @@ export default function EmployeeHours() {
           </a>
 
           <a
-            href="/dashboard/requests"
-            className="dashboardNavItem"
-          >
-            Customer Requests
-          </a>
-
-          <a
             href="/dashboard/billing"
             className="dashboardNavItem"
           >

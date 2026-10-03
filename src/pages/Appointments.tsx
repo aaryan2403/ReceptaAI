@@ -125,7 +125,6 @@ export default function Appointments() {
           <a href="/dashboard/calls" className="dashboardNavItem">Calls</a>
           <a href="/dashboard/appointments" className="dashboardNavItem dashboardNavItemActive">Appointments</a>
           <a href="/dashboard/agent" className="dashboardNavItem">Agent</a>
-          <a href="/dashboard/requests" className="dashboardNavItem">Customer Requests</a>
           <a href="/dashboard/billing" className="dashboardNavItem">Billing</a>
           <a href="/dashboard/settings" className="dashboardNavItem">Settings</a>
         </nav>
