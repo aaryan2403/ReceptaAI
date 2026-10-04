@@ -26,6 +26,7 @@ const MAX_MONTHLY_MINUTES = 100_000_000
 const PII_RATE_CAD = 0.014
 const GUARDRAIL_RATE_CAD = 0.007
 const EXTRA_NUMBER_MONTHLY_CAD = 20
+const MINUTE_OPTIONS = [100, 300, 500, 1000, 2500, 5000]
 
 const isMissingRolloverColumn = (error: { code?: string; message?: string } | null) => {
   const message = error?.message?.toLowerCase() ?? ''
@@ -219,6 +220,14 @@ export default function Billing() {
         ? 'Cancelled'
         : 'Setup pending'
 
+  const nextBillingLabel = subscription?.next_billing_date
+    ? new Date(subscription.next_billing_date).toLocaleDateString('en-CA', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      })
+    : 'Not scheduled'
+
   return (
     <main className="dashboardPage">
       <aside className="dashboardSidebar">
@@ -250,67 +259,123 @@ export default function Billing() {
           </div>
         ) : (
           <>
-            <section className="billingHeroCard">
-              <div className="billingPlanHeader">
+            <section className="billingConfigCurrent">
+              <div className="billingConfigCurrentTop">
                 <div>
                   <span className="billingPremiumEyebrow">CURRENT SUBSCRIPTION</span>
                   <h2>{subscription.plan_name || 'Recepta plan'}</h2>
-                  <p>{statusLabel}</p>
+                  <p>Your plan and AI configuration are managed by Recepta.</p>
                 </div>
-                <div className="billingPriceBlock">
+              </div>
+
+              <div className="billingCurrentStats">
+                <div>
+                  <span>Status</span>
+                  <strong>{statusLabel}</strong>
+                </div>
+                <div>
+                  <span>Monthly total</span>
                   <strong>C${Number(subscription.monthly_price ?? 0).toFixed(2)}</strong>
-                  <span>/ month</span>
+                </div>
+                <div>
+                  <span>Included minutes</span>
+                  <strong>{Number(subscription.monthly_minutes ?? 0).toLocaleString()}</strong>
+                </div>
+                <div>
+                  <span>Next billing date</span>
+                  <strong>{nextBillingLabel}</strong>
                 </div>
               </div>
+
+              <div className="billingCurrentUsage">
+                <div className="billingCurrentUsageTop">
+                  <span>{minutesUsed.toLocaleString()} minutes used</span>
+                  <strong>{minutesRemaining.toLocaleString()} remaining</strong>
+                </div>
+                <div className="billingUsageTrack">
+                  <div className="billingUsageFill" style={{ width: `${usagePercent}%` }} />
+                </div>
+                <small>
+                  {Number(subscription.monthly_minutes ?? 0).toLocaleString()} monthly minutes
+                  {rolloverMinutes > 0 ? ` + ${rolloverMinutes.toLocaleString()} rollover minutes` : ''}
+                </small>
+              </div>
             </section>
 
-            <section className="billingUsageCard">
-              <div className="billingUsageHeader">
-                <div><span className="billingPremiumEyebrow">MONTHLY USAGE</span><h2>{minutesUsed.toLocaleString()} minutes used</h2></div>
-                <strong>{minutesRemaining.toLocaleString()} remaining</strong>
-              </div>
-              <div className="billingProgressTrack"><div className="billingProgressFill" style={{ width: `${usagePercent}%` }} /></div>
-              <p>{Number(subscription.monthly_minutes ?? 0).toLocaleString()} monthly minutes{rolloverMinutes > 0 ? ` + ${rolloverMinutes.toLocaleString()} rollover minutes` : ''}.</p>
-            </section>
-
-            <section className="billingCheckoutSummary" style={{ marginTop: '24px' }}>
-              <span className="billingPremiumEyebrow">CHANGE MONTHLY MINUTES</span>
-              <h2>Choose your allowance</h2>
-              <p>Everything else is managed by Recepta. Contact us if you need plan, model, phone number, security or agent changes.</p>
-
-              <div className="billingCustomMinutes" style={{ marginTop: '20px' }}>
-                <label>
-                  Monthly minutes
-                  <input
-                    type="number"
-                    min="1"
-                    max={MAX_MONTHLY_MINUTES}
-                    step="1"
-                    value={selectedMinutes}
-                    onChange={(event) => setSelectedMinutes(event.target.value)}
-                  />
-                </label>
+            <section className="billingConfigurator">
+              <div className="billingConfiguratorHeading">
+                <span className="billingPremiumEyebrow">MONTHLY MINUTES</span>
+                <h2>Choose your call allowance</h2>
+                <p>Select a preset or enter an exact amount. Recepta manages your plan, AI model, phone numbers and agent settings.</p>
               </div>
 
-              <div className="billingPlanHeader" style={{ marginTop: '22px' }}>
-                <div><span>Estimated monthly total</span><p>Based on the configuration assigned by Recepta.</p></div>
-                <div className="billingPriceBlock"><strong>C${proposedTotal.toFixed(2)}</strong><span>/ month</span></div>
+              <div className="billingConfigSection">
+                <div className="billingConfigSectionHead">
+                  <span className="billingConfigNumber">1</span>
+                  <div>
+                    <h3>Select your monthly minutes</h3>
+                    <p>You can update the allowance whenever your call volume changes.</p>
+                  </div>
+                </div>
+
+                <div className="billingMinuteChoices">
+                  {MINUTE_OPTIONS.map((minutes) => (
+                    <button
+                      key={minutes}
+                      type="button"
+                      className={`billingMinuteChoice ${monthlyMinutes === minutes ? 'billingMinuteChoice--selected' : ''}`}
+                      onClick={() => setSelectedMinutes(String(minutes))}
+                    >
+                      <strong>{minutes.toLocaleString()}</strong>
+                      <span>minutes / month</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="billingCustomMinutes">
+                  <label>
+                    Or enter a custom amount
+                    <input
+                      type="number"
+                      min="1"
+                      max={MAX_MONTHLY_MINUTES}
+                      step="1"
+                      inputMode="numeric"
+                      value={selectedMinutes}
+                      onChange={(event) => setSelectedMinutes(event.target.value)}
+                    />
+                  </label>
+                </div>
               </div>
 
-              {subscription.status === 'active' ? (
-                <button type="button" className="btn btnPrimary billingUpdateSubscription" onClick={saveMinutes} disabled={saving}>
-                  {saving ? 'Updating Minutes...' : 'Update Monthly Minutes'}
-                </button>
-              ) : subscription.status === 'cancelled' || subscription.status === 'pending' ? (
-                <button type="button" className="btn btnPrimary billingUpdateSubscription" onClick={startRenewal} disabled={saving}>
-                  {saving ? 'Opening Stripe Checkout...' : 'Continue to Payment'}
-                </button>
-              ) : (
-                <a className="btn btnPrimary billingUpdateSubscription" href="mailto:receptahelp02@gmail.com">Contact Recepta</a>
-              )}
+              <div className="billingCheckoutSummary">
+                <div className="billingCheckoutSummaryHead">
+                  <div>
+                    <span className="billingPremiumEyebrow">UPDATED TOTAL</span>
+                    <h2>{monthlyMinutes > 0 ? monthlyMinutes.toLocaleString() : '—'} minutes per month</h2>
+                  </div>
+                  <div className="billingCheckoutTotal">
+                    <strong>C${proposedTotal.toFixed(2)}</strong>
+                    <span>estimated monthly</span>
+                  </div>
+                </div>
 
-              {success && <p className="calendarAlert">{success}</p>}
-              {error && <p className="calendarAlert calendarAlert--error" role="alert">{error}</p>}
+                {subscription.status === 'active' ? (
+                  <button type="button" className="btn btnPrimary billingUpdateSubscription" onClick={saveMinutes} disabled={saving}>
+                    {saving ? 'Updating minutes...' : 'Update monthly minutes'}
+                  </button>
+                ) : subscription.status === 'cancelled' || subscription.status === 'pending' ? (
+                  <button type="button" className="btn btnPrimary billingUpdateSubscription" onClick={startRenewal} disabled={saving}>
+                    {saving ? 'Opening Stripe checkout...' : 'Continue to payment'}
+                  </button>
+                ) : (
+                  <a className="btn btnPrimary billingUpdateSubscription" href="mailto:receptahelp02@gmail.com">Contact Recepta</a>
+                )}
+
+                <p className="billingCheckoutDisclaimer">Only your monthly minute allowance will change.</p>
+                {success && <p className="calendarAlert">{success}</p>}
+                {error && <p className="calendarAlert calendarAlert--error" role="alert">{error}</p>}
+              </div>
             </section>
           </>
         )}
