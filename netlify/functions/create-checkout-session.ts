@@ -85,27 +85,7 @@ export default async (request: Request) => {
       )
     }
 
-    const {
-      planName,
-      aiModelId,
-      monthlyMinutes,
-      addOns,
-      phoneNumberCountry,
-      phoneNumberAreaCode,
-    } = await request.json()
-
-    if (
-      planName !== 'Recepta Standard' &&
-      planName !== 'Recepta Pro'
-    ) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid plan.' }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
-    }
+    const { monthlyMinutes } = await request.json()
 
     const minutes = Number(monthlyMinutes)
 
@@ -131,7 +111,7 @@ export default async (request: Request) => {
       error: subscriptionError,
     } = await supabaseAdmin
       .from('subscriptions')
-      .select('status, stripe_subscription_id')
+      .select('status, stripe_subscription_id, plan_name, ai_model_id, pii_redaction_enabled, safety_guardrails_enabled, extra_phone_numbers')
       .eq('client_id', user.id)
       .maybeSingle()
 
@@ -149,10 +129,21 @@ export default async (request: Request) => {
 
     // A cancelled customer can renew. An admin-created customer can also
     // connect recurring Stripe billing when no Stripe subscription exists yet.
+    if (!currentSubscription) {
+      return new Response(
+        JSON.stringify({
+          error: 'Recepta must configure your subscription before checkout.',
+        }),
+        {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
     if (
-      !currentSubscription ||
-      (currentSubscription.status !== 'cancelled' &&
-        currentSubscription.stripe_subscription_id)
+      currentSubscription.status !== 'cancelled' &&
+      currentSubscription.stripe_subscription_id
     ) {
       return new Response(
         JSON.stringify({
@@ -161,6 +152,24 @@ export default async (request: Request) => {
         }),
         {
           status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const planName = currentSubscription.plan_name
+    const aiModelId = currentSubscription.ai_model_id
+
+    if (
+      (planName !== 'Recepta Standard' && planName !== 'Recepta Pro') ||
+      !aiModelId
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: 'Recepta must finish assigning your plan and AI configuration.',
+        }),
+        {
+          status: 409,
           headers: { 'Content-Type': 'application/json' },
         }
       )
@@ -250,14 +259,14 @@ export default async (request: Request) => {
       perMinutePrice
 
     const piiRedaction =
-      addOns?.piiRedaction === true
+      currentSubscription.pii_redaction_enabled === true
 
     const safetyGuardrails =
-      addOns?.safetyGuardrails === true
+      currentSubscription.safety_guardrails_enabled === true
 
     const extraPhoneNumbers =
       Number(
-        addOns?.extraPhoneNumbers ?? 0
+        currentSubscription.extra_phone_numbers ?? 0
       )
 
     if (
@@ -282,8 +291,8 @@ export default async (request: Request) => {
     try {
       phonePurchase = normalizePhonePurchase({
         count: extraPhoneNumbers + 1,
-        countryCode: phoneNumberCountry,
-        areaCode: phoneNumberAreaCode,
+        countryCode: 'CA',
+        areaCode: null,
       })
     } catch (error) {
       return new Response(
