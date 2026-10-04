@@ -278,8 +278,8 @@ export default function Billing() {
                   <strong>C${Number(subscription.monthly_price ?? 0).toFixed(2)}</strong>
                 </div>
                 <div>
-                  <span>Included minutes</span>
-                  <strong>{Number(subscription.monthly_minutes ?? 0).toLocaleString()}</strong>
+                  <span>Available minutes</span>
+                  <strong>{availableMinutes.toLocaleString()}</strong>
                 </div>
                 <div>
                   <span>Next billing date</span>
@@ -297,7 +297,7 @@ export default function Billing() {
                 </div>
                 <small>
                   {Number(subscription.monthly_minutes ?? 0).toLocaleString()} monthly minutes
-                  {rolloverMinutes > 0 ? ` + ${rolloverMinutes.toLocaleString()} rollover minutes` : ''}
+                  {' + '}{rolloverMinutes.toLocaleString()} rollover minutes
                 </small>
               </div>
             </section>
