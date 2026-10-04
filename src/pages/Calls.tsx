@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import {
-  fetchClientCalls,
-  saveSchedulePreference,
-} from '../lib/clientCalls'
+import { fetchClientCalls } from '../lib/clientCalls'
 import type { ClientCallRecord } from '../lib/clientCalls'
 
 type CallRecord = ClientCallRecord
@@ -23,10 +20,6 @@ export default function Calls() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [callWarning, setCallWarning] = useState('')
-  const [scheduleMode, setScheduleMode] =
-    useState<'24/7' | 'custom' | null>(null)
-  const [savingSchedule, setSavingSchedule] = useState(false)
-  const [scheduleMessage, setScheduleMessage] = useState('')
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -52,7 +45,6 @@ export default function Calls() {
 
         setCalls(resolvedCalls)
         setCallWarning(result.warning || '')
-        setScheduleMode(result.scheduleMode)
 
         setSelectedCall((current) =>
           current
@@ -116,32 +108,6 @@ export default function Calls() {
         )
       )
     : 0
-
-  const chooseSchedule = async (
-    mode: '24/7' | 'custom'
-  ) => {
-    setSavingSchedule(true)
-    setScheduleMessage('')
-
-    try {
-      const result = await saveSchedulePreference(mode)
-
-      setScheduleMode(result.scheduleMode)
-      setScheduleMessage(
-        result.scheduleMode === 'custom'
-          ? 'Custom hours synchronized with Retell. Set or edit the hours on the Agent page.'
-          : '24/7 availability synchronized with Retell.'
-      )
-    } catch (error) {
-      setScheduleMessage(
-        error instanceof Error
-          ? error.message
-          : 'Could not save your schedule choice.'
-      )
-    } finally {
-      setSavingSchedule(false)
-    }
-  }
 
   const formatDuration = (seconds: number) => {
     const safeSeconds = seconds || 0
@@ -334,85 +300,6 @@ export default function Calls() {
             </p>
           </div>
         </div>
-
-        {/* OPTIONAL COMPANY SCHEDULE */}
-
-        <section className="callsScheduleCard">
-          <div>
-            <span className="callsSectionLabel">
-              COMPANY SCHEDULE
-            </span>
-
-            <h2>When should your receptionist answer?</h2>
-
-            <p>
-              Choose 24/7 availability or set custom weekly hours.
-              Your choice is saved to Recepta and synchronized with
-              your assigned Retell agent.
-            </p>
-          </div>
-
-          <div className="callsScheduleChoice">
-            <strong>
-              {scheduleMode === '24/7'
-                ? '24/7 availability selected'
-                : scheduleMode === 'custom'
-                  ? 'Custom hours selected'
-                  : 'Choose an availability option'}
-            </strong>
-
-            <p>
-              {scheduleMode === '24/7'
-                ? 'Your receptionist can answer at any time, every day.'
-                : scheduleMode === 'custom'
-                  ? 'Calls outside your saved weekly hours will not be connected to the receptionist.'
-                  : 'Select one option to configure the assigned agent.'}
-            </p>
-
-            <div className="callsScheduleActions">
-              <button
-                type="button"
-                className={
-                  scheduleMode === '24/7'
-                    ? 'btn btnPrimary'
-                    : 'btn btnOutline'
-                }
-                disabled={savingSchedule}
-                onClick={() => chooseSchedule('24/7')}
-              >
-                24/7
-              </button>
-
-              <button
-                type="button"
-                className={
-                  scheduleMode === 'custom'
-                    ? 'btn btnPrimary'
-                    : 'btn btnOutline'
-                }
-                disabled={savingSchedule}
-                onClick={() => chooseSchedule('custom')}
-              >
-                Custom
-              </button>
-
-              {scheduleMode === 'custom' && (
-                <a
-                  href="/dashboard/agent"
-                  className="btn btnOutline"
-                >
-                  Edit custom hours
-                </a>
-              )}
-            </div>
-          </div>
-
-          {scheduleMessage && (
-            <p className="callsScheduleMessage" role="status">
-              {scheduleMessage}
-            </p>
-          )}
-        </section>
 
         {callWarning && (
           <div className="callsIntegrationWarning" role="status">
