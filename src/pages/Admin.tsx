@@ -1388,7 +1388,7 @@ export default function Admin() {
 
               <p>
                 Standard gets Overview,
-                Calls, Appointments, Agent, Billing and
+                Calls, Agent, Billing and
                 Settings. Pro also gets AI appointment booking.
               </p>
             </div>
@@ -2342,7 +2342,7 @@ export default function Admin() {
                   <small>
                     Admin controlled. Enter one field per line. The AI will ask
                     the caller for these details and save the answers in the
-                    customer’s Appointments page. Maximum 20 fields.
+                    customer’s Calls page. Maximum 20 fields.
                   </small>
                 </label>
 

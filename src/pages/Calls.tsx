@@ -9,8 +9,42 @@ type Subscription = {
   plan_name: string | null
 }
 
+type AppointmentRecord = {
+  id: string
+  customer_name: string | null
+  customer_phone: string | null
+  customer_email: string | null
+  company_name: string | null
+  service: string | null
+  notes: string | null
+  appointment_time: string
+  retell_call_id: string | null
+}
+
+type CapturedDetail = { label: string; value: string }
+
+const capturedDetails = (notes: string | null): CapturedDetail[] => {
+  if (!notes) return []
+
+  try {
+    const parsed = JSON.parse(notes) as { details?: unknown }
+    if (!Array.isArray(parsed.details)) return []
+
+    return parsed.details.flatMap((item) => {
+      if (!item || typeof item !== 'object') return []
+      const row = item as Record<string, unknown>
+      return typeof row.label === 'string' && typeof row.value === 'string'
+        ? [{ label: row.label, value: row.value }]
+        : []
+    })
+  } catch {
+    return [{ label: 'Notes', value: notes }]
+  }
+}
+
 export default function Calls() {
   const [calls, setCalls] = useState<CallRecord[]>([])
+  const [appointments, setAppointments] = useState<AppointmentRecord[]>([])
   const [selectedCall, setSelectedCall] =
     useState<CallRecord | null>(null)
 
@@ -33,11 +67,22 @@ export default function Calls() {
         return
       }
 
-      const { data: subscriptionData } = await supabase
+      const [subscriptionResult, appointmentResult] = await Promise.all([
+        supabase
           .from('subscriptions')
           .select('plan_name')
           .eq('client_id', user.id)
-          .maybeSingle()
+          .maybeSingle(),
+        supabase
+          .from('appointments')
+          .select('id, customer_name, customer_phone, customer_email, company_name, service, notes, appointment_time, retell_call_id')
+          .eq('client_id', user.id)
+          .order('appointment_time', { ascending: false }),
+      ])
+
+      if (!appointmentResult.error) {
+        setAppointments((appointmentResult.data ?? []) as AppointmentRecord[])
+      }
 
       try {
         const result = await fetchClientCalls()
@@ -62,8 +107,8 @@ export default function Calls() {
         )
       }
 
-      if (subscriptionData) {
-        setSubscription(subscriptionData)
+      if (subscriptionResult.data) {
+        setSubscription(subscriptionResult.data)
       }
 
       setLoading(false)
@@ -92,6 +137,12 @@ export default function Calls() {
 
   const isPro =
     subscription?.plan_name === 'Recepta Pro'
+
+  const selectedAppointment = selectedCall?.retell_call_id
+    ? appointments.find((appointment) =>
+        appointment.retell_call_id?.split(':')[0] === selectedCall.retell_call_id
+      ) ?? null
+    : null
 
   const activeCall = calls.find(
     (call) =>
@@ -244,15 +295,6 @@ export default function Calls() {
           >
             Calls
           </a>
-
-          {isPro && (
-            <a
-              href="/dashboard/appointments"
-              className="dashboardNavItem"
-            >
-              Appointments
-            </a>
-          )}
 
           <a
             href="/dashboard/agent"
@@ -582,6 +624,44 @@ export default function Calls() {
                       'A call summary will appear here once Recepta receives one from the AI receptionist.'}
                   </p>
                 </div>
+
+                {isPro && selectedAppointment && (
+                  <div className="callsSummaryBox">
+                    <span>APPOINTMENT DETAILS</span>
+                    <div className="callsDetailGrid" style={{ marginTop: '14px' }}>
+                      <div>
+                        <span>Name</span>
+                        <strong>{selectedAppointment.customer_name || 'Not provided'}</strong>
+                      </div>
+                      <div>
+                        <span>Phone</span>
+                        <strong>{selectedAppointment.customer_phone || 'Not provided'}</strong>
+                      </div>
+                      <div>
+                        <span>Email</span>
+                        <strong>{selectedAppointment.customer_email || 'Not provided'}</strong>
+                      </div>
+                      <div>
+                        <span>Company</span>
+                        <strong>{selectedAppointment.company_name || 'Not provided'}</strong>
+                      </div>
+                      <div>
+                        <span>Reason</span>
+                        <strong>{selectedAppointment.service || 'Not provided'}</strong>
+                      </div>
+                      <div>
+                        <span>Requested time</span>
+                        <strong>{new Date(selectedAppointment.appointment_time).toLocaleString()}</strong>
+                      </div>
+                      {capturedDetails(selectedAppointment.notes).map((detail) => (
+                        <div key={`${detail.label}:${detail.value}`}>
+                          <span>{detail.label}</span>
+                          <strong>{detail.value}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="callsFutureTools">
                   <div>

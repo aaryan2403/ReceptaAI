@@ -7,7 +7,6 @@ import App from './App.tsx'
 import Login from './pages/Login.tsx'
 import Dashboard from './pages/Dashboard.tsx'
 import Calls from './pages/Calls.tsx'
-import Appointments from './pages/Appointments.tsx'
 import Agent from './pages/Agent.tsx'
 import Billing from './pages/Billing.tsx'
 import Settings from './pages/Settings.tsx'
@@ -18,7 +17,6 @@ import AdminClient from './pages/AdminClient.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import AdminRoute from './components/AdminRoute.tsx'
 import ActiveSubscriptionRoute from './components/ActiveSubscriptionRoute.tsx'
-import ProRoute from './components/ProRoute.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -65,14 +63,12 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
-        {/* ACTIVE PRO ONLY */}
+        {/* Appointment details now live inside the Calls workspace. */}
         <Route
           path="/dashboard/appointments"
           element={
             <ProtectedRoute>
-              <ProRoute>
-                <Appointments />
-              </ProRoute>
+              <Navigate to="/dashboard/calls" replace />
             </ProtectedRoute>
           }
         />
@@ -82,7 +78,7 @@ createRoot(document.getElementById('root')!).render(
           path="/dashboard/calendar"
           element={
             <ProtectedRoute>
-              <Navigate to="/dashboard/appointments" replace />
+              <Navigate to="/dashboard/calls" replace />
             </ProtectedRoute>
           }
         />
@@ -91,7 +87,7 @@ createRoot(document.getElementById('root')!).render(
           path="/dashboard/employees"
           element={
             <ProtectedRoute>
-              <Navigate to="/dashboard/appointments" replace />
+              <Navigate to="/dashboard/calls" replace />
             </ProtectedRoute>
           }
         />
@@ -100,7 +96,7 @@ createRoot(document.getElementById('root')!).render(
           path="/dashboard/employee-hours"
           element={
             <ProtectedRoute>
-              <Navigate to="/dashboard/appointments" replace />
+              <Navigate to="/dashboard/calls" replace />
             </ProtectedRoute>
           }
         />

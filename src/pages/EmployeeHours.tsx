@@ -406,10 +406,10 @@ export default function EmployeeHours() {
 
           {isPro && (
             <a
-              href="/dashboard/appointments"
+              href="/dashboard/calls"
               className="dashboardNavItem"
             >
-              Appointments
+              Calls
             </a>
           )}
 
@@ -461,7 +461,7 @@ export default function EmployeeHours() {
           </div>
 
           <a href="/dashboard/employees" className="btn btnOutline">
-            Back to Appointments
+            Back to Calls
           </a>
         </div>
 

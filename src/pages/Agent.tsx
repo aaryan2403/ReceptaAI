@@ -433,15 +433,6 @@ export default function Agent() {
             Calls
           </a>
 
-          {isPro && (
-            <a
-              href="/dashboard/appointments"
-              className="dashboardNavItem"
-            >
-              Appointments
-            </a>
-          )}
-
           <a
             href="/dashboard/agent"
             className="dashboardNavItem dashboardNavItemActive"

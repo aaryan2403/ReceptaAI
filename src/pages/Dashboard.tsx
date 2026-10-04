@@ -701,15 +701,6 @@ export default function Dashboard() {
             Calls
           </a>
 
-          {isPro && (
-            <a
-              href="/dashboard/appointments"
-              className="dashboardNavItem"
-            >
-              Appointments
-            </a>
-          )}
-
           <a
             href="/dashboard/agent"
             className="dashboardNavItem"
@@ -855,7 +846,7 @@ export default function Dashboard() {
 
           {isPro && (
             <a
-              href="/dashboard/appointments"
+              href="/dashboard/calls"
               className="dashboardStatCard dashboardStatCardLink"
             >
               <span>Appointments Today</span>
@@ -977,10 +968,10 @@ export default function Dashboard() {
             </div>
 
             <a
-              href="/dashboard/appointments"
+              href="/dashboard/calls"
               className="btn btnOutline"
             >
-              View Appointments
+              View Calls
             </a>
           </div>
         )}
