@@ -111,7 +111,7 @@ export default async (request: Request) => {
       error: subscriptionError,
     } = await supabaseAdmin
       .from('subscriptions')
-      .select('status, stripe_subscription_id, plan_name, ai_model_id, pii_redaction_enabled, safety_guardrails_enabled, extra_phone_numbers')
+      .select('status, stripe_subscription_id, stripe_customer_id, plan_name, monthly_minutes, ai_model_id, pii_redaction_enabled, safety_guardrails_enabled, extra_phone_numbers')
       .eq('client_id', user.id)
       .maybeSingle()
 
@@ -127,8 +127,6 @@ export default async (request: Request) => {
       )
     }
 
-    // A cancelled customer can renew. An admin-created customer can also
-    // connect recurring Stripe billing when no Stripe subscription exists yet.
     if (!currentSubscription) {
       return new Response(
         JSON.stringify({
@@ -141,17 +139,32 @@ export default async (request: Request) => {
       )
     }
 
-    if (
-      currentSubscription.status !== 'cancelled' &&
-      currentSubscription.stripe_subscription_id
-    ) {
+    if (currentSubscription.status === 'past_due') {
       return new Response(
         JSON.stringify({
           error:
-            'This account already has automatic monthly billing.',
+            'Resolve the outstanding payment before changing monthly minutes.',
         }),
         {
-          status: 403,
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const replacingSubscriptionId =
+      currentSubscription.status === 'active'
+        ? currentSubscription.stripe_subscription_id
+        : null
+
+    if (
+      replacingSubscriptionId &&
+      Number(currentSubscription.monthly_minutes) === Math.floor(minutes)
+    ) {
+      return new Response(
+        JSON.stringify({ error: 'This is already your current minute allowance.' }),
+        {
+          status: 409,
           headers: { 'Content-Type': 'application/json' },
         }
       )
@@ -394,6 +407,12 @@ export default async (request: Request) => {
         addOnsMonthlyCost.toFixed(2),
       monthly_total_cad:
         monthlyTotal.toFixed(2),
+      change_type:
+        replacingSubscriptionId
+          ? 'replace_active_subscription'
+          : 'activate_subscription',
+      replaces_subscription_id:
+        replacingSubscriptionId || '',
     }
 
     const selectedAddOns = [
@@ -415,8 +434,13 @@ export default async (request: Request) => {
     const checkoutSession =
       await stripe.checkout.sessions.create({
         mode: 'subscription',
+        payment_method_types: ['card'],
+        customer:
+          currentSubscription.stripe_customer_id || undefined,
         customer_email:
-          user.email || undefined,
+          currentSubscription.stripe_customer_id
+            ? undefined
+            : user.email || undefined,
         line_items: [
           {
             quantity: 1,

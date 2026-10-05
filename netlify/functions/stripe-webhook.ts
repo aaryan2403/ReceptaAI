@@ -138,6 +138,18 @@ export default async (request: Request) => {
           Stripe.Checkout.Session
 
       if (session.mode === 'subscription') {
+        // Never provision minutes from a Checkout session until Stripe has
+        // confirmed that money was collected.
+        if (session.payment_status !== 'paid') {
+          return new Response(
+            JSON.stringify({ received: true }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
+        }
+
         const clientId =
           session.metadata?.client_id
         const planName =
@@ -178,6 +190,8 @@ export default async (request: Request) => {
             : 'CA'
         const phoneNumberAreaCode =
           session.metadata?.phone_number_area_code || null
+        const replacingSubscriptionId =
+          session.metadata?.replaces_subscription_id || null
 
         const subscriptionId =
           typeof session.subscription ===
@@ -206,6 +220,23 @@ export default async (request: Request) => {
           extraPhoneNumbers >= 0 &&
           extraPhoneNumbers <= 20
         ) {
+          let rolloverSeconds = 0
+
+          if (replacingSubscriptionId) {
+            const { data: existingSubscription, error: existingSubscriptionError } =
+              await supabaseAdmin
+                .from('subscriptions')
+                .select('rollover_seconds')
+                .eq('client_id', clientId)
+                .maybeSingle()
+
+            if (existingSubscriptionError) throw existingSubscriptionError
+            rolloverSeconds = Math.max(
+              0,
+              Math.floor(Number(existingSubscription?.rollover_seconds ?? 0) || 0)
+            )
+          }
+
           const periodStart = new Date(
             (session.created ||
               Math.floor(Date.now() / 1000)) *
@@ -227,7 +258,7 @@ export default async (request: Request) => {
                 Math.floor(
                   monthlyMinutes
                 ),
-              rollover_seconds: 0,
+              rollover_seconds: rolloverSeconds,
               ai_model_id: aiModelId,
               pii_redaction_enabled:
                 piiRedactionEnabled,
@@ -254,6 +285,18 @@ export default async (request: Request) => {
 
           if (updateError) {
             throw updateError
+          }
+
+          if (
+            replacingSubscriptionId &&
+            replacingSubscriptionId !== subscriptionId
+          ) {
+            const previousSubscription =
+              await stripe.subscriptions.retrieve(replacingSubscriptionId)
+
+            if (previousSubscription.status !== 'canceled') {
+              await stripe.subscriptions.cancel(replacingSubscriptionId)
+            }
           }
 
           const { data: assignedAgent } =

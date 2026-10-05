@@ -73,7 +73,6 @@ export default function Billing() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
 
   useEffect(() => {
     const load = async () => {
@@ -146,53 +145,8 @@ export default function Billing() {
     ? Math.min(100, Math.round((minutesUsed / availableMinutes) * 100))
     : 0
 
-  const saveMinutes = async () => {
+  const startMinuteCheckout = async () => {
     setError('')
-    setSuccess('')
-
-    if (!subscription || subscription.status !== 'active') {
-      setError('Only an active subscription can change monthly minutes.')
-      return
-    }
-    if (!Number.isFinite(monthlyMinutes) || monthlyMinutes < 1 || monthlyMinutes > MAX_MONTHLY_MINUTES) {
-      setError('Monthly minutes must be between 1 and 100,000,000.')
-      return
-    }
-
-    setSaving(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) throw new Error('Please sign in again.')
-
-      const response = await fetch('/.netlify/functions/update-subscription', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ action: 'change_minutes', monthlyMinutes }),
-      })
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(body.error || 'Could not update monthly minutes.')
-
-      setSubscription((current) => current ? {
-        ...current,
-        monthly_minutes: body.monthlyMinutes,
-        monthly_price: body.monthlyPrice,
-      } : current)
-      setSuccess(body.unchanged
-        ? 'Your monthly minute allowance is already set to this amount.'
-        : 'Monthly minutes and billing were updated successfully.')
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Could not update monthly minutes.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const startRenewal = async () => {
-    setError('')
-    setSuccess('')
     if (!subscription?.plan_name || !subscription.ai_model_id) {
       setError('Contact Recepta to finish configuring your subscription.')
       return
@@ -221,7 +175,7 @@ export default function Billing() {
       if (!body.url) throw new Error('Stripe checkout URL was not returned.')
       window.location.href = body.url
     } catch (renewError) {
-      setError(renewError instanceof Error ? renewError.message : 'Could not renew subscription.')
+      setError(renewError instanceof Error ? renewError.message : 'Could not open secure payment.')
       setSaving(false)
     }
   }
@@ -245,6 +199,8 @@ export default function Billing() {
         year: 'numeric',
       })
     : 'Not scheduled'
+  const minuteAllowanceChanged =
+    monthlyMinutes !== Number(subscription?.monthly_minutes ?? 0)
 
   return (
     <main className="dashboardPage">
@@ -496,20 +452,24 @@ export default function Billing() {
                   </div>
                 </div>
 
-                {subscription.status === 'active' ? (
-                  <button type="button" className="btn btnPrimary billingUpdateSubscription" onClick={saveMinutes} disabled={saving}>
-                    {saving ? 'Updating minutes...' : 'Update monthly minutes'}
-                  </button>
-                ) : subscription.status === 'cancelled' || subscription.status === 'pending' ? (
-                  <button type="button" className="btn btnPrimary billingUpdateSubscription" onClick={startRenewal} disabled={saving}>
-                    {saving ? 'Opening Stripe checkout...' : 'Continue to payment'}
+                {subscription.status === 'active' || subscription.status === 'cancelled' || subscription.status === 'pending' ? (
+                  <button
+                    type="button"
+                    className="btn btnPrimary billingUpdateSubscription"
+                    onClick={startMinuteCheckout}
+                    disabled={saving || (subscription.status === 'active' && !minuteAllowanceChanged)}
+                  >
+                    {saving
+                      ? 'Opening secure payment...'
+                      : subscription.status === 'active' && !minuteAllowanceChanged
+                        ? 'Current minute allowance selected'
+                        : 'Pay & update monthly minutes'}
                   </button>
                 ) : (
                   <a className="btn btnPrimary billingUpdateSubscription" href="mailto:receptahelp02@gmail.com">Contact Recepta</a>
                 )}
 
-                <p className="billingCheckoutDisclaimer">Only your monthly minute allowance will change.</p>
-                {success && <p className="calendarAlert">{success}</p>}
+                <p className="billingCheckoutDisclaimer">Your minute allowance changes only after Stripe confirms successful payment.</p>
                 {error && <p className="calendarAlert calendarAlert--error" role="alert">{error}</p>}
               </div>
             </section>
