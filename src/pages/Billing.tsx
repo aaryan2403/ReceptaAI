@@ -22,6 +22,14 @@ type Subscription = {
 
 type CallRecord = { duration_seconds: number; started_at: string }
 
+type AIModel = {
+  id: string
+  display_name: string
+  provider: string
+  tier_name: string
+  customer_price_per_minute_cad: number | null
+}
+
 const MAX_MONTHLY_MINUTES = 100_000_000
 const PII_RATE_CAD = 0.014
 const GUARDRAIL_RATE_CAD = 0.007
@@ -59,6 +67,7 @@ const loadSubscription = async (clientId: string) => {
 export default function Billing() {
   const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [calls, setCalls] = useState<CallRecord[]>([])
+  const [models, setModels] = useState<AIModel[]>([])
   const [modelRate, setModelRate] = useState(0)
   const [selectedMinutes, setSelectedMinutes] = useState('300')
   const [loading, setLoading] = useState(true)
@@ -72,17 +81,26 @@ export default function Billing() {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) return
 
-        const loadedSubscription = await loadSubscription(user.id)
+        const [loadedSubscription, modelsResult] = await Promise.all([
+          loadSubscription(user.id),
+          supabase
+            .from('ai_models')
+            .select('id, display_name, provider, tier_name, customer_price_per_minute_cad')
+            .eq('is_active', true)
+            .order('sort_order', { ascending: true }),
+        ])
         setSubscription(loadedSubscription)
         setSelectedMinutes(String(loadedSubscription?.monthly_minutes ?? 300))
 
+        if (!modelsResult.error) {
+          setModels((modelsResult.data ?? []) as AIModel[])
+        }
+
         if (loadedSubscription?.ai_model_id) {
-          const { data } = await supabase
-            .from('ai_models')
-            .select('customer_price_per_minute_cad')
-            .eq('id', loadedSubscription.ai_model_id)
-            .maybeSingle()
-          setModelRate(Math.max(0, Number(data?.customer_price_per_minute_cad ?? 0)))
+          const assignedModel = (modelsResult.data ?? []).find(
+            (model) => model.id === loadedSubscription.ai_model_id
+          )
+          setModelRate(Math.max(0, Number(assignedModel?.customer_price_per_minute_cad ?? 0)))
         }
 
         try {
@@ -301,6 +319,125 @@ export default function Billing() {
               </div>
             </section>
 
+            <section className="billingConfigurator billingCatalogue">
+              <div className="billingConfiguratorHeading">
+                <span className="billingPremiumEyebrow">RECEPTA CATALOGUE</span>
+                <h2>Plans, AI models and add-ons</h2>
+                <p>See every published price before you request a change. Recepta activates plan, model and security changes after confirming them with you.</p>
+              </div>
+
+              <div className="billingConfigSection">
+                <div className="billingConfigSectionHead">
+                  <span className="billingConfigNumber">1</span>
+                  <div>
+                    <h3>Plans</h3>
+                    <p>Plan prices are monthly base fees. AI usage and selected add-ons are calculated separately.</p>
+                  </div>
+                </div>
+
+                <div className="billingPlanChoices">
+                  <article className={`billingPlanChoice ${subscription.plan_name === 'Recepta Standard' ? 'billingPlanChoice--selected' : ''}`}>
+                    <div className="billingPlanChoiceTop">
+                      <div><span>STANDARD</span><h3>Recepta Standard</h3></div>
+                      {subscription.plan_name === 'Recepta Standard' && <span className="billingCurrentBadge">CURRENT</span>}
+                    </div>
+                    <div className="billingChoicePrice"><strong>C$200</strong><span>/ month base</span></div>
+                    <p>AI call answering and the essential customer dashboard.</p>
+                    <ul>
+                      <li>Call history and AI summaries</li>
+                      <li>Monthly minute selection and rollover</li>
+                      <li>Agent settings and basic notifications</li>
+                    </ul>
+                  </article>
+
+                  <article className={`billingPlanChoice ${subscription.plan_name === 'Recepta Pro' ? 'billingPlanChoice--selected' : ''}`}>
+                    <div className="billingPlanChoiceTop">
+                      <div><span>PRO</span><h3>Recepta Pro</h3></div>
+                      {subscription.plan_name === 'Recepta Pro' && <span className="billingCurrentBadge">CURRENT</span>}
+                    </div>
+                    <div className="billingChoicePrice"><strong>C$300</strong><span>/ month base</span></div>
+                    <p>Everything in Standard, plus AI appointment intake.</p>
+                    <ul>
+                      <li>Appointment details inside each call</li>
+                      <li>Admin-defined custom intake fields</li>
+                      <li>Full appointment notifications and AI summary</li>
+                    </ul>
+                  </article>
+                </div>
+              </div>
+
+              <div className="billingConfigSection">
+                <div className="billingConfigSectionHead">
+                  <span className="billingConfigNumber">2</span>
+                  <div>
+                    <h3>AI model catalogue</h3>
+                    <p>The model rate is charged for each selected monthly minute. Your assigned model is marked below.</p>
+                  </div>
+                </div>
+
+                {models.length > 0 ? (
+                  <div className="billingModelGrid">
+                    {models.map((model) => (
+                      <article key={model.id} className={`billingModelCard ${subscription.ai_model_id === model.id ? 'billingModelCard--selected' : ''}`}>
+                        <div className="billingModelTop">
+                          <span className="billingModelProvider">{model.provider}</span>
+                          {subscription.ai_model_id === model.id && <span className="billingCurrentBadge">ASSIGNED</span>}
+                        </div>
+                        <div className="billingModelTier">{model.tier_name}</div>
+                        <h3>{model.display_name}</h3>
+                        <div className="billingModelPrice">
+                          <strong>C${Number(model.customer_price_per_minute_cad ?? 0).toFixed(3)}</strong>
+                          <span>/ selected minute</span>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="billingCatalogueEmpty">AI model prices are being configured. Contact Recepta for the current options.</p>
+                )}
+              </div>
+
+              <div className="billingConfigSection">
+                <div className="billingConfigSectionHead">
+                  <span className="billingConfigNumber">3</span>
+                  <div>
+                    <h3>Optional add-ons</h3>
+                    <p>Security add-ons apply to every selected monthly minute. Recepta Admin enables them after your request.</p>
+                  </div>
+                </div>
+
+                <div className="billingAddOnGrid">
+                  <article className={subscription.pii_redaction_enabled ? 'billingAddOnCard billingAddOnCard--enabled' : 'billingAddOnCard'}>
+                    <div><span>PRIVACY</span>{subscription.pii_redaction_enabled && <strong>ENABLED</strong>}</div>
+                    <h3>PII Redaction</h3>
+                    <p>Automatically redacts supported personal information categories from Retell call data.</p>
+                    <strong>C$0.014 <small>/ selected minute</small></strong>
+                  </article>
+
+                  <article className={subscription.safety_guardrails_enabled ? 'billingAddOnCard billingAddOnCard--enabled' : 'billingAddOnCard'}>
+                    <div><span>SAFETY</span>{subscription.safety_guardrails_enabled && <strong>ENABLED</strong>}</div>
+                    <h3>Safety Guardrails</h3>
+                    <p>Enables supported input and output safeguards for the assigned AI receptionist.</p>
+                    <strong>C$0.007 <small>/ selected minute</small></strong>
+                  </article>
+
+                  <article className="billingAddOnCard">
+                    <div><span>PHONE</span>{subscription.extra_phone_numbers > 0 && <strong>{subscription.extra_phone_numbers} ACTIVE</strong>}</div>
+                    <h3>Extra Phone Number</h3>
+                    <p>Add another Recepta phone number to the same active subscription.</p>
+                    <strong>C$20 <small>/ number / month</small></strong>
+                  </article>
+                </div>
+
+                <a
+                  className="btn btnOutline billingCatalogueRequest"
+                  href={`mailto:receptahelp02@gmail.com?subject=${encodeURIComponent('Recepta catalogue change request')}&body=${encodeURIComponent(`Please contact me about changing my Recepta plan, AI model or add-ons. Current plan: ${subscription.plan_name || 'Not assigned'}.`)}`}
+                >
+                  Request a plan, model or add-on
+                </a>
+              </div>
+            </section>
+
             <section className="billingConfigurator">
               <div className="billingConfiguratorHeading">
                 <span className="billingPremiumEyebrow">MONTHLY MINUTES</span>
@@ -310,7 +447,7 @@ export default function Billing() {
 
               <div className="billingConfigSection">
                 <div className="billingConfigSectionHead">
-                  <span className="billingConfigNumber">1</span>
+                  <span className="billingConfigNumber">4</span>
                   <div>
                     <h3>Select your monthly minutes</h3>
                     <p>You can update the allowance whenever your call volume changes.</p>

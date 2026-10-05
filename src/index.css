@@ -668,6 +668,105 @@ img {
   cursor: default;
 }
 
+.billingCatalogue {
+  margin-top: 24px;
+}
+
+.billingCurrentBadge {
+  align-self: flex-start;
+  padding: 4px 7px;
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.08);
+  border: 1px solid rgba(0, 230, 118, 0.18);
+  border-radius: 999px;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+}
+
+.billingModelProvider {
+  color: rgba(253, 251, 229, 0.48);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.billingCatalogueEmpty {
+  margin-top: 16px;
+  padding: 16px;
+  color: rgba(253, 251, 229, 0.48);
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  font-size: 10px;
+}
+
+.billingAddOnGrid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.billingAddOnCard {
+  padding: 17px;
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+}
+
+.billingAddOnCard--enabled {
+  background: rgba(0, 230, 118, 0.035);
+  border-color: rgba(0, 230, 118, 0.28);
+}
+
+.billingAddOnCard > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.billingAddOnCard > div span,
+.billingAddOnCard > div strong {
+  color: #00e676;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+}
+
+.billingAddOnCard h3 {
+  margin-top: 10px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.billingAddOnCard p {
+  min-height: 46px;
+  margin-top: 7px;
+  color: rgba(253, 251, 229, 0.42);
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.billingAddOnCard > strong {
+  display: block;
+  margin-top: 13px;
+  color: #fff;
+  font-size: 17px;
+}
+
+.billingAddOnCard > strong small {
+  color: rgba(253, 251, 229, 0.35);
+  font-size: 8px;
+  font-weight: 500;
+}
+
+.billingCatalogueRequest {
+  margin-top: 16px;
+}
+
 .billingCheckoutDisclaimer {
   margin: 9px 0 0;
   text-align: center;
@@ -684,6 +783,10 @@ img {
 
   .billingMinuteChoices {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .billingAddOnGrid {
+    grid-template-columns: 1fr;
   }
 }
 
