@@ -8613,6 +8613,18 @@
 
 .customerRequestPanel select {
   min-height: 48px;
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+.customerRequestPanel select option {
+  color: #fdfbe5;
+  background: #07140d;
+}
+
+.customerRequestPanel select option:checked {
+  color: #ffffff;
+  background: #0a6b39;
 }
 
 .customerRequestPanel textarea {
