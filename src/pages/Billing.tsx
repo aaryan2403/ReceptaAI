@@ -210,6 +210,7 @@ export default function Billing() {
           <a href="/dashboard" className="dashboardNavItem">Overview</a>
           <a href="/dashboard/calls" className="dashboardNavItem">Calls</a>
           <a href="/dashboard/agent" className="dashboardNavItem">Agent</a>
+          <a href="/dashboard/requests" className="dashboardNavItem">Customer Requests</a>
           <a href="/dashboard/billing" className="dashboardNavItem dashboardNavItemActive">Billing</a>
           <a href="/dashboard/settings" className="dashboardNavItem">Settings</a>
         </nav>

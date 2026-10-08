@@ -625,6 +625,13 @@ export default function Dashboard() {
             </a>
 
             <a
+              href="/dashboard/requests"
+              className="dashboardNavItem"
+            >
+              Customer Requests
+            </a>
+
+            <a
               href="/dashboard/billing"
               className="dashboardNavItem"
             >
@@ -706,6 +713,10 @@ export default function Dashboard() {
             className="dashboardNavItem"
           >
             Agent
+          </a>
+
+          <a href="/dashboard/requests" className="dashboardNavItem">
+            Customer Requests
           </a>
 
           <a

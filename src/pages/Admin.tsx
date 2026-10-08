@@ -8,6 +8,7 @@ import type {
   FormEvent,
 } from 'react'
 import { supabase } from '../lib/supabase'
+import AdminRequestsNavItem from '../components/AdminRequestsNavItem'
 
 const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
 const MAX_MONTHLY_MINUTES = 100_000_000
@@ -1325,6 +1326,8 @@ export default function Admin() {
             >
               Clients
             </a>
+
+            <AdminRequestsNavItem />
 
           </nav>
         </div>

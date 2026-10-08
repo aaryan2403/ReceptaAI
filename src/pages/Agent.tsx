@@ -440,6 +440,10 @@ export default function Agent() {
             Agent
           </a>
 
+          <a href="/dashboard/requests" className="dashboardNavItem">
+            Customer Requests
+          </a>
+
           <a
             href="/dashboard/billing"
             className="dashboardNavItem"

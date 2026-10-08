@@ -13,6 +13,8 @@ import Settings from './pages/Settings.tsx'
 import ResetPassword from './pages/ResetPassword.tsx'
 import Admin from './pages/Admin.tsx'
 import AdminClient from './pages/AdminClient.tsx'
+import CustomerRequests from './pages/CustomerRequests.tsx'
+import AdminRequests from './pages/AdminRequests.tsx'
 
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import AdminRoute from './components/AdminRoute.tsx'
@@ -135,6 +137,16 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
+        {/* Available to both Standard and Pro customers. */}
+        <Route
+          path="/dashboard/requests"
+          element={
+            <ProtectedRoute>
+              <CustomerRequests />
+            </ProtectedRoute>
+          }
+        />
+
         {/* =====================================================
             RECEPTA ADMIN
            ===================================================== */}
@@ -153,6 +165,15 @@ createRoot(document.getElementById('root')!).render(
           element={
             <AdminRoute>
               <AdminClient />
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path="/admin/requests"
+          element={
+            <AdminRoute>
+              <AdminRequests />
             </AdminRoute>
           }
         />
