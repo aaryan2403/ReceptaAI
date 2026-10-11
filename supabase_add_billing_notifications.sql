@@ -19,10 +19,20 @@ create table if not exists public.billing_notifications (
   last_error text
 );
 alter table public.billing_notifications enable row level security;
-revoke all on public.billing_notifications from anon, authenticated;
+revoke all on public.billing_notifications from public, anon, authenticated;
 grant select, insert, update, delete on public.billing_notifications to service_role;
 create index if not exists billing_notifications_pending_idx
   on public.billing_notifications(created_at) where sent_at is null;
+create index if not exists calls_client_period_idx
+  on public.calls(client_id, started_at);
+
+-- Supabase also grants these roles directly through default privileges.
+-- Revoking PUBLIC alone does not remove those explicit grants.
+revoke all on public.call_minute_reservations from public, anon, authenticated;
+grant select, insert, update, delete on public.call_minute_reservations to service_role;
+revoke all on function public.reserve_recepta_call(uuid, bigint, timestamptz)
+  from public, anon, authenticated;
+grant execute on function public.reserve_recepta_call(uuid, bigint, timestamptz) to service_role;
 
 -- Serialize renewals, sum every call (no API row limit), and ignore old invoices.
 create or replace function public.renew_recepta_subscription(
@@ -74,7 +84,7 @@ begin
     where client_id = v_subscription.client_id returning *;
 end;
 $$;
-revoke all on function public.renew_recepta_subscription(text, timestamptz, timestamptz) from public;
+revoke all on function public.renew_recepta_subscription(text, timestamptz, timestamptz) from public, anon, authenticated;
 grant execute on function public.renew_recepta_subscription(text, timestamptz, timestamptz) to service_role;
 
 -- A paid Checkout starts a new billing cycle. Replayed Checkout events must
@@ -133,7 +143,7 @@ begin
     where client_id = p_client_id returning *;
 end;
 $$;
-revoke all on function public.activate_recepta_checkout(uuid, text, text, timestamptz, timestamptz, jsonb, text) from public;
+revoke all on function public.activate_recepta_checkout(uuid, text, text, timestamptz, timestamptz, jsonb, text) from public, anon, authenticated;
 grant execute on function public.activate_recepta_checkout(uuid, text, text, timestamptz, timestamptz, jsonb, text) to service_role;
 
 create or replace function public.recepta_period_usage(
@@ -145,7 +155,7 @@ as $$
   from public.calls where client_id = p_client_id
     and started_at >= p_period_start and started_at < p_period_end;
 $$;
-revoke all on function public.recepta_period_usage(uuid, timestamptz, timestamptz) from public;
+revoke all on function public.recepta_period_usage(uuid, timestamptz, timestamptz) from public, anon, authenticated;
 grant execute on function public.recepta_period_usage(uuid, timestamptz, timestamptz) to service_role;
 
 create or replace function public.claim_recepta_billing_notifications(p_limit integer default 5)
@@ -160,7 +170,7 @@ as $$
     for update skip locked limit least(greatest(p_limit, 1), 5)
   ) returning *;
 $$;
-revoke all on function public.claim_recepta_billing_notifications(integer) from public;
+revoke all on function public.claim_recepta_billing_notifications(integer) from public, anon, authenticated;
 grant execute on function public.claim_recepta_billing_notifications(integer) to service_role;
 
 comment on column public.subscriptions.rollover_seconds is

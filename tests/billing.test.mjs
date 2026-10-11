@@ -67,18 +67,22 @@ test('PostgreSQL migration: paid cycles, replay protection, >1000 calls, Checkou
       create role service_role bypassrls;
       create role anon;
       create role authenticated;
+      alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
+      alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
       create table public.clients (id uuid primary key);
       create table public.subscriptions (
-        client_id uuid primary key references public.clients,
+        id uuid primary key default gen_random_uuid(),
+        client_id uuid not null references public.clients,
         stripe_subscription_id text, stripe_customer_id text,
         plan_name text, monthly_price numeric, monthly_minutes integer,
-        ai_model_id uuid, pii_redaction_enabled boolean, safety_guardrails_enabled boolean,
+        ai_model_id text, pii_redaction_enabled boolean, safety_guardrails_enabled boolean,
         extra_phone_numbers integer, status text,
         current_period_start timestamptz, current_period_end timestamptz,
         next_billing_date timestamptz
       );
       create table public.calls (client_id uuid, duration_seconds integer, started_at timestamptz);
     `)
+    await db.exec(await readFile(new URL('../supabase_add_minute_enforcement.sql', import.meta.url), 'utf8'))
     const migration = await readFile(new URL('../supabase_add_billing_notifications.sql', import.meta.url), 'utf8')
     await db.exec(migration)
     await db.exec(migration) // repeat-safe deployment
@@ -130,8 +134,18 @@ test('PostgreSQL migration: paid cycles, replay protection, >1000 calls, Checkou
     assert.equal((await db.query('select * from claim_recepta_billing_notifications(5)')).rows.length, 1, 'failed delivery is retried')
     await db.exec(`update billing_notifications set sent_at = now()`)
     assert.equal((await db.query('select * from claim_recepta_billing_notifications(5)')).rows.length, 0)
-    await db.exec('set role anon')
-    await assert.rejects(db.query(`select renew_recepta_subscription('sub_test', '2027-04-01', '2027-05-01')`), /permission denied/)
-    await assert.rejects(db.query('select * from billing_notifications'), /permission denied/)
+    for (const role of ['anon', 'authenticated']) {
+      await db.exec(`set role ${role}`)
+      await assert.rejects(db.query(`select renew_recepta_subscription('sub_test', '2027-04-01', '2027-05-01')`), /permission denied/)
+      await assert.rejects(db.query(`select * from activate_recepta_checkout($1, 'sub_denied', 'cus_test', '2027-04-01', '2027-05-01', '{}', null)`, [client]), /permission denied/)
+      await assert.rejects(db.query(`select recepta_period_usage($1, '2027-04-01', '2027-05-01')`, [client]), /permission denied/)
+      await assert.rejects(db.query('select * from claim_recepta_billing_notifications(5)'), /permission denied/)
+      await assert.rejects(db.query(`select * from reserve_recepta_call($1, 60000, '2027-04-01')`, [client]), /permission denied/)
+      await assert.rejects(db.query('select * from billing_notifications'), /permission denied/)
+      await assert.rejects(db.query('select * from call_minute_reservations'), /permission denied/)
+      await db.exec('reset role')
+    }
+    await db.exec('set role service_role')
+    assert.equal((await db.query(`select recepta_period_usage($1, '2027-03-15', '2027-04-15') as used`, [client])).rows[0].used, 600)
   } finally { await db.close() }
 })
