@@ -133,7 +133,8 @@ export default async (request: Request) => {
 
     if (
       event.type ===
-      'checkout.session.completed'
+      'checkout.session.completed' ||
+      event.type === 'checkout.session.async_payment_succeeded'
     ) {
       const session =
         event.data.object as

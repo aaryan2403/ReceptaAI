@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { randomBytes } from 'node:crypto'
 import { normalizePhonePurchase } from '../lib/phoneNumbers'
 
 const MAX_MONTHLY_MINUTES = 100_000_000
@@ -434,7 +435,7 @@ export default async (request: Request) => {
     const checkoutSession =
       await stripe.checkout.sessions.create({
         mode: 'subscription',
-        payment_method_types: ['card'],
+        integration_identifier: `recepta_checkout_${Array.from(randomBytes(8), (byte) => String.fromCharCode(97 + byte % 26)).join('')}`,
         customer:
           currentSubscription.stripe_customer_id || undefined,
         customer_email:

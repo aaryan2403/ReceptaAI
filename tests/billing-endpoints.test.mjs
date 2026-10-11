@@ -106,6 +106,25 @@ test('an unpaid Checkout session cannot activate a subscription', async () => {
   assert.equal(state.updates.length, 0)
 })
 
+for (const type of ['checkout.session.completed', 'checkout.session.async_payment_succeeded']) {
+  test(`${type} activates only the confirmed paid invoice period`, async () => {
+    reset()
+    state.event = { type, data: { object: {
+      mode: 'subscription', payment_status: 'paid', subscription: 'sub_test',
+      customer: 'cus_a', invoice: 'in_test', metadata: {
+        client_id: 'customer_a', plan_name: 'Recepta Pro', ai_model_id: 'model_test',
+        monthly_minutes: '1000', base_price_cad: '300', monthly_total_cad: '300',
+      },
+    } } }
+    assert.equal((await webhook(signedRequest())).status, 200)
+    const activation = state.rpcs.find((call) => call.name === 'activate_recepta_checkout')
+    assert.equal(activation.args.p_client_id, 'customer_a')
+    assert.equal(activation.args.p_period_start, base.current_period_start)
+    assert.equal(activation.args.p_period_end, base.current_period_end)
+    assert.equal(state.notices[0].notification_key, 'paid:in_test')
+  })
+}
+
 test('paid renewals use the invoice period, atomic RPC and one invoice notification key', async () => {
   reset()
   state.event = invoiceEvent('invoice.paid')

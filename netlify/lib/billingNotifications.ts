@@ -133,7 +133,7 @@ export const deliverBillingNotices = async (db: SupabaseClient, limit = 5) => {
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': notice.notification_key },
         signal: AbortSignal.timeout(3000),
         body: JSON.stringify({
-          from: process.env.BILLING_FROM_EMAIL || process.env.APPOINTMENT_FROM_EMAIL || process.env.REQUEST_NOTIFICATION_FROM_EMAIL || 'Recepta Billing <onboarding@resend.dev>',
+          from: process.env.BILLING_FROM_EMAIL?.trim() || process.env.APPOINTMENT_FROM_EMAIL?.trim() || process.env.REQUEST_NOTIFICATION_FROM_EMAIL?.trim() || 'Recepta Billing <billing@mail.recepta.ca>',
           to: [email], reply_to: process.env.RECEPTA_SUPPORT_EMAIL || 'receptahelp02@gmail.com',
           subject: payload.subject, text: payload.text,
         }),
