@@ -43,7 +43,7 @@ function FeatureCard({
   const tilt = useTilt(10)
 
   return (
-    <div className="featureCard" ref={tilt.ref} onMouseMove={tilt.onMouseMove} onMouseLeave={tilt.onMouseLeave}>
+    <div className="featureCard" onMouseMove={tilt.onMouseMove} onMouseLeave={tilt.onMouseLeave}>
       <div className="featureIcon">
         <Icon size={20} />
       </div>
@@ -71,7 +71,7 @@ function WorkCard({
   const tilt = useTilt(8)
 
   return (
-    <article className="workCard" ref={tilt.ref} onMouseMove={tilt.onMouseMove} onMouseLeave={tilt.onMouseLeave}>
+    <article className="workCard" onMouseMove={tilt.onMouseMove} onMouseLeave={tilt.onMouseLeave}>
       <div className="workThumb" style={{ background: accent }}>
         <div className="workChrome" aria-hidden="true">
           <span className="workDot" />
@@ -114,7 +114,7 @@ function TiltCard({ className, children }: { className: string; children: ReactN
   const tilt = useTilt(10)
 
   return (
-    <div className={className} ref={tilt.ref} onMouseMove={tilt.onMouseMove} onMouseLeave={tilt.onMouseLeave}>
+    <div className={className} onMouseMove={tilt.onMouseMove} onMouseLeave={tilt.onMouseLeave}>
       {children}
     </div>
   )
