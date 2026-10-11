@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchClientCalls } from '../lib/clientCalls'
+import { fetchBillingStatus } from '../lib/billing'
+import { calculateMinuteBalance, formatMinuteSeconds } from '../lib/minuteBalance'
 
 type ClientStatus = 'setup' | 'testing' | 'live' | 'paused'
 
@@ -46,62 +48,6 @@ type ChartPoint = {
   value: number
 }
 
-const isMissingRolloverColumn = (error: {
-  code?: string
-  message?: string
-} | null) => {
-  const message = error?.message?.toLowerCase() ?? ''
-
-  return (
-    message.includes('rollover_seconds') &&
-    (error?.code === '42703' ||
-      error?.code === 'PGRST204' ||
-      message.includes('does not exist') ||
-      message.includes('schema cache'))
-  )
-}
-
-const loadSubscription = async (clientId: string) => {
-  const result = await supabase
-    .from('subscriptions')
-    .select(
-      'plan_name, monthly_price, monthly_minutes, rollover_seconds, current_period_start, current_period_end, status'
-    )
-    .eq('client_id', clientId)
-    .maybeSingle()
-
-  if (!result.error) {
-    return result.data as Subscription | null
-  }
-
-  if (!isMissingRolloverColumn(result.error)) {
-    console.error('Dashboard subscription load failed:', result.error)
-    return null
-  }
-
-  const fallback = await supabase
-    .from('subscriptions')
-    .select(
-      'plan_name, monthly_price, monthly_minutes, current_period_start, current_period_end, status'
-    )
-    .eq('client_id', clientId)
-    .maybeSingle()
-
-  if (fallback.error) {
-    console.error(
-      'Dashboard subscription fallback failed:',
-      fallback.error
-    )
-    return null
-  }
-
-  return fallback.data
-    ? {
-        ...fallback.data,
-        rollover_seconds: 0,
-      }
-    : null
-}
 
 function CompanyStatisticsChart({
   title,
@@ -240,6 +186,7 @@ function CompanyStatisticsChart({
 
 export default function Dashboard() {
   const [client, setClient] = useState<Client | null>(null)
+  const [billingUsageSeconds, setBillingUsageSeconds] = useState(0)
   const [subscription, setSubscription] =
     useState<Subscription | null>(null)
   const [agent, setAgent] =
@@ -249,10 +196,12 @@ export default function Dashboard() {
     useState<Appointment[]>([])
   const [phoneNumbers, setPhoneNumbers] =
     useState<string[]>([])
+  const [billingError, setBillingError] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const loadDashboard = async () => {
+      try {
       const {
         data: { user },
       } = await supabase.auth.getUser()
@@ -274,7 +223,7 @@ export default function Dashboard() {
           .eq('id', user.id)
           .single(),
 
-        loadSubscription(user.id),
+        fetchBillingStatus(),
 
         supabase
           .from('agents')
@@ -294,9 +243,8 @@ export default function Dashboard() {
         setClient(clientData)
       }
 
-      if (subscriptionData) {
-        setSubscription(subscriptionData)
-      }
+      setSubscription(subscriptionData.subscription)
+      setBillingUsageSeconds(subscriptionData.usedSeconds)
 
       try {
         const callsResult = await fetchClientCalls()
@@ -322,8 +270,8 @@ export default function Dashboard() {
       }
 
       const isPro =
-        subscriptionData?.status === 'active' &&
-        subscriptionData?.plan_name === 'Recepta Pro'
+        subscriptionData.subscription?.status === 'active' &&
+        subscriptionData.subscription?.plan_name === 'Recepta Pro'
 
       if (isPro) {
         const { data: appointmentsData } = await supabase
@@ -338,7 +286,10 @@ export default function Dashboard() {
         setAppointments([])
       }
 
-      setLoading(false)
+      setBillingError('')
+      } catch (error) {
+        setBillingError(error instanceof Error ? error.message : 'Could not load your dashboard.')
+      } finally { setLoading(false) }
     }
 
     loadDashboard()
@@ -410,36 +361,13 @@ export default function Dashboard() {
       0
     )
 
-    const minutesTalked =
-      Math.ceil(totalSeconds / 60)
-
-    const monthlyMinutes =
-      subscription?.monthly_minutes ?? 300
-    const rolloverMinutes = Math.floor(
-      Math.max(
-        0,
-        Number(subscription?.rollover_seconds ?? 0)
-      ) / 60
-    )
-    const totalAvailableMinutes =
-      monthlyMinutes + rolloverMinutes
-
-    const minutesRemaining = Math.floor(
-      Math.max(
-        totalAvailableMinutes * 60 - totalSeconds,
-        0
-      ) / 60
-    )
-
-    const usagePercentage =
-      totalAvailableMinutes > 0
-        ? Math.min(
-            (totalSeconds /
-              (totalAvailableMinutes * 60)) *
-              100,
-            100
-          )
-        : 0
+    const balance = calculateMinuteBalance(subscription ?? { monthly_minutes: 0, status: null }, billingUsageSeconds)
+    const monthlyMinutes = subscription?.monthly_minutes ?? 0
+    const rolloverMinutes = formatMinuteSeconds(balance.rolloverSeconds)
+    const rolloverRemaining = formatMinuteSeconds(balance.rolloverRemainingSeconds)
+    const totalAvailableMinutes = formatMinuteSeconds(balance.totalSeconds)
+    const minutesRemaining = formatMinuteSeconds(balance.remainingSeconds)
+    const usagePercentage = balance.usagePercent
 
     const averageSeconds =
       callsAnswered > 0
@@ -478,9 +406,13 @@ export default function Dashboard() {
 
     return {
       callsAnswered,
-      minutesTalked,
+      minutesTalked: formatMinuteSeconds(billingUsageSeconds),
       monthlyMinutes,
       rolloverMinutes,
+      rolloverRemaining,
+      paid: balance.paid,
+      totalSeconds: balance.totalSeconds,
+      remainingSeconds: balance.remainingSeconds,
       totalAvailableMinutes,
       minutesRemaining,
       usagePercentage,
@@ -493,7 +425,7 @@ export default function Dashboard() {
             ).padStart(2, '0')}s`
           : '0m 00s',
     }
-  }, [calls, appointments, subscription])
+  }, [calls, appointments, subscription, billingUsageSeconds])
 
   const companyChart = useMemo(() => {
     const now = new Date()
@@ -540,10 +472,14 @@ export default function Dashboard() {
   }, [appointments, calls, isPro])
 
   const getStatusInfo = () => {
+    if (subscription?.status === 'past_due' || (subscription?.status === 'active' && !stats.paid)) {
+      return { label: 'Payment Required', color: '#ffb020', background: 'rgba(255, 176, 32, 0.10)' }
+    }
     if (
       subscription?.status === 'active' &&
-      stats.totalAvailableMinutes > 0 &&
-      stats.minutesRemaining === 0
+      stats.paid &&
+      stats.totalSeconds > 0 &&
+      stats.remainingSeconds === 0
     ) {
       return {
         label: 'Minute Limit Reached',
@@ -876,6 +812,7 @@ export default function Dashboard() {
 
           <div className="dashboardStatCard">
             <span>Minutes Used</span>
+            {billingError && <p role="alert">{billingError}</p>}
 
             <strong>
               {stats.minutesTalked} /{' '}
@@ -910,9 +847,11 @@ export default function Dashboard() {
                 marginTop: '8px',
               }}
             >
-              {stats.minutesRemaining > 0
-                ? `${stats.minutesRemaining} minutes remaining · ${stats.rolloverMinutes} rolled over`
-                : 'Monthly minutes used'}
+              {billingError ? 'Balance unavailable' : stats.paid
+                ? `${stats.minutesRemaining} minutes remaining · ${stats.rolloverRemaining} rollover left`
+                : 'Minutes unavailable until payment is confirmed'}
+              {subscription?.current_period_end && <><br />Rollover expires {new Date(subscription.current_period_end).toLocaleDateString('en-CA')}. Monthly renewal is required.</>}
+              <br /><a href="/dashboard/billing">View balance and next payment</a>
             </small>
           </div>
 

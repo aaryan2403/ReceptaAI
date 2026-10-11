@@ -38,6 +38,9 @@ where phone_number is not null
 on conflict (phone_number) do nothing;
 
 alter table public.agent_phone_numbers enable row level security;
+revoke all on public.agent_phone_numbers from public, anon, authenticated;
+grant select on public.agent_phone_numbers to authenticated;
+grant select, insert, update, delete on public.agent_phone_numbers to service_role;
 
 drop policy if exists recepta_clients_read_own_phone_numbers
   on public.agent_phone_numbers;
