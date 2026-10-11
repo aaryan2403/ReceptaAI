@@ -5,6 +5,7 @@ import {
 } from '../lib/retell'
 import { getStoredBusinessSchedule } from '../lib/employeeSchedule'
 import { sendCallNotification } from '../lib/callNotificationEmail'
+import { deliverBillingNotices, getBillingUsage, queueUsageNotice } from '../lib/billingNotifications'
 
 type RetellEvent =
   | 'call_started'
@@ -243,7 +244,7 @@ export default async (
   } = await supabaseAdmin
     .from('subscriptions')
     .select(
-      'plan_name, status, monthly_minutes, rollover_seconds, current_period_start, pii_redaction_enabled'
+      'client_id, stripe_subscription_id, plan_name, monthly_price, status, monthly_minutes, rollover_seconds, current_period_start, current_period_end, pii_redaction_enabled'
     )
     .eq('client_id', agent.client_id)
     .maybeSingle()
@@ -256,7 +257,7 @@ export default async (
     const fallback = await supabaseAdmin
       .from('subscriptions')
       .select(
-        'plan_name, status, monthly_minutes, current_period_start, pii_redaction_enabled'
+        'client_id, stripe_subscription_id, plan_name, monthly_price, status, monthly_minutes, current_period_start, current_period_end, pii_redaction_enabled'
       )
       .eq('client_id', agent.client_id)
       .maybeSingle()
@@ -645,31 +646,10 @@ export default async (
       Number.isFinite(monthlyMinutes) &&
       monthlyMinutes > 0
     ) {
-      const {
-        data: periodCalls,
-        error: periodCallsError,
-      } = await supabaseAdmin
-        .from('calls')
-        .select('duration_seconds')
-        .eq('client_id', agent.client_id)
-        .gte('started_at', periodStart)
-
-      if (periodCallsError) {
-        return json(500, {
-          error: 'Could not calculate minute usage.',
-        })
-      }
-
-      const usedSeconds =
-        periodCalls?.reduce(
-          (total, row) =>
-            total +
-            Math.max(
-              0,
-              Number(row.duration_seconds) || 0
-            ),
-          0
-        ) ?? 0
+      const usedSeconds = await getBillingUsage(supabaseAdmin, subscription)
+      await queueUsageNotice(supabaseAdmin, subscription, usedSeconds)
+      try { await deliverBillingNotices(supabaseAdmin, 1) }
+      catch (notificationError) { console.error('Usage notice delivery deferred:', notificationError) }
 
       if (
         usedSeconds >=

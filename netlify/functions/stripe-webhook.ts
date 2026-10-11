@@ -8,6 +8,8 @@ import {
   syncRetellSubscription,
 } from '../lib/retell'
 import { normalizePhonePurchase } from '../lib/phoneNumbers'
+import { getInvoicePeriod, getInvoiceSubscriptionId } from '../lib/billingPeriods'
+import { deliverBillingNotices, getBillingUsage, queueBillingNotice } from '../lib/billingNotifications'
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -220,72 +222,36 @@ export default async (request: Request) => {
           extraPhoneNumbers >= 0 &&
           extraPhoneNumbers <= 20
         ) {
-          let rolloverSeconds = 0
-
-          if (replacingSubscriptionId) {
-            const { data: existingSubscription, error: existingSubscriptionError } =
-              await supabaseAdmin
-                .from('subscriptions')
-                .select('rollover_seconds')
-                .eq('client_id', clientId)
-                .maybeSingle()
-
-            if (existingSubscriptionError) throw existingSubscriptionError
-            rolloverSeconds = Math.max(
-              0,
-              Math.floor(Number(existingSubscription?.rollover_seconds ?? 0) || 0)
-            )
-          }
-
-          const periodStart = new Date(
-            (session.created ||
-              Math.floor(Date.now() / 1000)) *
-              1000
-          )
-          const periodEnd = new Date(periodStart)
-          periodEnd.setUTCMonth(
-            periodEnd.getUTCMonth() + 1
-          )
-
-          const {
-            error: updateError,
-          } = await supabaseAdmin
-            .from('subscriptions')
-            .update({
-              plan_name: planName,
-              monthly_price: monthlyTotal,
-              monthly_minutes:
-                Math.floor(
-                  monthlyMinutes
-                ),
-              rollover_seconds: rolloverSeconds,
-              ai_model_id: aiModelId,
-              pii_redaction_enabled:
-                piiRedactionEnabled,
-              safety_guardrails_enabled:
-                safetyGuardrailsEnabled,
-              extra_phone_numbers:
-                extraPhoneNumbers,
-              status: 'active',
-              current_period_start:
-                periodStart.toISOString(),
-              current_period_end:
-                periodEnd.toISOString(),
-              next_billing_date:
-                periodEnd.toISOString(),
-              stripe_subscription_id:
-                subscriptionId || null,
-              stripe_customer_id:
-                customerId || null,
-            })
-            .eq(
-              'client_id',
-              clientId
-            )
-
-          if (updateError) {
-            throw updateError
-          }
+          if (!subscriptionId) throw new Error('Paid Checkout has no subscription ID.')
+          const remoteSubscription = await stripe.subscriptions.retrieve(subscriptionId)
+          if (remoteSubscription.status !== 'active') return new Response(null, { status: 200 })
+          const invoiceId = typeof session.invoice === 'string' ? session.invoice : session.invoice?.id
+          if (!invoiceId) throw new Error('Paid Checkout has no invoice.')
+          const paidInvoice = await stripe.invoices.retrieve(invoiceId)
+          if (paidInvoice.status !== 'paid') throw new Error('Checkout invoice is not paid.')
+          const invoiceLines = await stripe.invoices.listLineItems(invoiceId, { limit: 100 })
+          const period = getInvoicePeriod(invoiceLines.data, subscriptionId)
+          if (new Date(period.end).getTime() <= Date.now()) return new Response(null, { status: 200 })
+          const { data: activatedRows, error: updateError } = await supabaseAdmin.rpc('activate_recepta_checkout', {
+            p_client_id: clientId,
+            p_stripe_subscription_id: subscriptionId,
+            p_customer_id: customerId || null,
+            p_period_start: period.start,
+            p_period_end: period.end,
+            p_replaces_subscription_id: replacingSubscriptionId,
+            p_configuration: {
+              plan_name: planName, monthly_price: monthlyTotal,
+              monthly_minutes: Math.floor(monthlyMinutes), ai_model_id: aiModelId,
+              pii_redaction_enabled: piiRedactionEnabled,
+              safety_guardrails_enabled: safetyGuardrailsEnabled,
+              extra_phone_numbers: extraPhoneNumbers,
+            },
+          })
+          if (updateError) throw updateError
+          const activatedSubscription = activatedRows?.[0]
+          if (!activatedSubscription) return new Response(null, { status: 200 })
+          await queueBillingNotice(supabaseAdmin, `paid:${invoiceId}`, 'payment_success',
+            activatedSubscription, await getBillingUsage(supabaseAdmin, activatedSubscription), paidInvoice.hosted_invoice_url)
 
           if (
             replacingSubscriptionId &&
@@ -433,165 +399,28 @@ export default async (request: Request) => {
     if (
       event.type === 'invoice.paid'
     ) {
-      const invoice =
-        event.data.object as unknown as {
-          billing_reason?: string | null
-          subscription?:
-            | string
-            | { id?: string }
-            | null
-          parent?: {
-            subscription_details?: {
-              subscription?:
-                | string
-                | { id?: string }
-                | null
-            }
-          }
-        }
-
-      const subscriptionReference =
-        invoice.subscription ??
-        invoice.parent?.subscription_details
-          ?.subscription
-      const stripeSubscriptionId =
-        typeof subscriptionReference ===
-        'string'
-          ? subscriptionReference
-          : subscriptionReference?.id
-
-      if (stripeSubscriptionId) {
-        const stripeSubscription =
-          (await stripe.subscriptions.retrieve(
-            stripeSubscriptionId
-          )) as unknown as {
-            items?: {
-              data?: Array<{
-                current_period_start?: number
-                current_period_end?: number
-              }>
-            }
-          }
-
-        const subscriptionItem =
-          stripeSubscription.items?.data?.[0]
-        const periodStartSeconds =
-          subscriptionItem?.current_period_start
-        const periodEndSeconds =
-          subscriptionItem?.current_period_end
-
-        if (
-          typeof periodStartSeconds === 'number' &&
-          typeof periodEndSeconds === 'number'
-        ) {
-          const nextPeriodStart = new Date(
-            periodStartSeconds * 1000
-          )
-          const nextPeriodEnd = new Date(
-            periodEndSeconds * 1000
-          )
-          const {
-            data: storedSubscription,
-            error: storedSubscriptionError,
-          } = await supabaseAdmin
-            .from('subscriptions')
-            .select(
-              'client_id, monthly_minutes, rollover_seconds, current_period_start, pii_redaction_enabled, safety_guardrails_enabled'
-            )
-            .eq(
-              'stripe_subscription_id',
-              stripeSubscriptionId
-            )
-            .maybeSingle()
-
-          if (storedSubscriptionError) {
-            throw storedSubscriptionError
-          }
-
-          let rolloverSeconds = Math.max(
-            0,
-            Number(
-              storedSubscription?.rollover_seconds ?? 0
-            ) || 0
-          )
-          const storedPeriodStart = storedSubscription?.current_period_start
-            ? new Date(storedSubscription.current_period_start)
-            : null
-          const beginsNewPaidMonth =
-            invoice.billing_reason === 'subscription_cycle' &&
-            storedPeriodStart &&
-            Number.isFinite(storedPeriodStart.getTime()) &&
-            storedPeriodStart.getTime() < nextPeriodStart.getTime()
-
-          if (
-            beginsNewPaidMonth &&
-            storedSubscription?.client_id
-          ) {
-            const { data: previousCalls, error: previousCallsError } =
-              await supabaseAdmin
-                .from('calls')
-                .select('duration_seconds')
-                .eq('client_id', storedSubscription.client_id)
-                .gte('started_at', storedPeriodStart.toISOString())
-                .lt('started_at', nextPeriodStart.toISOString())
-
-            if (previousCallsError) {
-              throw previousCallsError
-            }
-
-            const usedSeconds = (previousCalls ?? []).reduce(
-              (total, row) =>
-                total + Math.max(0, Number(row.duration_seconds) || 0),
-              0
-            )
-            const monthlySeconds =
-              Math.max(
-                0,
-                Math.floor(
-                  Number(storedSubscription.monthly_minutes) || 0
-                )
-              ) * 60
-
-            const currentMonthUsedSeconds = Math.max(
-              usedSeconds - rolloverSeconds,
-              0
-            )
-
-            // Rollover from the previous period expires here. Only unused
-            // minutes from the period that just ended enter the new month,
-            // capped at one normal monthly allowance.
-            rolloverSeconds = Math.min(
-              Math.max(
-                monthlySeconds - currentMonthUsedSeconds,
-                0
-              ),
-              monthlySeconds
-            )
-          }
-
-          const {
-            data: renewedSubscription,
-            error: renewalError,
-          } = await supabaseAdmin
-            .from('subscriptions')
-            .update({
-              status: 'active',
-              rollover_seconds: Math.floor(rolloverSeconds),
-              current_period_start: nextPeriodStart.toISOString(),
-              current_period_end: nextPeriodEnd.toISOString(),
-              next_billing_date: nextPeriodEnd.toISOString(),
-            })
-            .eq(
-              'stripe_subscription_id',
-              stripeSubscriptionId
-            )
-            .select(
-              'client_id, pii_redaction_enabled, safety_guardrails_enabled'
-            )
-            .maybeSingle()
-
-          if (renewalError) {
-            throw renewalError
+      const invoice = event.data.object as Stripe.Invoice
+      const stripeSubscriptionId = getInvoiceSubscriptionId(invoice)
+      if (stripeSubscriptionId && ['subscription_cycle', 'subscription_create'].includes(invoice.billing_reason ?? '')) {
+        // Use the period on THIS paid invoice. Reading only the live subscription
+        // would grant a later, unpaid month when an older event is retried.
+        const remoteSubscription = await stripe.subscriptions.retrieve(stripeSubscriptionId)
+        if (remoteSubscription.status === 'active' && invoice.status === 'paid') {
+          const lines = await stripe.invoices.listLineItems(invoice.id, { limit: 100 })
+          const period = getInvoicePeriod(lines.data, stripeSubscriptionId)
+          if (new Date(period.end).getTime() <= Date.now()) return new Response(null, { status: 200 })
+          const { data: renewedRows, error: renewalError } = await supabaseAdmin.rpc('renew_recepta_subscription', {
+            p_stripe_subscription_id: stripeSubscriptionId,
+            p_period_start: period.start,
+            p_period_end: period.end,
+          })
+          if (renewalError) throw renewalError
+          const renewedSubscription = renewedRows?.[0]
+          // An older or replaced subscription invoice grants nothing.
+          if (!renewedSubscription) return new Response(null, { status: 200 })
+          if (renewedSubscription) {
+            await queueBillingNotice(supabaseAdmin, `paid:${invoice.id}`, 'payment_success',
+              renewedSubscription, await getBillingUsage(supabaseAdmin, renewedSubscription), invoice.hosted_invoice_url)
           }
 
           if (renewedSubscription?.client_id) {
@@ -669,6 +498,15 @@ export default async (request: Request) => {
       }
     }
 
+    if (event.type === 'customer.subscription.updated') {
+      const changedSubscription = event.data.object as Stripe.Subscription
+      const latest = await stripe.subscriptions.retrieve(changedSubscription.id)
+      const { error } = await supabaseAdmin.from('subscriptions')
+        .update({ cancel_at_period_end: Boolean(latest.cancel_at_period_end || latest.cancel_at) })
+        .eq('stripe_subscription_id', latest.id)
+      if (error) throw error
+    }
+
     if (
       event.type ===
       'customer.subscription.deleted'
@@ -685,6 +523,7 @@ export default async (request: Request) => {
           .from('subscriptions')
           .update({
             status: 'cancelled',
+            rollover_seconds: 0,
           })
           .eq(
             'stripe_subscription_id',
@@ -809,37 +648,29 @@ export default async (request: Request) => {
       event.type ===
       'invoice.payment_failed'
     ) {
-      const invoice =
-        event.data.object as unknown as {
-          subscription?:
-            | string
-            | { id?: string }
-            | null
-        }
-
-      const subscriptionId =
-        typeof invoice.subscription ===
-        'string'
-          ? invoice.subscription
-          : invoice.subscription?.id
-
+      const invoiceEvent = event.data.object as Stripe.Invoice
+      const subscriptionId = getInvoiceSubscriptionId(invoiceEvent)
       if (subscriptionId) {
-        const { error } =
-          await supabaseAdmin
-            .from('subscriptions')
-            .update({
-              status: 'past_due',
-            })
-            .eq(
-              'stripe_subscription_id',
-              subscriptionId
-            )
-
-        if (error) {
-          throw error
+        // Ignore a failure delivered after the same invoice was paid, or after
+        // the subscription was renewed/cancelled. Keep failed-cycle rollover
+        // frozen so a successful retry can perform the normal paid renewal.
+        const invoice = await stripe.invoices.retrieve(invoiceEvent.id)
+        const remote = await stripe.subscriptions.retrieve(subscriptionId)
+        if (invoice.status !== 'paid' && ['past_due', 'unpaid', 'incomplete'].includes(remote.status)) {
+          const { data: failedSubscription, error } = await supabaseAdmin.from('subscriptions')
+            .update({ status: 'past_due' }).eq('stripe_subscription_id', subscriptionId).select('*').maybeSingle()
+          if (error) throw error
+          if (failedSubscription) {
+            await queueBillingNotice(supabaseAdmin, `failed:${invoice.id}`, 'payment_failed', failedSubscription,
+              await getBillingUsage(supabaseAdmin, failedSubscription), invoice.hosted_invoice_url)
+          }
         }
       }
     }
+
+    // Email outages do not undo a verified payment. Notices stay in the outbox.
+    try { await deliverBillingNotices(supabaseAdmin, 1) }
+    catch (notificationError) { console.error('Billing notice delivery deferred:', notificationError) }
 
     return new Response(
       JSON.stringify({ received: true }),

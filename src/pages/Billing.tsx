@@ -1,26 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { fetchClientCalls } from '../lib/clientCalls'
-
-type PlanName = 'Recepta Standard' | 'Recepta Pro'
-type SubscriptionStatus = 'pending' | 'active' | 'past_due' | 'cancelled'
-
-type Subscription = {
-  plan_name: PlanName | null
-  monthly_price: number | null
-  monthly_minutes: number | null
-  ai_model_id: string | null
-  pii_redaction_enabled: boolean
-  safety_guardrails_enabled: boolean
-  extra_phone_numbers: number
-  status: SubscriptionStatus
-  next_billing_date: string | null
-  current_period_start: string | null
-  rollover_seconds: number
-  stripe_subscription_id: string | null
-}
-
-type CallRecord = { duration_seconds: number; started_at: string }
+import { fetchBillingStatus } from '../lib/billing'
+import type { BillingSubscription as Subscription } from '../lib/billing'
+import { calculateMinuteBalance, formatMinuteSeconds, ROLLOVER_POLICY } from '../lib/minuteBalance'
 
 type AIModel = {
   id: string
@@ -36,37 +18,10 @@ const GUARDRAIL_RATE_CAD = 0.007
 const EXTRA_NUMBER_MONTHLY_CAD = 20
 const MINUTE_OPTIONS = [100, 300, 500, 1000, 2500, 5000]
 
-const isMissingRolloverColumn = (error: { code?: string; message?: string } | null) => {
-  const message = error?.message?.toLowerCase() ?? ''
-  return message.includes('rollover_seconds') &&
-    (error?.code === '42703' || error?.code === 'PGRST204' ||
-      message.includes('does not exist') || message.includes('schema cache'))
-}
-
-const loadSubscription = async (clientId: string) => {
-  const columns = 'plan_name, monthly_price, monthly_minutes, ai_model_id, pii_redaction_enabled, safety_guardrails_enabled, extra_phone_numbers, status, next_billing_date, current_period_start, rollover_seconds, stripe_subscription_id'
-  const result = await supabase
-    .from('subscriptions')
-    .select(columns)
-    .eq('client_id', clientId)
-    .maybeSingle()
-
-  if (!result.error) return result.data as Subscription | null
-  if (!isMissingRolloverColumn(result.error)) throw result.error
-
-  const fallback = await supabase
-    .from('subscriptions')
-    .select('plan_name, monthly_price, monthly_minutes, ai_model_id, pii_redaction_enabled, safety_guardrails_enabled, extra_phone_numbers, status, next_billing_date, current_period_start, stripe_subscription_id')
-    .eq('client_id', clientId)
-    .maybeSingle()
-
-  if (fallback.error) throw fallback.error
-  return fallback.data ? { ...fallback.data, rollover_seconds: 0 } as Subscription : null
-}
-
 export default function Billing() {
   const [subscription, setSubscription] = useState<Subscription | null>(null)
-  const [calls, setCalls] = useState<CallRecord[]>([])
+  const [secondsUsed, setSecondsUsed] = useState(0)
+  const [managingBilling, setManagingBilling] = useState(false)
   const [models, setModels] = useState<AIModel[]>([])
   const [modelRate, setModelRate] = useState(0)
   const [selectedMinutes, setSelectedMinutes] = useState('300')
@@ -80,14 +35,16 @@ export default function Billing() {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) return
 
-        const [loadedSubscription, modelsResult] = await Promise.all([
-          loadSubscription(user.id),
+        const [billingStatus, modelsResult] = await Promise.all([
+          fetchBillingStatus(),
           supabase
             .from('ai_models')
             .select('id, display_name, provider, tier_name, customer_price_per_minute_cad')
             .eq('is_active', true)
             .order('sort_order', { ascending: true }),
         ])
+        const loadedSubscription = billingStatus.subscription
+        setSecondsUsed(billingStatus.usedSeconds)
         setSubscription(loadedSubscription)
         setSelectedMinutes(String(loadedSubscription?.monthly_minutes ?? 300))
 
@@ -102,12 +59,6 @@ export default function Billing() {
           setModelRate(Math.max(0, Number(assignedModel?.customer_price_per_minute_cad ?? 0)))
         }
 
-        try {
-          const result = await fetchClientCalls()
-          setCalls(result.calls)
-        } catch (callError) {
-          console.error('Could not load billing usage:', callError)
-        }
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : 'Could not load billing.')
       } finally {
@@ -128,22 +79,32 @@ export default function Billing() {
       Math.max(0, Number(subscription.extra_phone_numbers ?? 0)) * EXTRA_NUMBER_MONTHLY_CAD
   }, [modelRate, monthlyMinutes, subscription])
 
-  const secondsUsed = useMemo(() => {
-    const periodStart = subscription?.current_period_start
-      ? new Date(subscription.current_period_start).getTime()
-      : 0
-    return calls
-      .filter((call) => new Date(call.started_at).getTime() >= periodStart)
-      .reduce((total, call) => total + (call.duration_seconds || 0), 0)
-  }, [calls, subscription])
+  const balance = calculateMinuteBalance(subscription ?? {
+    monthly_minutes: 0, status: null,
+  }, secondsUsed)
+  const minutesUsed = formatMinuteSeconds(secondsUsed)
+  const availableMinutes = formatMinuteSeconds(balance.totalSeconds)
+  const minutesRemaining = formatMinuteSeconds(balance.remainingSeconds)
+  const rolloverMinutes = formatMinuteSeconds(balance.rolloverSeconds)
+  const usagePercent = balance.usagePercent
 
-  const minutesUsed = Math.ceil(secondsUsed / 60)
-  const rolloverMinutes = Math.floor(Math.max(0, Number(subscription?.rollover_seconds ?? 0)) / 60)
-  const availableMinutes = Math.max(0, Number(subscription?.monthly_minutes ?? 0) + rolloverMinutes)
-  const minutesRemaining = Math.max(0, availableMinutes - minutesUsed)
-  const usagePercent = availableMinutes > 0
-    ? Math.min(100, Math.round((minutesUsed / availableMinutes) * 100))
-    : 0
+  const openBillingPortal = async () => {
+    setError('')
+    setManagingBilling(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error('Please sign in again.')
+      const response = await fetch('/.netlify/functions/create-billing-portal-session', {
+        method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      const body = await response.json()
+      if (!response.ok || !body.url) throw new Error(body.error || 'Could not open billing management.')
+      window.location.href = body.url
+    } catch (portalError) {
+      setError(portalError instanceof Error ? portalError.message : 'Could not open billing management.')
+      setManagingBilling(false)
+    }
+  }
 
   const startMinuteCheckout = async () => {
     setError('')
@@ -225,6 +186,8 @@ export default function Billing() {
           </div>
         </div>
 
+        {error && <p className="calendarAlert calendarAlert--error" role="alert">{error}</p>}
+
         {!subscription ? (
           <div className="dashboardEmptyState">
             <strong>Your subscription is not configured yet.</strong>
@@ -238,7 +201,12 @@ export default function Billing() {
                 <div>
                   <span className="billingPremiumEyebrow">CURRENT SUBSCRIPTION</span>
                   <h2>{subscription.plan_name || 'Recepta plan'}</h2>
-                  <p>Your plan and AI configuration are managed by Recepta.</p>
+                  <p>Your subscription is charged monthly, even when you have rollover minutes.</p>
+                  {subscription.stripe_subscription_id && (
+                    <button type="button" className="btn btnPrimary" onClick={openBillingPortal} disabled={managingBilling}>
+                      {managingBilling ? 'Opening billing...' : 'Manage payment method & subscription'}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -252,15 +220,24 @@ export default function Billing() {
                   <strong>C${Number(subscription.monthly_price ?? 0).toFixed(2)}</strong>
                 </div>
                 <div>
-                  <span>Available minutes</span>
+                  <span>Total cycle allowance</span>
                   <strong>{availableMinutes.toLocaleString()}</strong>
                 </div>
                 <div>
-                  <span>Next billing date</span>
+                  <span>{subscription.cancel_at_period_end ? 'Service ends' : subscription.status === 'past_due' ? 'Payment due' : 'Next monthly payment'}</span>
                   <strong>{nextBillingLabel}</strong>
                 </div>
               </div>
 
+              {subscription.cancel_at_period_end && (
+                <p className="calendarAlert" role="status">Cancellation is scheduled for {nextBillingLabel}. There is no automatic renewal after that date, and unused minutes expire when service ends.</p>
+              )}
+              {subscription.status === 'past_due' && (
+                <p className="calendarAlert calendarAlert--error" role="alert">Payment is due. Update your payment method above. Rollover minutes require a paid subscription.</p>
+              )}
+              {subscription.status === 'active' && !balance.paid && (
+                <p className="calendarAlert" role="status">Your paid billing cycle has ended. Minutes become available after Stripe confirms renewal payment.</p>
+              )}
               <div className="billingCurrentUsage">
                 <div className="billingCurrentUsageTop">
                   <span>{minutesUsed.toLocaleString()} minutes used</span>
@@ -274,6 +251,14 @@ export default function Billing() {
                   {' + '}{rolloverMinutes.toLocaleString()} rollover minutes
                 </small>
               </div>
+              <div className="billingCurrentStats">
+                <div><span>Monthly minutes left</span><strong>{formatMinuteSeconds(balance.monthlyRemainingSeconds)}</strong></div>
+                <div><span>Rollover minutes left</span><strong>{formatMinuteSeconds(balance.rolloverRemainingSeconds)}</strong></div>
+                <div><span>Rollover expires</span><strong>{subscription.current_period_end ? new Date(subscription.current_period_end).toLocaleDateString('en-CA') : 'Not scheduled'}</strong></div>
+                <div><span>Payment reminders</span><strong>Email before renewal</strong></div>
+              </div>
+              <p className="billingCheckoutDisclaimer">{ROLLOVER_POLICY}</p>
+              <p className="billingCheckoutDisclaimer">We email you before renewal, after payment, if payment fails, and at 80% and 100% usage. New AI calls pause when your paid allowance is used; calls in progress can finish.</p>
             </section>
 
             <section className="billingConfigurator billingCatalogue">
@@ -471,7 +456,6 @@ export default function Billing() {
                 )}
 
                 <p className="billingCheckoutDisclaimer">Your minute allowance changes only after Stripe confirms successful payment.</p>
-                {error && <p className="calendarAlert calendarAlert--error" role="alert">{error}</p>}
               </div>
             </section>
           </>
