@@ -1,12 +1,9 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, type MouseEvent } from 'react'
 
 export default function useTilt(maxTilt = 12) {
-  const ref = useRef<HTMLDivElement | null>(null)
-
   const onMouseMove = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      const el = ref.current
-      if (!el) return
+    (e: MouseEvent<HTMLElement>) => {
+      const el = e.currentTarget
 
       const rect = el.getBoundingClientRect()
       const x = (e.clientX - rect.left) / rect.width
@@ -30,12 +27,11 @@ export default function useTilt(maxTilt = 12) {
     [maxTilt],
   )
 
-  const onMouseLeave = useCallback(() => {
-    const el = ref.current
-    if (!el) return
+  const onMouseLeave = useCallback((e: MouseEvent<HTMLElement>) => {
+    const el = e.currentTarget
     el.style.transform = ''
     el.style.boxShadow = ''
   }, [])
 
-  return { ref, onMouseMove, onMouseLeave }
+  return { onMouseMove, onMouseLeave }
 }

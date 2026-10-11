@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 type PlanName =
   | 'Recepta Standard'
@@ -11,7 +11,7 @@ const ADMIN_EMAIL =
   ).toLowerCase()
 
 const isAdminUser = async (
-  supabaseAdmin: any,
+  supabaseAdmin: SupabaseClient,
   user: { id: string; email?: string | null }
 ) => {
   const emailMatches =

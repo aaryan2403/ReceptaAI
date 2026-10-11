@@ -111,135 +111,140 @@ export default function AdminClient() {
   const [agentPhone, setAgentPhone] = useState('')
   const [agentHours, setAgentHours] = useState('')
 
-  const loadClient = async () => {
-    if (!id) {
-      setLoading(false)
-      return
-    }
-
-    const [
-      { data: clientData },
-      { data: agentData },
-      { data: subscriptionData },
-      { data: onboardingData },
-      { data: callsData },
-      { data: appointmentData },
-    ] = await Promise.all([
-      supabase
-        .from('clients')
-        .select(
-          'id, company_name, owner_name, owner_phone, contact_email, status, role, created_at'
-        )
-        .eq('id', id)
-        .single(),
-
-      supabase
-        .from('agents')
-        .select(
-          'agent_name, phone_number, business_hours, status'
-        )
-        .eq('client_id', id)
-        .maybeSingle(),
-
-      supabase
-        .from('subscriptions')
-        .select(
-          'plan_name, monthly_price, status, next_billing_date, stripe_customer_id, stripe_subscription_id'
-        )
-        .eq('client_id', id)
-        .maybeSingle(),
-
-      supabase
-        .from('onboarding')
-        .select(
-          'business_phone, business_hours, services, pricing_notes, service_area, faqs, transfer_number, emergency_rules, appointment_types, appointment_lengths, cancellation_rules, tone_preference, voice_preference, forbidden_topics, notification_preferences, onboarding_notes, completed, created_at, updated_at'
-        )
-        .eq('client_id', id)
-        .maybeSingle(),
-
-      supabase
-        .from('calls')
-        .select(
-          'id, caller_name, caller_number, started_at, duration_seconds, outcome, summary, appointment_booked'
-        )
-        .eq('client_id', id)
-        .order('started_at', {
-          ascending: false,
-        })
-        .limit(10),
-
-      supabase
-        .from('appointments')
-        .select(
-          'id, customer_name, customer_phone, appointment_time, status'
-        )
-        .eq('client_id', id)
-        .order('appointment_time', {
-          ascending: false,
-        })
-        .limit(10),
-    ])
-
-    if (clientData) {
-      setClient(clientData)
-    }
-
-    if (agentData) {
-      setAgent(agentData)
-
-      setAgentName(
-        agentData.agent_name || ''
-      )
-
-      setAgentPhone(
-        agentData.phone_number || ''
-      )
-
-      setAgentHours(
-        agentData.business_hours || ''
-      )
-    }
-
-    if (subscriptionData) {
-      setSubscription(subscriptionData)
-
-      setPlanName(
-        subscriptionData.plan_name ||
-          'Recepta Standard'
-      )
-
-      setMonthlyPrice(
-        String(
-          subscriptionData.monthly_price ??
-            200
-        )
-      )
-
-      setBillingStatus(
-        subscriptionData.status ||
-          'pending'
-      )
-    }
-
-    if (onboardingData) {
-      setOnboarding(onboardingData)
-    }
-
-    if (callsData) {
-      setCalls(callsData)
-    }
-
-    if (appointmentData) {
-      setAppointments(
-        appointmentData
-      )
-    }
-
-    setLoading(false)
-  }
-
   useEffect(() => {
-    loadClient()
+    if (!id) return
+
+    let cancelled = false
+
+    const loadClient = async () => {
+      const [
+        { data: clientData },
+        { data: agentData },
+        { data: subscriptionData },
+        { data: onboardingData },
+        { data: callsData },
+        { data: appointmentData },
+      ] = await Promise.all([
+        supabase
+          .from('clients')
+          .select(
+            'id, company_name, owner_name, owner_phone, contact_email, status, role, created_at'
+          )
+          .eq('id', id)
+          .single(),
+
+        supabase
+          .from('agents')
+          .select(
+            'agent_name, phone_number, business_hours, status'
+          )
+          .eq('client_id', id)
+          .maybeSingle(),
+
+        supabase
+          .from('subscriptions')
+          .select(
+            'plan_name, monthly_price, status, next_billing_date, stripe_customer_id, stripe_subscription_id'
+          )
+          .eq('client_id', id)
+          .maybeSingle(),
+
+        supabase
+          .from('onboarding')
+          .select(
+            'business_phone, business_hours, services, pricing_notes, service_area, faqs, transfer_number, emergency_rules, appointment_types, appointment_lengths, cancellation_rules, tone_preference, voice_preference, forbidden_topics, notification_preferences, onboarding_notes, completed, created_at, updated_at'
+          )
+          .eq('client_id', id)
+          .maybeSingle(),
+
+        supabase
+          .from('calls')
+          .select(
+            'id, caller_name, caller_number, started_at, duration_seconds, outcome, summary, appointment_booked'
+          )
+          .eq('client_id', id)
+          .order('started_at', {
+            ascending: false,
+          })
+          .limit(10),
+
+        supabase
+          .from('appointments')
+          .select(
+            'id, customer_name, customer_phone, appointment_time, status'
+          )
+          .eq('client_id', id)
+          .order('appointment_time', {
+            ascending: false,
+          })
+          .limit(10),
+      ])
+
+      if (cancelled) return
+
+      if (clientData) {
+        setClient(clientData)
+      }
+
+      if (agentData) {
+        setAgent(agentData)
+
+        setAgentName(
+          agentData.agent_name || ''
+        )
+
+        setAgentPhone(
+          agentData.phone_number || ''
+        )
+
+        setAgentHours(
+          agentData.business_hours || ''
+        )
+      }
+
+      if (subscriptionData) {
+        setSubscription(subscriptionData)
+
+        setPlanName(
+          subscriptionData.plan_name ||
+            'Recepta Standard'
+        )
+
+        setMonthlyPrice(
+          String(
+            subscriptionData.monthly_price ??
+              200
+          )
+        )
+
+        setBillingStatus(
+          subscriptionData.status ||
+            'pending'
+        )
+      }
+
+      if (onboardingData) {
+        setOnboarding(onboardingData)
+      }
+
+      if (callsData) {
+        setCalls(callsData)
+      }
+
+      if (appointmentData) {
+        setAppointments(
+          appointmentData
+        )
+      }
+
+      setLoading(false)
+    }
+
+    void loadClient()
+
+    return () => {
+      cancelled = true
+    }
   }, [id])
 
   const isPro =
@@ -486,7 +491,7 @@ export default function AdminClient() {
     setSaving(false)
   }
 
-  if (loading) {
+  if (loading && id) {
     return (
       <main className="adminPage">
         <section className="adminMain">
@@ -498,7 +503,7 @@ export default function AdminClient() {
     )
   }
 
-  if (!client) {
+  if (!id || !client) {
     return (
       <main className="adminPage">
         <section className="adminMain">
