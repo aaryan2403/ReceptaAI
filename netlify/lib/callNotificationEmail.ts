@@ -19,7 +19,7 @@ type AppointmentDetails = {
   timeZone: string
 }
 
-type CallNotificationDetails = {
+export type CallNotificationDetails = {
   planName: PlanName
   businessName: string
   ownerEmail?: string | null
@@ -59,31 +59,17 @@ const formatDuration = (seconds: number) => {
   return `${minutes}m ${remainder}s`
 }
 
-export const sendCallNotification = async (
-  details: CallNotificationDetails
-) => {
-  const ownerEmail = isEmail(details.ownerEmail)
-    ? details.ownerEmail!.trim()
-    : null
+export type CallEmailPayload = {
+  from: string
+  to: string[]
+  reply_to: string
+  subject: string
+  text: string
+}
 
-  if (!ownerEmail) {
-    return {
-      sent: false,
-      warning:
-        'The Recepta customer has no valid contact email, so the call notification could not be sent.',
-    }
-  }
-
-  const apiKey = process.env.RESEND_API_KEY
-
-  if (!apiKey) {
-    return {
-      sent: false,
-      warning:
-        'RESEND_API_KEY is missing, so the Recepta customer call notification could not be sent.',
-    }
-  }
-
+export const buildCallNotification = (details: CallNotificationDetails): CallEmailPayload => {
+  if (!isEmail(details.ownerEmail)) throw new Error('Owner email is missing or invalid.')
+  const ownerEmail = details.ownerEmail!.trim()
   const from =
     process.env.APPOINTMENT_FROM_EMAIL?.trim() ||
     process.env.REQUEST_NOTIFICATION_FROM_EMAIL?.trim() ||
@@ -135,40 +121,21 @@ export const sendCallNotification = async (
             : ['', 'Appointment details', 'No appointment request or confirmed booking was recorded during this call.']),
         ]
       : []
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from,
-      to: [ownerEmail],
-      reply_to: supportEmail,
-      subject:
-        details.planName === 'Recepta Pro'
-          ? `Recepta call details: ${details.callerName || details.callerNumber || 'New caller'}`
-          : `New Recepta call for ${details.businessName}`,
-      text: [
-        details.planName === 'Recepta Pro'
-          ? 'Your Recepta call is complete. Full details are below.'
-          : 'Your Recepta call is complete.',
-        '',
-        ...basicLines,
-        ...proLines,
-      ].join('\n'),
-    }),
-  })
-
-  if (!response.ok) {
-    const responseBody = await response.text().catch(() => '')
-    return {
-      sent: false,
-      warning: `Resend rejected the Recepta customer call notification (${response.status})${
-        responseBody ? `: ${responseBody.slice(0, 300)}` : '.'
-      }`,
+  return {
+    from,
+    to: [ownerEmail],
+    reply_to: supportEmail,
+    subject:
+      details.planName === 'Recepta Pro'
+        ? `Recepta call details: ${details.callerName || details.callerNumber || 'New caller'}`
+        : `New Recepta call for ${details.businessName}`,
+    text: [
+      details.planName === 'Recepta Pro'
+        ? 'Your Recepta call is complete. Full details are below.'
+        : 'Your Recepta call is complete.',
+      '',
+      ...basicLines,
+      ...proLines,
+    ].join('\n'),
     }
-  }
-
-  return { sent: true, warning: null }
 }

@@ -4,8 +4,7 @@ import {
   syncRetellPhoneBindings,
   verifyRetellSignature,
 } from '../lib/retell'
-import { getStoredBusinessSchedule } from '../lib/employeeSchedule'
-import { sendCallNotification } from '../lib/callNotificationEmail'
+import { deliverCallNotices } from '../lib/callNotifications'
 import { deliverBillingNotices, getBillingUsage, queueUsageNotice } from '../lib/billingNotifications'
 
 type RetellEvent =
@@ -374,34 +373,13 @@ export default async (
     }
   }
 
-  let analysisWasAlreadySaved = false
-  let callWasAlreadyEnded = false
-
-  if (
-    payload.event === 'call_ended' ||
-    payload.event === 'call_analyzed'
-  ) {
-    const { data: existingCall, error: existingCallError } =
-      await supabaseAdmin
-        .from('calls')
-        .select('call_status, summary, user_sentiment, call_successful')
-        .eq('retell_call_id', callId)
-        .maybeSingle()
-
-    if (existingCallError) {
-      console.error(
-        'Could not check whether the call notification was already handled:',
-        existingCallError
-      )
-    } else {
-      callWasAlreadyEnded = existingCall?.call_status === 'ended'
-      analysisWasAlreadySaved = Boolean(
-        existingCall?.summary ||
-          existingCall?.user_sentiment ||
-          typeof existingCall?.call_successful === 'boolean'
-      )
-    }
-  }
+  const shouldNotifyOwner = subscription?.status === 'active' && (
+    (subscription.plan_name === 'Recepta Standard' &&
+      (payload.event === 'call_ended' || payload.event === 'call_analyzed')) ||
+    (subscription.plan_name === 'Recepta Pro' && payload.event === 'call_analyzed')
+  )
+  if (shouldNotifyOwner) record.owner_notification_requested = true
+  record.retell_agent_id = agentId
 
   const { error: upsertError } =
     await supabaseAdmin
@@ -428,151 +406,13 @@ export default async (
     callStatus,
   })
 
-  const shouldSendStandardNotification =
-    subscription?.plan_name === 'Recepta Standard' &&
-    ((payload.event === 'call_ended' && !callWasAlreadyEnded) ||
-      (payload.event === 'call_analyzed' && !callWasAlreadyEnded))
-  const shouldSendProNotification =
-    subscription?.plan_name === 'Recepta Pro' &&
-    payload.event === 'call_analyzed' &&
-    !analysisWasAlreadySaved
-
-  if (
-    (shouldSendStandardNotification || shouldSendProNotification) &&
-    subscription?.status === 'active' &&
-    (subscription.plan_name === 'Recepta Standard' ||
-      subscription.plan_name === 'Recepta Pro')
-  ) {
+  if (shouldNotifyOwner) {
     try {
-      const { data: business, error: businessError } =
-        await supabaseAdmin
-          .from('clients')
-          .select('company_name, contact_email')
-          .eq('id', agent.client_id)
-          .maybeSingle()
-
-      if (businessError) throw businessError
-
-      let ownerEmail = getString(business?.contact_email)
-
-      if (!ownerEmail) {
-        const { data: ownerUser, error: ownerUserError } =
-          await supabaseAdmin.auth.admin.getUserById(agent.client_id)
-
-        if (ownerUserError) {
-          console.error(
-            'Could not load the Recepta customer account email:',
-            ownerUserError
-          )
-        } else {
-          ownerEmail = getString(ownerUser.user?.email)
-        }
-      }
-
-      let appointment: {
-        customer_name: string | null
-        customer_email: string | null
-        customer_phone: string | null
-        company_name: string | null
-        service: string | null
-        notes: string | null
-        appointment_time: string | null
-        status: string
-        requested_date: string | null
-        requested_time: string | null
-        requested_timezone: string | null
-        appointment_end_time: string | null
-        duration_minutes: number | null
-        employee_id: string | null
-      } | null = null
-      let employeeName: string | null = null
-
-      if (subscription.plan_name === 'Recepta Pro') {
-        const { data: appointmentRow, error: appointmentError } =
-          await supabaseAdmin
-            .from('appointments')
-            .select(
-              'customer_name, customer_email, customer_phone, company_name, service, notes, appointment_time, appointment_end_time, duration_minutes, employee_id, status, requested_date, requested_time, requested_timezone'
-            )
-            .eq('client_id', agent.client_id)
-            .eq('retell_call_id', callId)
-            .order('appointment_time', { ascending: true })
-            .limit(1)
-            .maybeSingle()
-
-        if (appointmentError) {
-          console.error(
-            'Could not load the appointment for the Pro call email:',
-            appointmentError
-          )
-        } else {
-          appointment = appointmentRow
-        }
-
-        if (appointment?.employee_id) {
-          const { data: employee, error: employeeError } =
-            await supabaseAdmin
-              .from('employees')
-              .select('name')
-              .eq('id', appointment.employee_id)
-              .eq('client_id', agent.client_id)
-              .maybeSingle()
-
-          if (employeeError) {
-            console.error(
-              'Could not load the assigned employee for the Pro call email:',
-              employeeError
-            )
-          } else {
-            employeeName = getString(employee?.name)
-          }
-        }
-      }
-
-      const schedule = getStoredBusinessSchedule(agent.business_hours)
-      const notification = await sendCallNotification({
-        planName: subscription.plan_name,
-        businessName: getString(business?.company_name) || 'your business',
-        ownerEmail,
-        callerName,
-        callerNumber,
-        startedAt,
-        durationSeconds: getDurationSeconds(call),
-        timeZone: schedule.timeZone,
-        outcome: getString(record.outcome),
-        summary: getString(analysis?.call_summary),
-        appointment: appointment
-          ? {
-              status: appointment.status,
-              requestedDate: appointment.requested_date,
-              requestedTime: appointment.requested_time,
-              requestedTimezone: appointment.requested_timezone,
-              customerName: appointment.customer_name,
-              customerEmail: appointment.customer_email,
-              customerPhone: appointment.customer_phone,
-              customerCompany: appointment.company_name,
-              employeeName,
-              service: appointment.service,
-              notes: appointment.notes,
-              start: appointment.appointment_time,
-              end: appointment.appointment_end_time,
-              durationMinutes: appointment.duration_minutes,
-              timeZone: schedule.timeZone,
-            }
-          : null,
-      })
-
-      if (!notification.sent) {
-        console.error(
-          'Recepta customer call notification was not sent:',
-          notification.warning
-        )
-      }
+      await deliverCallNotices(supabaseAdmin, 1, `owner-call:${agent.client_id}:${callId}`)
     } catch (notificationError) {
-      console.error(
-        'Recepta customer call notification failed:',
-        notificationError
-      )
+      // The call upsert atomically enqueued the notice. Scheduled retries recover
+      // even if this attempt fails or the webhook is never replayed.
+      console.error('Owner call email remains queued:', notificationError)
     }
   }
 

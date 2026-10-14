@@ -66,7 +66,7 @@ const compile = async (path, exportName = 'default') => {
   })
   return (await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`))[exportName]
 }
-const sendCallNotification = await compile('netlify/lib/callNotificationEmail.ts', 'sendCallNotification')
+const buildCallNotification = await compile('netlify/lib/callNotificationEmail.ts', 'buildCallNotification')
 const capture = await compile('netlify/functions/retell-appointment.ts')
 const lifecycle = await compile('netlify/functions/retell-webhook.ts')
 const repair = await compile('netlify/functions/client-calls.ts')
@@ -157,21 +157,13 @@ test('an AI booking claim cannot promote pending intake in lifecycle events or p
   } finally { globalThis.fetch = originalFetch }
 })
 
-test('owner notification labels a request as pending and preserves preferences without fake start/end times', async () => {
-  const originalFetch = globalThis.fetch
-  const originalKey = process.env.RESEND_API_KEY
-  let sent
-  try {
-    process.env.RESEND_API_KEY = 'synthetic-only'
-    globalThis.fetch = async (_url, options) => { sent = JSON.parse(options.body); return new Response('{}', { status: 200 }) }
-    const result = await sendCallNotification({ planName: 'Recepta Pro', businessName: 'Test business', ownerEmail: 'owner@example.test', startedAt: '2026-10-14T12:00:00Z', durationSeconds: 30, timeZone: 'America/Toronto', appointment: {
-      status: 'pending', requestedDate: 'Friday', requestedTime: 'Afternoon', requestedTimezone: 'Toronto', start: '2026-10-14T12:00:00Z', durationMinutes: 30, timeZone: 'America/Toronto',
-    } })
-    assert.equal(result.sent, true)
-    assert.match(sent.text, /Pending — follow-up required/)
-    assert.match(sent.text, /Friday · Afternoon · Toronto/)
-    assert.doesNotMatch(sent.text, /Starts:|Ends:|Duration: 30 minutes/)
-  } finally { globalThis.fetch = originalFetch; if (originalKey === undefined) delete process.env.RESEND_API_KEY; else process.env.RESEND_API_KEY = originalKey }
+test('owner email content labels a request as pending without fake start/end times', () => {
+  const sent = buildCallNotification({ planName: 'Recepta Pro', businessName: 'Test business', ownerEmail: 'owner@example.test', startedAt: '2026-10-14T12:00:00Z', durationSeconds: 30, timeZone: 'America/Toronto', appointment: {
+    status: 'pending', requestedDate: 'Friday', requestedTime: 'Afternoon', requestedTimezone: 'Toronto', start: '2026-10-14T12:00:00Z', durationMinutes: 30, timeZone: 'America/Toronto',
+  } })
+  assert.match(sent.text, /Pending — follow-up required/)
+  assert.match(sent.text, /Friday · Afternoon · Toronto/)
+  assert.doesNotMatch(sent.text, /Starts:|Ends:|Duration: 30 minutes/)
 })
 
 test('booking proof requires confirmed status and a valid slot; unknown preferences stay unknown', () => {
