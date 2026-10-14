@@ -48,11 +48,13 @@ type ClientCallRecord = {
   call_status: string | null
   transcript: string | null
   recording_url: string | null
+  media_redacted?: boolean
   notification_status?: string | null
   notification_attempts?: number
 }
 
 const detailCache = new Map<string, CachedCall>()
+const callColumns = 'id, retell_call_id, caller_name, caller_number, started_at, duration_seconds, outcome, summary, appointment_booked, call_status, transcript, recording_url, media_redacted'
 
 const json = (
   status: number,
@@ -234,6 +236,11 @@ const toCallRecord = (
     summary: getString(analysis?.call_summary),
     appointment_booked: false,
     call_status: status,
+    lifecycle_rank: active ? status === 'ongoing' ? 1 : 0 : analysis ? 3 : 2,
+    ended_at: !active && typeof call.end_timestamp === 'number'
+      ? new Date(call.end_timestamp).toISOString() : null,
+    media_redacted: piiRedactionEnabled,
+    retell_agent_id: getString(call.agent_id),
     transcript: piiRedactionEnabled
       ? getString(call.scrubbed_transcript)
       : getString(call.transcript),
@@ -338,9 +345,7 @@ export default async (request: Request) => {
         .maybeSingle(),
       supabaseAdmin
         .from('calls')
-        .select(
-          'id, retell_call_id, caller_name, caller_number, started_at, duration_seconds, outcome, summary, appointment_booked, call_status, transcript, recording_url'
-        )
+        .select(callColumns)
         .eq('client_id', user.id)
         .order('started_at', { ascending: false }),
       supabaseAdmin.from('appointments')
@@ -360,11 +365,16 @@ export default async (request: Request) => {
   })
 
   if (appointmentResult.error) return json(500, { error: 'Could not verify appointment confirmations.' })
+  const piiRedactionEnabled = subscriptionResult.data?.pii_redaction_enabled === true
   const confirmedCallIds = new Set((appointmentResult.data ?? [])
     .filter(isConfirmedAppointment)
     .map((appointment) => appointmentCallId(appointment.retell_call_id)))
   for (const storedCall of storedCallsResult.data ?? []) {
     storedCall.appointment_booked = Boolean(storedCall.retell_call_id && confirmedCallIds.has(storedCall.retell_call_id))
+    if (piiRedactionEnabled && storedCall.media_redacted !== true) {
+      storedCall.transcript = null
+      storedCall.recording_url = null
+    }
   }
 
   if (agentResult.error) {
@@ -385,9 +395,6 @@ export default async (request: Request) => {
       ),
     })
   }
-
-  const piiRedactionEnabled =
-    subscriptionResult.data?.pii_redaction_enabled === true
 
   try {
     const list = await retellRequest<RetellListResponse>(
@@ -437,26 +444,30 @@ export default async (request: Request) => {
     }
 
     let storageWarning: string | null = null
-
-    if (retellRecords.length > 0) {
-      const { error: upsertError } = await supabaseAdmin
-        .from('calls')
-        .upsert(retellRecords, {
-          onConflict: 'retell_call_id',
-        })
-
-      if (upsertError) {
-        storageWarning =
-          'Calls were loaded from Retell but could not be saved to Supabase. Run supabase_fix_retell_dashboard.sql.'
-        console.error('Retell call repair upsert failed:', upsertError)
-      }
-    }
-
     const storedByRetellId = new Map(
       (storedCallsResult.data ?? [])
         .filter((call) => call.retell_call_id)
         .map((call) => [call.retell_call_id, call])
     )
+
+    if (retellRecords.length > 0) {
+      const { data: savedCalls, error: upsertError } = await supabaseAdmin
+        .from('calls')
+        .upsert(retellRecords, {
+          onConflict: 'retell_call_id',
+        })
+        .select(callColumns)
+
+      if (upsertError) {
+        storageWarning =
+          'Call synchronization could not be saved. Showing saved call records where available.'
+        console.error('Retell call repair upsert failed:', upsertError)
+      } else {
+        // RETURNING includes the atomic lifecycle merge, including webhooks that
+        // finished after the initial dashboard read. Never render stale Retell state.
+        for (const call of savedCalls ?? []) storedByRetellId.set(call.retell_call_id, call)
+      }
+    }
 
     const calls: ClientCallRecord[] = retellRecords.map((record) => {
       const stored = record.retell_call_id
@@ -466,17 +477,16 @@ export default async (request: Request) => {
       return {
         id: String(stored?.id ?? record.retell_call_id),
         retell_call_id: record.retell_call_id,
-        caller_name: record.caller_name,
-        caller_number: record.caller_number,
-        started_at: record.started_at,
-        duration_seconds: record.duration_seconds,
-        outcome: record.outcome,
+        caller_name: stored?.caller_name ?? record.caller_name,
+        caller_number: stored?.caller_number ?? record.caller_number,
+        started_at: stored?.started_at ?? record.started_at,
+        duration_seconds: Number(stored?.duration_seconds ?? record.duration_seconds),
+        outcome: stored?.outcome ?? record.outcome,
         appointment_booked: record.appointment_booked,
-        call_status: record.call_status,
-        transcript: record.transcript ?? stored?.transcript ?? null,
-        recording_url:
-          record.recording_url ?? stored?.recording_url ?? null,
-        summary: record.summary ?? stored?.summary ?? null,
+        call_status: stored?.call_status ?? record.call_status,
+        transcript: stored ? stored.transcript : record.transcript,
+        recording_url: stored ? stored.recording_url : record.recording_url,
+        summary: stored?.summary ?? record.summary,
       }
     })
 
