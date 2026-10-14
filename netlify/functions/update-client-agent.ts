@@ -1,5 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
-import { assertRetellAgentAvailable } from '../lib/retell'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { assertRetellAgentAvailable, syncRetellSubscription } from '../lib/retell'
 
 const ADMIN_EMAIL =
   (
@@ -8,7 +8,7 @@ const ADMIN_EMAIL =
   ).toLowerCase()
 
 const isAdminUser = async (
-  supabaseAdmin: ReturnType<typeof createClient>,
+  supabaseAdmin: SupabaseClient,
   user: { id: string; email?: string | null }
 ) => {
   const emailMatches =
@@ -182,6 +182,22 @@ export default async (request: Request) => {
         .eq('client_id', clientId)
 
     if (error) throw error
+
+    if (normalizedRetellId && process.env.RETELL_API_KEY) {
+      const [agentResult, subscriptionResult] = await Promise.all([
+        supabaseAdmin.from('agents').select('demo_mode').eq('client_id', clientId).maybeSingle(),
+        supabaseAdmin.from('subscriptions').select('pii_redaction_enabled, safety_guardrails_enabled, ai_model_id').eq('client_id', clientId).maybeSingle(),
+      ])
+      if (agentResult.error) throw agentResult.error
+      if (subscriptionResult.error) throw subscriptionResult.error
+      await syncRetellSubscription({
+        apiKey: process.env.RETELL_API_KEY, agentId: normalizedRetellId, active: true,
+        demoMode: agentResult.data?.demo_mode === true,
+        piiRedactionEnabled: subscriptionResult.data?.pii_redaction_enabled === true,
+        safetyGuardrailsEnabled: subscriptionResult.data?.safety_guardrails_enabled === true,
+        aiModelId: subscriptionResult.data?.ai_model_id,
+      })
+    }
 
     return new Response(
       JSON.stringify({

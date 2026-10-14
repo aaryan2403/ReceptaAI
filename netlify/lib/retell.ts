@@ -1,3 +1,4 @@
+import { getCallMaxSeconds } from './callMinutes'
 import {
   createHmac,
   timingSafeEqual,
@@ -41,10 +42,12 @@ const ALL_RETELL_GUARDRAIL_INPUT_TOPICS = [
 const buildRetellProtectionConfig = ({
   piiRedactionEnabled,
   safetyGuardrailsEnabled,
+  demoMode,
 }: Pick<
   RetellSyncOptions,
-  'piiRedactionEnabled' | 'safetyGuardrailsEnabled'
+  'piiRedactionEnabled' | 'safetyGuardrailsEnabled' | 'demoMode'
 >) => ({
+  max_call_duration_ms: getCallMaxSeconds(demoMode === true) * 1000,
   data_storage_setting: piiRedactionEnabled
     ? 'everything_except_pii'
     : 'everything',
@@ -111,6 +114,7 @@ type RetellSyncOptions = {
   piiRedactionEnabled: boolean
   safetyGuardrailsEnabled: boolean
   aiModelId?: string | null
+  demoMode?: boolean
 }
 
 const RETELL_MODEL_BY_RECEPTA_ID = {
@@ -298,6 +302,7 @@ const updateAndPublishAgent = async ({
   piiRedactionEnabled,
   safetyGuardrailsEnabled,
   aiModelId,
+  demoMode,
 }: Omit<
   RetellSyncOptions,
   'active' | 'phoneNumber' | 'phoneNumbers'
@@ -392,6 +397,7 @@ const updateAndPublishAgent = async ({
           buildRetellProtectionConfig({
             piiRedactionEnabled,
             safetyGuardrailsEnabled,
+            demoMode,
           })
         ),
       }
@@ -1154,6 +1160,7 @@ export const syncRetellSubscription = async (
       safetyGuardrailsEnabled:
         options.safetyGuardrailsEnabled,
       aiModelId: options.aiModelId,
+      demoMode: options.demoMode,
     })
   }
 
