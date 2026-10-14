@@ -48,6 +48,8 @@ type ClientCallRecord = {
   call_status: string | null
   transcript: string | null
   recording_url: string | null
+  notification_status?: string | null
+  notification_attempts?: number
 }
 
 const detailCache = new Map<string, CachedCall>()
@@ -322,7 +324,7 @@ export default async (request: Request) => {
     return json(401, { error: 'Unauthorized.' })
   }
 
-  const [agentResult, subscriptionResult, storedCallsResult, appointmentResult] =
+  const [agentResult, subscriptionResult, storedCallsResult, appointmentResult, notificationResult] =
     await Promise.all([
       supabaseAdmin
         .from('agents')
@@ -345,7 +347,17 @@ export default async (request: Request) => {
         .select('status, appointment_time, retell_call_id')
         .eq('client_id', user.id)
         .in('status', ['booked', 'completed']),
+      supabaseAdmin.from('call_notifications')
+        .select('retell_call_id, status, attempts, last_error, accepted_at')
+        .eq('client_id', user.id).order('created_at', { ascending: false }),
     ])
+
+  const notifications = new Map((notificationResult.data ?? []).map((notice) => [notice.retell_call_id, notice]))
+  const enrichNotifications = <T extends { retell_call_id?: string | null }>(records: T[]) => records.map((record) => {
+    const notice = notifications.get(record.retell_call_id)
+    return { ...record, notification_status: notice?.status ?? (notificationResult.error ? 'unavailable' : null),
+      notification_attempts: notice?.attempts ?? 0, notification_last_error: notice?.last_error ?? null }
+  })
 
   if (appointmentResult.error) return json(500, { error: 'Could not verify appointment confirmations.' })
   const confirmedCallIds = new Set((appointmentResult.data ?? [])
@@ -364,7 +376,7 @@ export default async (request: Request) => {
   if (!agentId) {
     return json(409, {
       error: 'No Retell Agent ID is assigned to this customer.',
-      calls: storedCallsResult.data ?? [],
+      calls: enrichNotifications(storedCallsResult.data ?? []),
       scheduleMode: getScheduleMode(
         agentResult.data?.business_hours
       ),
@@ -503,7 +515,7 @@ export default async (request: Request) => {
     )
 
     return json(200, {
-      calls,
+      calls: enrichNotifications(calls),
       activeCalls: calls.filter(
         (call) =>
           call.call_status === 'ongoing' ||
@@ -515,14 +527,14 @@ export default async (request: Request) => {
       scheduleEnabled: getSchedulePreference(
         agentResult.data?.business_hours
       ),
-      storageWarning,
+      storageWarning: storageWarning || (notificationResult.error ? 'Email status could not be loaded.' : null),
     })
   } catch (error) {
     console.error('Could not synchronize Retell calls:', error)
 
     if (storedCallsResult.data) {
       return json(200, {
-        calls: storedCallsResult.data,
+        calls: enrichNotifications(storedCallsResult.data),
         activeCalls: storedCallsResult.data.filter(
           (call) =>
             call.call_status === 'ongoing' ||

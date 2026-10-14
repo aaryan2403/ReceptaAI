@@ -619,6 +619,20 @@ export default function Calls() {
                   )}
 
                   <div>
+                    <span>Owner email</span>
+                    <strong>
+                      {selectedCall.notification_status === 'accepted' ? 'Accepted by email service'
+                        : selectedCall.notification_status === 'retrying' ? 'Sending / retrying'
+                        : selectedCall.notification_status === 'queued' ? 'Pending — automatic retry scheduled'
+                        : selectedCall.notification_status === 'needs_attention' ? 'Needs attention — check delivery'
+                        : selectedCall.notification_status === 'legacy_untracked' ? 'Earlier delivery not tracked'
+                        : selectedCall.notification_status === 'unavailable' ? 'Email status unavailable'
+                        : 'Not queued yet'}
+                    </strong>
+                    {selectedCall.notification_last_error && <small>{selectedCall.notification_last_error}</small>}
+                  </div>
+
+                  <div>
                     <span>
                       Outcome
                     </span>
