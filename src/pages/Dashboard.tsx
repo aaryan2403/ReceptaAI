@@ -1,3 +1,4 @@
+import { type AppointmentStatus } from '../lib/appointmentRequests'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchClientCalls } from '../lib/clientCalls'
@@ -40,7 +41,8 @@ type Call = {
 type Appointment = {
   id: string
   appointment_time: string | null
-  status: 'booked' | 'cancelled' | 'completed'
+  status: AppointmentStatus
+  created_at: string
 }
 
 type ChartPoint = {
@@ -276,7 +278,7 @@ export default function Dashboard() {
       if (isPro) {
         const { data: appointmentsData } = await supabase
           .from('appointments')
-          .select('id, appointment_time, status')
+          .select('id, appointment_time, status, created_at')
           .eq('client_id', user.id)
 
         if (appointmentsData) {
@@ -385,14 +387,14 @@ export default function Dashboard() {
     const appointmentsToday =
       appointments.filter((appointment) => {
         if (
-          !appointment.appointment_time ||
-          appointment.status === 'cancelled'
+          !appointment.created_at ||
+          appointment.status !== 'pending'
         ) {
           return false
         }
 
         const appointmentDate =
-          new Date(appointment.appointment_time)
+          new Date(appointment.created_at)
 
         return (
           appointmentDate.getFullYear() ===
@@ -457,8 +459,8 @@ export default function Dashboard() {
       value: isPro
         ? appointments.filter(
             (appointment) =>
-              appointment.status !== 'cancelled' &&
-              toLocalDateKey(appointment.appointment_time) === day.key
+              appointment.status === 'pending' &&
+              toLocalDateKey(appointment.created_at) === day.key
           ).length
         : calls.filter(
             (call) => toLocalDateKey(call.started_at) === day.key
@@ -466,7 +468,7 @@ export default function Dashboard() {
     }))
 
     return {
-      title: isPro ? 'Appointments Booked' : 'Calls Picked Up',
+      title: isPro ? 'Pending Appointment Requests' : 'Calls Picked Up',
       points,
     }
   }, [appointments, calls, isPro])
@@ -796,7 +798,7 @@ export default function Dashboard() {
               href="/dashboard/calls"
               className="dashboardStatCard dashboardStatCardLink"
             >
-              <span>Appointments Today</span>
+              <span>Requests Today</span>
 
               <strong>
                 {stats.appointmentsToday}
@@ -804,8 +806,8 @@ export default function Dashboard() {
 
               <small>
                 {stats.appointmentsToday === 1
-                  ? '1 appointment scheduled today'
-                  : `${stats.appointmentsToday} appointment requests captured today`}
+                  ? '1 pending request — follow-up required'
+                  : `${stats.appointmentsToday} pending requests — follow-up required`}
               </small>
             </a>
           )}
@@ -902,18 +904,18 @@ export default function Dashboard() {
 
               <h2>
                 {stats.appointmentsToday === 0
-                  ? 'No appointments today'
+                  ? 'No pending requests captured today'
                   : `${stats.appointmentsToday} ${
                       stats.appointmentsToday === 1
-                        ? 'appointment'
-                        : 'appointments'
+                        ? 'pending request'
+                        : 'pending requests'
                     } today`}
               </h2>
 
               <p>
                 {stats.appointmentsToday === 0
-                  ? 'Your receptionist has not captured an appointment request today.'
-                  : 'View today’s booked customers and appointment times.'}
+                  ? 'There are no pending requests captured today.'
+                  : 'Review the caller’s preferences and contact them to confirm an appointment.'}
               </p>
             </div>
 

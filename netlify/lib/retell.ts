@@ -558,6 +558,18 @@ const buildReceptaAppointmentTools = (siteUrl: string) => [{
         type: 'string',
         description: 'Short reason for the appointment request.',
       },
+      preferred_date: {
+        type: 'string',
+        description: 'The caller’s preferred date, in their own words. Omit if not provided; never invent a date.',
+      },
+      preferred_time: {
+        type: 'string',
+        description: 'The caller’s preferred time or time window, in their own words. This is a request, not availability.',
+      },
+      preferred_timezone: {
+        type: 'string',
+        description: 'Timezone only if explicitly stated or confirmed with the caller; otherwise omit.',
+      },
       appointment_details: {
         type: 'array',
         description:
@@ -839,7 +851,7 @@ export const syncRetellSchedule = async ({
       APPOINTMENT_BOOKING_PROMPT_MARKER,
       [
         'Recepta does not provide a live calendar or reserve time slots.',
-        'For an appointment request, collect the caller’s name, available contact details, reason, and every field listed in {{recepta_appointment_fields}}.',
+        'For an appointment request, collect the caller’s name, available contact details, reason, preferred date and time, and every field listed in {{recepta_appointment_fields}}. Ask about timezone when needed; do not invent a preference or availability.',
         'Read back the important details and ask the caller to confirm them.',
         'After confirmation, call recepta_save_appointment_details exactly once.',
         'Tell the caller their appointment request was recorded and the business will follow up. Never claim a date or time is booked or guaranteed.',

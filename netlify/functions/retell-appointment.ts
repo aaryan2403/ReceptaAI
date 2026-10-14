@@ -114,51 +114,25 @@ export default async (request: Request) => {
   const customerName = textValue(payload.args?.customer_name, 160)
   if (!customerName) return json(400, { error: 'Customer name is required.' })
 
-  const callId = textValue(payload.call?.call_id, 200) || `retell-${crypto.randomUUID()}`
-  const now = new Date()
-  const end = new Date(now.getTime() + 30 * 60_000)
-  const notes = JSON.stringify({ version: 1, details })
-  const appointment = {
-    client_id: clientId,
-    employee_id: null,
-    customer_name: customerName,
-    customer_email: textValue(payload.args?.customer_email, 320),
-    customer_phone:
-      textValue(payload.args?.customer_phone, 60) ||
-      textValue(payload.call?.from_number, 60),
-    company_name: textValue(payload.args?.customer_company, 200),
-    service: textValue(payload.args?.reason, 300) || 'Appointment request',
-    notes,
-    appointment_time: now.toISOString(),
-    appointment_end_time: end.toISOString(),
-    duration_minutes: 30,
-    status: 'booked',
-    source: 'retell',
-    retell_call_id: callId,
-    updated_at: now.toISOString(),
-  }
+  const callId = textValue(payload.call?.call_id, 200)
+  if (!callId) return json(400, { error: 'A provider call ID is required.' })
 
-  const { data: existing, error: lookupError } = await supabaseAdmin
-    .from('appointments')
-    .select('id')
-    .eq('client_id', clientId)
-    .eq('retell_call_id', callId)
-    .maybeSingle()
-
-  if (lookupError) return json(500, { error: 'Could not check this appointment request.' })
-
-  const result = existing
-    ? await supabaseAdmin
-        .from('appointments')
-        .update(appointment)
-        .eq('id', existing.id)
-        .select('id')
-        .single()
-    : await supabaseAdmin
-        .from('appointments')
-        .insert(appointment)
-        .select('id')
-        .single()
+  const result = await supabaseAdmin.rpc('capture_recepta_appointment_request', {
+    p_client_id: clientId,
+    p_call_id: callId,
+    p_details: {
+      customer_name: customerName,
+      customer_email: textValue(payload.args?.customer_email, 320),
+      customer_phone: textValue(payload.args?.customer_phone, 60) ||
+        textValue(payload.call?.from_number, 60),
+      company_name: textValue(payload.args?.customer_company, 200),
+      service: textValue(payload.args?.reason, 300) || 'Appointment request',
+      requested_date: textValue(payload.args?.preferred_date, 200),
+      requested_time: textValue(payload.args?.preferred_time, 200),
+      requested_timezone: textValue(payload.args?.preferred_timezone, 100),
+      notes: JSON.stringify({ version: 1, details }),
+    },
+  })
 
   if (result.error || !result.data) {
     return json(500, { error: result.error?.message || 'Could not save appointment details.' })
@@ -167,6 +141,7 @@ export default async (request: Request) => {
   return json(200, {
     success: true,
     appointment_id: result.data.id,
+    status: result.data.status,
     captured_fields: details.map((detail) => detail.label),
     instruction:
       'The appointment request and caller details were recorded. Do not claim a calendar time was reserved.',

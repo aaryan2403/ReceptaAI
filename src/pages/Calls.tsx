@@ -1,3 +1,4 @@
+import { formatAppointmentPreference, type AppointmentStatus } from '../lib/appointmentRequests'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchClientCalls } from '../lib/clientCalls'
@@ -17,7 +18,12 @@ type AppointmentRecord = {
   company_name: string | null
   service: string | null
   notes: string | null
-  appointment_time: string
+  appointment_time: string | null
+  status: AppointmentStatus
+  created_at: string
+  requested_date: string | null
+  requested_time: string | null
+  requested_timezone: string | null
   retell_call_id: string | null
 }
 
@@ -75,9 +81,9 @@ export default function Calls() {
           .maybeSingle(),
         supabase
           .from('appointments')
-          .select('id, customer_name, customer_phone, customer_email, company_name, service, notes, appointment_time, retell_call_id')
+          .select('id, customer_name, customer_phone, customer_email, company_name, service, notes, appointment_time, retell_call_id, status, created_at, requested_date, requested_time, requested_timezone')
           .eq('client_id', user.id)
-          .order('appointment_time', { ascending: false }),
+          .order('created_at', { ascending: false }),
       ])
 
       if (!appointmentResult.error) {
@@ -495,6 +501,10 @@ export default function Calls() {
                           )}
                         </strong>
 
+                        {isPro && appointments.some((appointment) =>
+                          appointment.status === 'pending' &&
+                          appointment.retell_call_id?.split(':')[0] === call.retell_call_id
+                        ) && <span className="callsBookedBadge">Request pending</span>}
                         {isPro &&
                           call.appointment_booked && (
                             <span className="callsBookedBadge">
@@ -600,8 +610,10 @@ export default function Calls() {
 
                       <strong>
                         {selectedCall.appointment_booked
-                          ? 'Booked'
-                          : 'Not booked'}
+                          ? 'Confirmed booking'
+                          : selectedAppointment?.status === 'pending'
+                            ? 'Pending — follow-up required'
+                            : 'No confirmed booking'}
                       </strong>
                     </div>
                   )}
@@ -631,7 +643,7 @@ export default function Calls() {
 
                 {isPro && selectedAppointment && (
                   <div className="callsSummaryBox">
-                    <span>APPOINTMENT DETAILS</span>
+                    <span>{selectedAppointment.status === 'pending' ? 'APPOINTMENT REQUEST — FOLLOW-UP REQUIRED' : 'APPOINTMENT DETAILS'}</span>
                     <div className="callsDetailGrid" style={{ marginTop: '14px' }}>
                       <div>
                         <span>Name</span>
@@ -654,9 +666,15 @@ export default function Calls() {
                         <strong>{selectedAppointment.service || 'Not provided'}</strong>
                       </div>
                       <div>
-                        <span>Requested time</span>
-                        <strong>{new Date(selectedAppointment.appointment_time).toLocaleString()}</strong>
+                        <span>Caller’s preferred date / time</span>
+                        <strong>{formatAppointmentPreference(selectedAppointment)}</strong>
                       </div>
+                      {selectedAppointment.status !== 'pending' && selectedAppointment.appointment_time && (
+                        <div>
+                          <span>Scheduled time</span>
+                          <strong>{new Date(selectedAppointment.appointment_time).toLocaleString()}</strong>
+                        </div>
+                      )}
                       {capturedDetails(selectedAppointment.notes).map((detail) => (
                         <div key={`${detail.label}:${detail.value}`}>
                           <span>{detail.label}</span>
@@ -764,7 +782,7 @@ export default function Calls() {
             {isPro && (
               <div>
                 <span>
-                  Booking Rate
+                  Confirmed Booking Rate
                 </span>
 
                 <strong>

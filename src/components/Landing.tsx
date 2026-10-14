@@ -123,16 +123,16 @@ function TiltCard({ className, children }: { className: string; children: ReactN
 export default function Landing() {
   const pricingPlans = [
     {
-      name: 'With Appointments',
+      name: 'With Appointment Intake',
       monthly: '$300/month',
       summary: [
-        'Appointment booking + full call handling',
+        'Appointment request intake + full call handling',
         'Employee availability schedules',
         '24/7 availability',
         '+C$20/month per additional number',
       ],
       details: [
-        'Appointment booking + full call information handling',
+        'Appointment request intake + full call information handling',
         'Employee availability schedules',
         'Ongoing maintenance and support included',
         '24/7 availability',
@@ -167,7 +167,7 @@ export default function Landing() {
       name: 'Plumbing',
       icon: WrenchIcon as IconComponent,
       bestFor: 'Emergency + residential calls',
-      typicalLift: 'More booked jobs',
+      typicalLift: 'More captured appointment requests',
     },
     {
       name: 'Dental',
@@ -254,8 +254,8 @@ export default function Landing() {
               />
               <FeatureCard
                 icon={CalendarIcon}
-                title="Appointment booking that actually works"
-                description="Real-time scheduling aligned with your availability, reducing friction and eliminating back-and-forth."
+                title="Appointment requests, ready for follow-up"
+                description="Capture the caller’s details and preferred date and time. Your business follows up to confirm availability and the appointment."
               />
               <FeatureCard
                 icon={SparklesIcon}
@@ -269,8 +269,8 @@ export default function Landing() {
               />
               <FeatureCard
                 icon={MessageIcon}
-                title="Automated follow-ups"
-                description="SMS and email workflows that confirm bookings, send reminders, and keep prospects engaged."
+                title="Details for owner follow-up"
+                description="Review captured enquiries and appointment requests so your team can follow up with callers and confirm the next step."
               />
               <FeatureCard
                 icon={FileTextIcon}
