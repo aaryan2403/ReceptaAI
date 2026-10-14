@@ -142,19 +142,15 @@ test('all six event orders and sparse replays preserve terminal state and final 
   } finally { await close() }
 })
 
-test('overlapping signed webhook requests converge; reservation replays keep saved duration', async () => {
+test('overlapping signed webhook requests converge', async () => {
   await setup()
   try {
-    const reservation = '00000000-0000-0000-0000-000000000003'
-    await db.exec(`insert into call_minute_reservations values('${reservation}','${client}','reserved',0,null)`)
     assert.deepEqual((await Promise.all([
       webhook(signed('call_analyzed', analyzed())),
       webhook(signed('call_started', { ...base(), call_status: 'ongoing' })),
       webhook(signed('call_ended', ended())),
     ])).map((response) => response.status), [204,204,204])
     assertFinished(await callRow())
-    await webhook(signed('call_ended', { ...base(), metadata: { recepta_reservation_id: reservation } }))
-    assert.equal((await db.query('select used_seconds from call_minute_reservations')).rows[0].used_seconds, 60)
   } finally { await close() }
 })
 

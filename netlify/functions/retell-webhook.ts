@@ -1,7 +1,6 @@
 import { isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 import { createClient } from '@supabase/supabase-js'
 import {
-  syncRetellPhoneBindings,
   verifyRetellSignature,
 } from '../lib/retell'
 import { deliverCallNotices } from '../lib/callNotifications'
@@ -429,106 +428,20 @@ export default async (
     payload.event === 'call_ended' ||
     payload.event === 'call_analyzed'
   ) {
-    const reservationId = getString(
-      metadata.recepta_reservation_id
-    )
-
-    if (reservationId) {
-      const { error: reservationError } =
-        await supabaseAdmin
-          .from('call_minute_reservations')
-          .update({
-            status: 'completed',
-            used_seconds:
-              savedCall.duration_seconds,
-            completed_at:
-              new Date().toISOString(),
-          })
-          .eq('id', reservationId)
-          .eq('client_id', agent.client_id)
-
-      if (reservationError) {
-        console.error(
-          'Could not finalize minute reservation:',
-          reservationError
-        )
-      }
-    }
-
+    // The call-write trigger settles the keyed reservation in the same database
+    // transaction. Provider refreshes use the same path even without metadata.
     const periodStart =
       subscription?.current_period_start
-
-    const monthlyMinutes = Number(
-      subscription?.monthly_minutes ?? 0
-    )
-    const rolloverSeconds = Math.max(
-      0,
-      Number(subscription?.rollover_seconds ?? 0) || 0
-    )
-    const availableSeconds =
-      Math.floor(monthlyMinutes) * 60 +
-      Math.floor(rolloverSeconds)
 
     if (
       subscription?.status === 'active' &&
       periodStart &&
-      Number.isFinite(monthlyMinutes) &&
-      monthlyMinutes > 0
+      Number(subscription.monthly_minutes) > 0
     ) {
       const usedSeconds = await getBillingUsage(supabaseAdmin, subscription)
       await queueUsageNotice(supabaseAdmin, subscription, usedSeconds)
       try { await deliverBillingNotices(supabaseAdmin, 1) }
       catch (notificationError) { console.error('Usage notice delivery deferred:', notificationError) }
-
-      if (
-        usedSeconds >=
-        availableSeconds
-      ) {
-        const [agentPause, clientPause] =
-          await Promise.all([
-            supabaseAdmin
-              .from('agents')
-              .update({ status: 'paused' })
-              .eq('client_id', agent.client_id),
-            supabaseAdmin
-              .from('clients')
-              .update({ status: 'paused' })
-              .eq('id', agent.client_id),
-          ])
-
-        if (agentPause.error) {
-          throw agentPause.error
-        }
-
-        if (clientPause.error) {
-          throw clientPause.error
-        }
-
-        const { data: phoneRows, error: phoneRowsError } =
-          await supabaseAdmin
-            .from('agent_phone_numbers')
-            .select('phone_number')
-            .eq('client_id', agent.client_id)
-            .order('is_primary', { ascending: false })
-            .order('created_at', { ascending: true })
-
-        if (phoneRowsError) throw phoneRowsError
-
-        const phoneNumbers = (phoneRows ?? []).map(
-          (row) => row.phone_number
-        )
-
-        if (phoneNumbers.length === 0 && agent.phone_number) {
-          phoneNumbers.push(agent.phone_number)
-        }
-
-        await syncRetellPhoneBindings({
-          apiKey: retellApiKey,
-          agentId,
-          phoneNumbers,
-          active: false,
-        })
-      }
     }
   }
 

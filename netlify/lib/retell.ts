@@ -477,12 +477,8 @@ const updatePhoneBinding = async ({
       ]
     : null
 
-  const siteUrl =
-    process.env.URL?.trim().replace(/\/$/, '')
-
-  const inboundWebhookUrl = siteUrl
-    ? `${siteUrl}/.netlify/functions/retell-inbound`
-    : null
+  const inboundWebhookUrl = new URL('/.netlify/functions/retell-inbound',
+    process.env.RECEPTA_APP_URL || process.env.URL || 'https://recepta.ca').toString()
 
   await retellRequest<unknown>(
     apiKey,
@@ -490,14 +486,11 @@ const updatePhoneBinding = async ({
     {
       method: 'PATCH',
       body: JSON.stringify({
-        inbound_agents: agents,
+        // Without a default agent, a failed webhook disconnects rather than
+        // bypassing the paid minute reservation.
+        inbound_agents: null,
         outbound_agents: agents,
-        ...(inboundWebhookUrl
-          ? {
-              inbound_webhook_url:
-                inboundWebhookUrl,
-            }
-          : {}),
+        inbound_webhook_url: inboundWebhookUrl,
       }),
     }
   )
@@ -1094,10 +1087,8 @@ export const purchaseRetellPhoneNumber = async ({
   areaCode?: number | null
   nickname: string
 }) => {
-  const siteUrl = process.env.URL?.trim().replace(/\/$/, '')
-  const inboundWebhookUrl = siteUrl
-    ? `${siteUrl}/.netlify/functions/retell-inbound`
-    : null
+  const inboundWebhookUrl = new URL('/.netlify/functions/retell-inbound',
+    process.env.RECEPTA_APP_URL || process.env.URL || 'https://recepta.ca').toString()
   const agents = [
     {
       agent_id: agentId,
@@ -1110,7 +1101,7 @@ export const purchaseRetellPhoneNumber = async ({
   }>(apiKey, '/create-phone-number', {
     method: 'POST',
     body: JSON.stringify({
-      inbound_agents: agents,
+      inbound_agents: null,
       outbound_agents: agents,
       country_code: countryCode,
       number_provider: 'twilio',
@@ -1119,9 +1110,7 @@ export const purchaseRetellPhoneNumber = async ({
       ...(countryCode === 'US' && areaCode
         ? { area_code: areaCode }
         : {}),
-      ...(inboundWebhookUrl
-        ? { inbound_webhook_url: inboundWebhookUrl }
-        : {}),
+      inbound_webhook_url: inboundWebhookUrl,
     }),
   })
   const phoneNumber = normalizeE164(purchased.phone_number)
