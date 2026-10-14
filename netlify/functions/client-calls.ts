@@ -1,3 +1,4 @@
+import { appointmentCallId, isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 import { createClient } from '@supabase/supabase-js'
 
 type RetellCall = {
@@ -67,11 +68,6 @@ const getString = (value: unknown) =>
   typeof value === 'string' && value.trim()
     ? value.trim()
     : null
-
-const getBoolean = (value: unknown) =>
-  value === true ||
-  (typeof value === 'string' &&
-    value.toLowerCase() === 'true')
 
 const getDurationSeconds = (call: RetellCall) => {
   if (
@@ -197,7 +193,6 @@ const toCallRecord = (
   const variables = call.retell_llm_dynamic_variables ?? {}
   const metadata = call.metadata ?? {}
   const analysis = call.call_analysis
-  const customAnalysis = analysis?.custom_analysis_data ?? {}
 
   const callerName =
     getString(variables.customer_name) ??
@@ -235,9 +230,7 @@ const toCallRecord = (
     duration_seconds: getDurationSeconds(call),
     outcome,
     summary: getString(analysis?.call_summary),
-    appointment_booked: getBoolean(
-      customAnalysis.appointment_booked
-    ),
+    appointment_booked: false,
     call_status: status,
     transcript: piiRedactionEnabled
       ? getString(call.scrubbed_transcript)
@@ -329,7 +322,7 @@ export default async (request: Request) => {
     return json(401, { error: 'Unauthorized.' })
   }
 
-  const [agentResult, subscriptionResult, storedCallsResult] =
+  const [agentResult, subscriptionResult, storedCallsResult, appointmentResult] =
     await Promise.all([
       supabaseAdmin
         .from('agents')
@@ -348,7 +341,19 @@ export default async (request: Request) => {
         )
         .eq('client_id', user.id)
         .order('started_at', { ascending: false }),
+      supabaseAdmin.from('appointments')
+        .select('status, appointment_time, retell_call_id')
+        .eq('client_id', user.id)
+        .in('status', ['booked', 'completed']),
     ])
+
+  if (appointmentResult.error) return json(500, { error: 'Could not verify appointment confirmations.' })
+  const confirmedCallIds = new Set((appointmentResult.data ?? [])
+    .filter(isConfirmedAppointment)
+    .map((appointment) => appointmentCallId(appointment.retell_call_id)))
+  for (const storedCall of storedCallsResult.data ?? []) {
+    storedCall.appointment_booked = Boolean(storedCall.retell_call_id && confirmedCallIds.has(storedCall.retell_call_id))
+  }
 
   if (agentResult.error) {
     return json(500, { error: 'Could not load assigned agent.' })
@@ -414,6 +419,10 @@ export default async (request: Request) => {
       .map((call) =>
         toCallRecord(call, user.id, piiRedactionEnabled)
       )
+
+    for (const record of retellRecords) {
+      record.appointment_booked = Boolean(record.retell_call_id && confirmedCallIds.has(record.retell_call_id))
+    }
 
     let storageWarning: string | null = null
 

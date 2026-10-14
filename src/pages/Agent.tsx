@@ -1117,7 +1117,7 @@ export default function Agent() {
 
             {isPro && (
               <div>
-                <span>Appointments Booked</span>
+                <span>Confirmed Appointments</span>
 
                 <strong>
                   {performance.appointments}

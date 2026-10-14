@@ -1,3 +1,4 @@
+import { formatAppointmentPreference, isConfirmedAppointment, type AppointmentStatus } from '../lib/appointmentRequests'
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router'
 import { supabase } from '../lib/supabase'
@@ -76,8 +77,11 @@ type Appointment = {
   id: string
   customer_name: string | null
   customer_phone: string | null
-  appointment_time: string
-  status: 'booked' | 'cancelled' | 'completed'
+  appointment_time: string | null
+  status: AppointmentStatus
+  requested_date: string | null
+  requested_time: string | null
+  requested_timezone: string | null
 }
 
 export default function AdminClient() {
@@ -171,10 +175,10 @@ export default function AdminClient() {
         supabase
           .from('appointments')
           .select(
-            'id, customer_name, customer_phone, appointment_time, status'
+            'id, customer_name, customer_phone, appointment_time, status, requested_date, requested_time, requested_timezone'
           )
           .eq('client_id', id)
-          .order('appointment_time', {
+          .order('created_at', {
             ascending: false,
           })
           .limit(10),
@@ -260,11 +264,7 @@ export default function AdminClient() {
       0
     )
 
-    const appointmentsBooked =
-      calls.filter(
-        (call) =>
-          call.appointment_booked
-      ).length
+    const appointmentsBooked = appointments.filter(isConfirmedAppointment).length
 
     const avgSeconds =
       totalCalls > 0
@@ -292,7 +292,7 @@ export default function AdminClient() {
             ).padStart(2, '0')}s`
           : '—',
     }
-  }, [calls])
+  }, [calls, appointments])
 
   const updateClientStatus = async (
     status: ClientStatus
@@ -1249,7 +1249,7 @@ export default function AdminClient() {
                 </span>
 
                 <h2>
-                  Latest bookings
+                  Requests and confirmed appointments
                 </h2>
               </div>
             </div>
@@ -1267,7 +1267,7 @@ export default function AdminClient() {
                       key={appointment.id}
                     >
                       <div className="agentActivityIcon">
-                        ✓
+                        {appointment.status === 'pending' ? '…' : '✓'}
                       </div>
 
                       <div className="agentActivityText">
@@ -1278,14 +1278,16 @@ export default function AdminClient() {
                         </strong>
 
                         <span>
-                          {appointment.status}
+                          {appointment.status === 'pending' ? 'Pending — follow-up required' : appointment.status}
                         </span>
                       </div>
 
                       <time>
-                        {new Date(
-                          appointment.appointment_time
-                        ).toLocaleString()}
+                        {appointment.status === 'pending'
+                          ? formatAppointmentPreference(appointment)
+                          : appointment.appointment_time
+                            ? new Date(appointment.appointment_time).toLocaleString()
+                            : 'No scheduled time'}
                       </time>
                     </div>
                   )

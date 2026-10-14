@@ -1,6 +1,11 @@
+import { formatAppointmentPreference, isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 type PlanName = 'Recepta Standard' | 'Recepta Pro'
 
 type AppointmentDetails = {
+  status: string
+  requestedDate?: string | null
+  requestedTime?: string | null
+  requestedTimezone?: string | null
   customerName?: string | null
   customerEmail?: string | null
   customerPhone?: string | null
@@ -87,6 +92,7 @@ export const sendCallNotification = async (
     process.env.RECEPTA_SUPPORT_EMAIL?.trim() ||
     'receptahelp02@gmail.com'
   const appointment = details.appointment
+  const confirmed = appointment && isConfirmedAppointment({ status: appointment.status, appointment_time: appointment.start ?? null })
   const timeZone = details.timeZone
   const basicLines = [
     `Business: ${details.businessName}`,
@@ -98,19 +104,21 @@ export const sendCallNotification = async (
   ]
   const appointmentLines = appointment
     ? [
+        `Status: ${confirmed ? 'Confirmed booking' : appointment.status === 'pending' ? 'Pending — follow-up required' : appointment.status}`,
+        `Caller’s preferred date/time: ${formatAppointmentPreference({ requested_date: appointment.requestedDate, requested_time: appointment.requestedTime, requested_timezone: appointment.requestedTimezone })}`,
         `Customer: ${appointment.customerName || 'Not provided'}`,
         `Customer company: ${appointment.customerCompany || 'Not provided'}`,
         `Customer phone: ${appointment.customerPhone || 'Not provided'}`,
         `Customer email: ${appointment.customerEmail || 'Not provided'}`,
         `Employee: ${appointment.employeeName || 'Unassigned'}`,
         `Service: ${appointment.service || 'Appointment'}`,
-        appointment.start
+        confirmed && appointment.start
           ? `Starts: ${formatDateTime(appointment.start, appointment.timeZone)}`
           : null,
-        appointment.end
+        confirmed && appointment.end
           ? `Ends: ${formatDateTime(appointment.end, appointment.timeZone)}`
           : null,
-        typeof appointment.durationMinutes === 'number'
+        confirmed && typeof appointment.durationMinutes === 'number'
           ? `Duration: ${appointment.durationMinutes} minutes`
           : null,
         `Appointment details: ${appointment.notes || 'None provided'}`,
@@ -123,8 +131,8 @@ export const sendCallNotification = async (
           'Call summary',
           details.summary || 'No AI summary was returned for this call.',
           ...(appointment
-            ? ['', 'Appointment details', ...appointmentLines]
-            : ['', 'Appointment details', 'No appointment was booked during this call.']),
+            ? ['', confirmed ? 'Confirmed appointment' : 'Appointment request / follow-up', ...appointmentLines]
+            : ['', 'Appointment details', 'No appointment request or confirmed booking was recorded during this call.']),
         ]
       : []
   const response = await fetch('https://api.resend.com/emails', {

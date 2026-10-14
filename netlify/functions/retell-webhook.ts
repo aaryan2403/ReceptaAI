@@ -1,3 +1,4 @@
+import { isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 import { createClient } from '@supabase/supabase-js'
 import {
   syncRetellPhoneBindings,
@@ -97,20 +98,6 @@ const getString = (
   typeof value === 'string' && value.trim()
     ? value.trim()
     : null
-
-const getBoolean = (
-  value: unknown
-) => {
-  if (typeof value === 'boolean') {
-    return value
-  }
-
-  if (typeof value === 'string') {
-    return value.toLowerCase() === 'true'
-  }
-
-  return false
-}
 
 export default async (
   request: Request
@@ -285,8 +272,6 @@ export default async (
     call.retell_llm_dynamic_variables ?? {}
   const metadata = call.metadata ?? {}
   const analysis = call.call_analysis
-  const customAnalysis =
-    analysis?.custom_analysis_data ?? {}
 
   const callerName =
     getString(
@@ -366,30 +351,17 @@ export default async (
       getString(analysis?.user_sentiment)
     record.call_successful =
       analysis?.call_successful ?? null
-    record.appointment_booked =
-      getBoolean(
-        customAnalysis.appointment_booked
-      )
+    const { data: confirmedAppointments, error: appointmentError } = await supabaseAdmin
+      .from('appointments')
+      .select('status, appointment_time, retell_call_id')
+      .eq('client_id', agent.client_id)
+      .eq('retell_call_id', callId)
+      .in('status', ['booked', 'completed'])
 
-    if (record.appointment_booked !== true) {
-      const { data: capturedAppointment, error: capturedAppointmentError } =
-        await supabaseAdmin
-          .from('appointments')
-          .select('id')
-          .eq('client_id', agent.client_id)
-          .like('retell_call_id', `${callId}%`)
-          .limit(1)
-          .maybeSingle()
-
-      if (capturedAppointmentError) {
-        console.error(
-          'Could not check captured appointment details:',
-          capturedAppointmentError
-        )
-      } else if (capturedAppointment) {
-        record.appointment_booked = true
-      }
-    }
+    if (appointmentError) console.error('Could not verify confirmed appointments:', appointmentError)
+    record.appointment_booked = (confirmedAppointments ?? []).some((appointment) =>
+      appointment.retell_call_id?.split(':')[0] === callId && isConfirmedAppointment(appointment)
+    )
 
     if (
       typeof analysis?.call_successful ===
@@ -504,9 +476,13 @@ export default async (
         company_name: string | null
         service: string | null
         notes: string | null
-        appointment_time: string
+        appointment_time: string | null
+        status: string
+        requested_date: string | null
+        requested_time: string | null
+        requested_timezone: string | null
         appointment_end_time: string | null
-        duration_minutes: number
+        duration_minutes: number | null
         employee_id: string | null
       } | null = null
       let employeeName: string | null = null
@@ -516,10 +492,10 @@ export default async (
           await supabaseAdmin
             .from('appointments')
             .select(
-              'customer_name, customer_email, customer_phone, company_name, service, notes, appointment_time, appointment_end_time, duration_minutes, employee_id'
+              'customer_name, customer_email, customer_phone, company_name, service, notes, appointment_time, appointment_end_time, duration_minutes, employee_id, status, requested_date, requested_time, requested_timezone'
             )
             .eq('client_id', agent.client_id)
-            .like('retell_call_id', `${callId}%`)
+            .eq('retell_call_id', callId)
             .order('appointment_time', { ascending: true })
             .limit(1)
             .maybeSingle()
@@ -567,6 +543,10 @@ export default async (
         summary: getString(analysis?.call_summary),
         appointment: appointment
           ? {
+              status: appointment.status,
+              requestedDate: appointment.requested_date,
+              requestedTime: appointment.requested_time,
+              requestedTimezone: appointment.requested_timezone,
               customerName: appointment.customer_name,
               customerEmail: appointment.customer_email,
               customerPhone: appointment.customer_phone,
