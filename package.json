@@ -12,7 +12,8 @@
     "test:minutes": "node --test tests/minute-enforcement*.test.mjs",
     "test:call-lifecycle": "node --test tests/call-lifecycle*.test.mjs",
     "test:appointments": "node --test tests/appointments*.test.mjs",
-    "test:billing": "node --test tests/billing*.test.mjs"
+    "test:billing": "node --test tests/billing*.test.mjs",
+    "test:demo": "node --test tests/demo*.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
@@ -24,6 +25,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router": "^8.3.0",
+    "retell-client-js-sdk": "3.0.2",
     "stripe": "^22.5.0",
     "tailwind-merge": "^3.4.0",
     "tailwindcss-animate": "^1.0.7",

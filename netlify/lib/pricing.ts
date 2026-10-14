@@ -1,6 +1,9 @@
 export const MAX_MONTHLY_MINUTES =
   100_000_000
 
+export const STANDARD_BASE_MONTHLY_CAD = 200
+export const PRO_BASE_MONTHLY_CAD = 300
+
 export const PII_REDACTION_PER_MINUTE_CAD =
   0.014
 
@@ -27,7 +30,7 @@ export const calculateMonthlyPriceCad = ({
 }) => {
   const minutes = Math.floor(monthlyMinutes)
   const basePrice =
-    planName === 'Recepta Pro' ? 300 : 200
+    planName === 'Recepta Pro' ? PRO_BASE_MONTHLY_CAD : STANDARD_BASE_MONTHLY_CAD
 
   const total =
     basePrice +

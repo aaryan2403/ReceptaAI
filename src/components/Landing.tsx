@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import ContactModal from './ContactModal'
 import Hero from './Hero'
 import Navbar from './Navbar'
+import PublicPricing from './PublicPricing'
 import {
   ArrowRightIcon,
   CalendarIcon,
@@ -14,7 +15,6 @@ import {
   LayersIcon,
   MessageIcon,
   PhoneIcon,
-  QuoteIcon,
   RefreshIcon,
   ScaleIcon,
   ShieldIcon,
@@ -123,8 +123,8 @@ function TiltCard({ className, children }: { className: string; children: ReactN
 export default function Landing() {
   const pricingPlans = [
     {
-      name: 'With Appointment Intake',
-      monthly: '$300/month',
+      name: 'Recepta Pro',
+      monthly: 'C$300/month base fee',
       summary: [
         'Appointment request intake + full call handling',
         'Employee availability schedules',
@@ -142,8 +142,8 @@ export default function Landing() {
       ],
     },
     {
-      name: 'Without Appointments',
-      monthly: '$200/month',
+      name: 'Recepta Standard',
+      monthly: 'C$200/month base fee',
       summary: [
         'Call handling and information calls',
         'Employee availability schedules',
@@ -167,37 +167,37 @@ export default function Landing() {
       name: 'Plumbing',
       icon: WrenchIcon as IconComponent,
       bestFor: 'Emergency + residential calls',
-      typicalLift: 'More captured appointment requests',
+      typicalLift: 'Capture service enquiries',
     },
     {
       name: 'Dental',
       icon: StethoscopeIcon as IconComponent,
       bestFor: 'High-volume appointment desks',
-      typicalLift: 'Fewer no-shows',
+      typicalLift: 'Collect appointment preferences',
     },
     {
       name: 'Real estate',
       icon: HomeIcon as IconComponent,
       bestFor: 'Inbound buyer + seller inquiries',
-      typicalLift: 'Faster lead response',
+      typicalLift: 'Answer property questions',
     },
     {
       name: 'Legal',
       icon: ScaleIcon as IconComponent,
       bestFor: 'Intake-heavy practice teams',
-      typicalLift: 'More qualified consultations',
+      typicalLift: 'Capture consultation requests',
     },
     {
       name: 'Cleaning',
       icon: SprayIcon as IconComponent,
       bestFor: 'Recurring service bookings',
-      typicalLift: 'Higher retention rate',
+      typicalLift: 'Collect cleaning enquiries',
     },
     {
       name: 'HVAC',
       icon: ThermometerIcon as IconComponent,
       bestFor: 'Urgent service coordination',
-      typicalLift: 'Better dispatch speed',
+      typicalLift: 'Capture urgent service details',
     },
   ]
 
@@ -206,8 +206,8 @@ export default function Landing() {
       name: 'Shivora',
       category: 'Brand + commerce',
       blurb:
-        'A full storefront rebuild with a calmer product story, faster checkout, and a booking flow wired straight into their calendar.',
-      tags: ['Web design', 'E-commerce', 'Booking flow'],
+        'An example of our website work: a jewellery storefront with product browsing and checkout.',
+      tags: ['Web design', 'E-commerce'],
       domain: 'myshivora.com',
       accent: 'linear-gradient(135deg, rgba(0, 200, 83, 0.28), rgba(0, 120, 60, 0.10))',
     },
@@ -300,7 +300,7 @@ export default function Landing() {
               </p>
               <p className="sectionOutroLine">
                 <ShieldIcon size={15} className="outroIcon" />
-                Built so you never miss revenue again.
+                Built to capture enquiries for follow-up.
               </p>
             </div>
 
@@ -341,7 +341,7 @@ export default function Landing() {
                   </li>
                   <li>
                     <CheckIcon size={16} className="checkListIcon" />
-                    Booking logic that respects your real availability
+                    Appointment preferences captured for your team to confirm
                   </li>
                 </ul>
               </div>
@@ -365,7 +365,7 @@ export default function Landing() {
                   <div className="panelItem">
                     <div className="panelLabel">
                       <TrendingUpIcon size={12} />
-                      Typical lift
+                      Example use
                     </div>
                     <div className="panelValue">{activeDetails.typicalLift}</div>
                   </div>
@@ -397,10 +397,9 @@ export default function Landing() {
                 <GlobeIcon size={14} />
                 Selected work
               </div>
-              <h2 className="sectionTitle">Websites we've built, and the calls they now capture.</h2>
+              <h2 className="sectionTitle">An example of our website work.</h2>
               <p className="sectionSubtitle">
-                We design the site, then wire the phone line into it, so traffic and calls land in the same place your
-                team already works.
+                Website projects are scoped and quoted separately from the receptionist subscription.
               </p>
             </div>
 
@@ -408,15 +407,6 @@ export default function Landing() {
               {work.map((project) => (
                 <WorkCard key={project.name} {...project} />
               ))}
-            </div>
-
-            {/* TODO: placeholder copy — replace with a real client quote and attribution before launch. */}
-            <div className="workQuote">
-              <QuoteIcon size={22} className="workQuoteIcon" />
-              <p className="workQuoteText">
-                The new site looked great on day one, but the real change was the phone. Nothing rings out anymore.
-              </p>
-              <div className="workQuoteAuthor">Operations lead, retail client</div>
             </div>
 
             <div className="sectionCtaRow">
@@ -439,8 +429,8 @@ export default function Landing() {
                 <ZapIcon size={14} />
                 Pricing
               </div>
-              <h2 className="sectionTitle">Simple pricing. Premium experience.</h2>
-              <p className="sectionSubtitle">Start with AI. Add humans when you want the extra touch.</p>
+              <h2 className="sectionTitle">Base service fee + your chosen call minutes.</h2>
+              <p className="sectionSubtitle">All prices in Canadian dollars. See the complete monthly cost, including optional extras, below.</p>
             </div>
 
             <div className="pricingGrid">
@@ -453,6 +443,7 @@ export default function Landing() {
                     <div className="pricingName">{plan.name}</div>
                   </div>
                   <div className="pricingPrice">{plan.monthly}</div>
+                  <p className="pricingCostNote">Call minutes and selected extras are additional.</p>
                   <div className="pricingDesc">{plan.summary[0]}</div>
                   <ul className="pricingBullets">
                     {plan.summary.slice(0, 3).map((point) => (
@@ -474,8 +465,9 @@ export default function Landing() {
               ))}
             </div>
             <p className="sectionSubtitle" style={{ marginTop: '24px', textAlign: 'center' }}>
-              Need more phone numbers? Add up to 20 additional numbers for C$20/month each.
+              One phone number included. Add up to 20 additional numbers for C$20/month each, subject to availability.
             </p>
+            <PublicPricing />
           </div>
         </section>
 
@@ -526,6 +518,7 @@ export default function Landing() {
                 <div>
                   <div className="pricingName">{pricingPlans[openPlan].name}</div>
                   <div className="pricingPrice">{pricingPlans[openPlan].monthly}</div>
+                  <p className="pricingCostNote">Plus purchased minutes and selected extras. Use the cost calculator for the full total.</p>
                 </div>
                 <button className="modalClose" type="button" onClick={() => setOpenPlan(null)} aria-label="Close">
                   ×
@@ -581,6 +574,9 @@ export default function Landing() {
                 <CalendarIcon size={14} />
                 Book Appointment
               </button>
+              <a className="footerLink" href="/privacy">Privacy</a>
+              <a className="footerLink" href="/terms">Terms</a>
+              <a className="footerLink" href="mailto:receptahelp02@gmail.com">Contact</a>
             </nav>
 
             <div className="footerText">© {new Date().getFullYear()} Recepta. Less hassle, more hustle.</div>
