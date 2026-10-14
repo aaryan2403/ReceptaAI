@@ -9,6 +9,7 @@
     "lint": "eslint . --max-warnings 0",
     "preview": "vite preview",
     "test:call-notifications": "node --test tests/call-notifications*.test.mjs",
+    "test:minutes": "node --test tests/minute-enforcement*.test.mjs",
     "test:call-lifecycle": "node --test tests/call-lifecycle*.test.mjs",
     "test:appointments": "node --test tests/appointments*.test.mjs",
     "test:billing": "node --test tests/billing*.test.mjs"

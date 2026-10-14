@@ -5,13 +5,13 @@ import {
   normalizeEmailNotificationsEnabled,
   normalizeE164,
   normalizeSmsNotificationsEnabled,
-  syncRetellPhoneBinding,
   verifyRetellSignature,
 } from '../lib/retell'
 import {
   buildEmployeeScheduleContext,
   getBusinessTimeZone,
 } from '../lib/employeeSchedule'
+import { CALL_MAX_SECONDS, CALL_MIN_SECONDS } from '../lib/callMinutes'
 
 const json = (
   status: number,
@@ -199,6 +199,7 @@ export default async (request: Request) => {
   let payload: {
     event?: string
     call_inbound?: {
+      call_id?: string
       agent_id?: string
       from_number?: string
       to_number?: string
@@ -220,6 +221,13 @@ export default async (request: Request) => {
     return new Response(null, {
       status: 204,
     })
+  }
+
+  const callId = typeof payload.call_inbound.call_id === 'string'
+    ? payload.call_inbound.call_id.trim() : null
+  if (!callId) {
+    console.error('Inbound call has no stable call ID; minute reservation declined.')
+    return json(200, { call_inbound: { reject: true } })
   }
 
   const requestedAgentId =
@@ -318,7 +326,7 @@ export default async (request: Request) => {
     agent = data
   }
 
-  if (!agent?.retell_agent_id) {
+  if (!agent?.retell_agent_id || agent.status !== 'active') {
     return json(200, {
       call_inbound: {
         reject: true,
@@ -339,54 +347,21 @@ export default async (request: Request) => {
     })
   }
 
-  let {
-    data: subscription,
-    error: subscriptionError,
-  } = await supabaseAdmin
-    .from('subscriptions')
-    .select(
-      'status, monthly_minutes, rollover_seconds, current_period_start, current_period_end'
-    )
-    .eq('client_id', agent.client_id)
-    .maybeSingle()
-
-  if (
-    subscriptionError?.message
-      ?.toLowerCase()
-      .includes('rollover_seconds')
-  ) {
-    const fallback = await supabaseAdmin
-      .from('subscriptions')
-      .select(
-        'status, monthly_minutes, current_period_start, current_period_end'
-      )
-      .eq('client_id', agent.client_id)
-      .maybeSingle()
-
-    subscription = fallback.data
-      ? {
-          ...fallback.data,
-          rollover_seconds: 0,
-        }
-      : null
-    subscriptionError = fallback.error
+  const { data: reservationRows, error: reservationError } = await supabaseAdmin.rpc(
+    'reserve_recepta_inbound_call', { p_client_id: agent.client_id, p_call_id: callId }
+  )
+  if (reservationError) {
+    console.error('Minute reservation failed; inbound call declined:', reservationError)
+    return json(200, { call_inbound: { reject: true } })
   }
-
-  if (subscriptionError) {
-    return json(500, {
-      error: 'Could not load subscription.',
-    })
-  }
-
-  if (
-    !subscription ||
-    subscription.status !== 'active'
-  ) {
-    return json(200, {
-      call_inbound: {
-        reject: true,
-      },
-    })
+  const reservation = Array.isArray(reservationRows) ? reservationRows[0] : null
+  const reservationId = typeof reservation?.reservation_id === 'string' ? reservation.reservation_id : null
+  const reservedSeconds = Number(reservation?.reserved_seconds ?? 0)
+  if (!reservationId || !Number.isInteger(reservedSeconds) ||
+      reservedSeconds < CALL_MIN_SECONDS || reservedSeconds > CALL_MAX_SECONDS) {
+    // A busy or exhausted allowance declines this call; it never disables the
+    // customer or unbinds their number. A later call can use released/renewed time.
+    return json(200, { call_inbound: { reject: true } })
   }
 
   const employeeScheduleTimeZone = getBusinessTimeZone(
@@ -467,173 +442,6 @@ export default async (request: Request) => {
     )
   }
 
-  const now = new Date()
-  const periodStart =
-    subscription.current_period_start
-      ? new Date(
-          subscription.current_period_start
-        )
-      : new Date(Number.NaN)
-  const periodEnd =
-    subscription.current_period_end
-      ? new Date(
-          subscription.current_period_end
-        )
-      : new Date(Number.NaN)
-
-  const periodExpired =
-    !Number.isFinite(periodEnd.getTime()) ||
-    periodEnd <= now
-
-  if (
-    !Number.isFinite(periodStart.getTime()) ||
-    periodExpired
-  ) {
-    const [subscriptionPause, clientPause, agentPause] =
-      await Promise.all([
-        supabaseAdmin
-          .from('subscriptions')
-          .update({ status: 'past_due' })
-          .eq('client_id', agent.client_id),
-      supabaseAdmin
-        .from('clients')
-        .update({ status: 'paused' })
-        .eq('id', agent.client_id),
-      supabaseAdmin
-        .from('agents')
-        .update({ status: 'paused' })
-        .eq('client_id', agent.client_id),
-      ])
-
-    if (
-      subscriptionPause.error ||
-      clientPause.error ||
-      agentPause.error
-    ) {
-      return json(500, {
-        error: 'Could not enforce the paid billing period.',
-      })
-    }
-
-    try {
-      await syncRetellPhoneBinding({
-        apiKey: retellApiKey,
-        agentId: agent.retell_agent_id,
-        phoneNumber: toNumber ?? agent.phone_number,
-        active: false,
-      })
-    } catch (error) {
-      console.error(
-        'Could not pause the expired Retell phone binding:',
-        error
-      )
-    }
-
-    return json(200, {
-      call_inbound: {
-        reject: true,
-      },
-    })
-  }
-
-  const monthlyMinutes = Number(
-    subscription.monthly_minutes
-  )
-  const rolloverSeconds = Math.max(
-    0,
-    Number(subscription.rollover_seconds ?? 0) || 0
-  )
-  const availableSeconds =
-    Math.floor(monthlyMinutes) * 60 +
-    Math.floor(rolloverSeconds)
-
-  if (
-    !Number.isFinite(monthlyMinutes) ||
-    monthlyMinutes < 1
-  ) {
-    return json(200, {
-      call_inbound: {
-        reject: true,
-      },
-    })
-  }
-
-  const {
-    data: reservationRows,
-    error: reservationError,
-  } = await supabaseAdmin.rpc(
-    'reserve_recepta_call',
-    {
-      p_client_id: agent.client_id,
-      p_monthly_seconds:
-        availableSeconds,
-      p_period_start:
-        periodStart.toISOString(),
-    }
-  )
-
-  if (reservationError) {
-    console.error(
-      'Minute reservation failed:',
-      reservationError
-    )
-
-    return json(500, {
-      error: 'Could not reserve call minutes.',
-    })
-  }
-
-  const reservation = Array.isArray(
-    reservationRows
-  )
-    ? reservationRows[0]
-    : null
-  const reservationId =
-    typeof reservation?.reservation_id ===
-    'string'
-      ? reservation.reservation_id
-      : null
-  const reservedSeconds = Number(
-    reservation?.reserved_seconds ?? 0
-  )
-
-  if (
-    !reservationId ||
-    !Number.isFinite(reservedSeconds) ||
-    reservedSeconds < 60
-  ) {
-    await Promise.all([
-      supabaseAdmin
-        .from('clients')
-        .update({ status: 'paused' })
-        .eq('id', agent.client_id),
-      supabaseAdmin
-        .from('agents')
-        .update({ status: 'paused' })
-        .eq('client_id', agent.client_id),
-    ])
-
-    try {
-      await syncRetellPhoneBinding({
-        apiKey: retellApiKey,
-        agentId: agent.retell_agent_id,
-        phoneNumber: toNumber ?? agent.phone_number,
-        active: false,
-      })
-    } catch (error) {
-      console.error(
-        'Could not pause Retell phone binding:',
-        error
-      )
-    }
-
-    return json(200, {
-      call_inbound: {
-        reject: true,
-      },
-    })
-  }
-
   return json(200, {
     call_inbound: {
       override_agent_id:
@@ -641,10 +449,7 @@ export default async (request: Request) => {
       agent_override: {
         agent: {
           max_call_duration_ms:
-            Math.min(
-              180_000,
-              Math.floor(reservedSeconds) * 1000
-            ),
+            reservedSeconds * 1000,
         },
       },
       dynamic_variables: {

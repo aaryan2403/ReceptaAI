@@ -80,12 +80,14 @@ test('PostgreSQL migration: paid cycles, replay protection, >1000 calls, Checkou
         current_period_start timestamptz, current_period_end timestamptz,
         next_billing_date timestamptz
       );
-      create table public.calls (client_id uuid, duration_seconds integer, started_at timestamptz);
+      create table public.calls (client_id uuid, duration_seconds integer, started_at timestamptz,
+        retell_call_id text, call_status text, ended_at timestamptz);
     `)
     await db.exec(await readFile(new URL('../supabase_add_minute_enforcement.sql', import.meta.url), 'utf8'))
     const migration = await readFile(new URL('../supabase_add_billing_notifications.sql', import.meta.url), 'utf8')
     await db.exec(migration)
     await db.exec(migration) // repeat-safe deployment
+    await db.exec(await readFile(new URL('../supabase/migrations/20261014192813_align_minute_enforcement.sql', import.meta.url), 'utf8'))
     const client = '00000000-0000-0000-0000-000000000001'
     await db.query('insert into clients values ($1)', [client])
     await db.query(`insert into subscriptions (client_id, stripe_subscription_id, monthly_minutes, status,
