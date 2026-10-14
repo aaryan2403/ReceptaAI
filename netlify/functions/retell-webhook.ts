@@ -296,7 +296,9 @@ export default async (
       ? reportedStatus === 'registered'
         ? 'registered'
         : 'ongoing'
-      : 'ended'
+      : reportedStatus === 'error' || reportedStatus === 'not_connected'
+        ? reportedStatus
+        : 'ended'
 
   const record: Record<string, unknown> = {
     client_id: agent.client_id,
@@ -307,6 +309,11 @@ export default async (
     duration_seconds:
       getDurationSeconds(call),
     call_status: callStatus,
+    lifecycle_rank: payload.event === 'call_analyzed' ? 3 : payload.event === 'call_ended' ? 2 : callStatus === 'ongoing' ? 1 : 0,
+    ended_at: payload.event === 'call_started' ? null : timestampToIso(call.end_timestamp),
+    media_redacted: piiRedactionEnabled,
+    transcript: null,
+    recording_url: null,
     disconnection_reason:
       getString(
         call.disconnection_reason
@@ -381,14 +388,16 @@ export default async (
   if (shouldNotifyOwner) record.owner_notification_requested = true
   record.retell_agent_id = agentId
 
-  const { error: upsertError } =
+  const { data: savedCall, error: upsertError } =
     await supabaseAdmin
       .from('calls')
       .upsert(record, {
         onConflict: 'retell_call_id',
       })
+      .select('call_status, duration_seconds, ended_at')
+      .maybeSingle()
 
-  if (upsertError) {
+  if (upsertError || !savedCall) {
     console.error(
       'Retell call upsert failed:',
       upsertError
@@ -403,7 +412,7 @@ export default async (
     event: payload.event,
     callId,
     clientId: agent.client_id,
-    callStatus,
+    callStatus: savedCall.call_status,
   })
 
   if (shouldNotifyOwner) {
@@ -431,7 +440,7 @@ export default async (
           .update({
             status: 'completed',
             used_seconds:
-              getDurationSeconds(call),
+              savedCall.duration_seconds,
             completed_at:
               new Date().toISOString(),
           })

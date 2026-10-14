@@ -20,7 +20,7 @@ const query = (table) => {
   let single = false
   const filters = []
   const execute = async () => {
-    if (values) { savedCalls.push(values); return { data: values, error: null } }
+    if (values) { savedCalls.push(values); return { data: single ? values : Array.isArray(values) ? values : [values], error: null } }
     let rows = table === 'subscriptions' ? [{ plan_name: fixture.plan, status: 'cancelled' }]
       : table === 'agents' ? [{ client_id: client, retell_agent_id: 'agent_test', phone_number: null, business_hours: null }]
       : table === 'appointments' ? fixture.appointments ?? [] : []

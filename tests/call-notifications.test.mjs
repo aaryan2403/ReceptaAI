@@ -22,7 +22,7 @@ const query = (table) => {
         const params=keys.map((_,i)=>'$'+(i+1)).join(',')
         const updates=keys.map((key)=>`${identifiers(key)}=excluded.${identifiers(key)}`).join(',')
         const result=await db.query(`insert into ${identifiers(table)} (${columns}) values (${params}) on conflict(retell_call_id) do update set ${updates} returning *`,keys.map((k)=>values[k]))
-        return {data:result.rows,error:null}
+        return {data:single?result.rows[0]??null:result.rows,error:null}
       }
       let rows=(await db.query(`select * from ${identifiers(table)}`)).rows
       for(const [op,col,value] of filters) rows=rows.filter((row)=>op==='in'?value.includes(row[col]):row[col]===value)
@@ -105,12 +105,13 @@ const setup=async(plan='Recepta Pro',legacy=false)=>{
     create table calls(id uuid primary key default gen_random_uuid(),client_id uuid references clients(id),retell_call_id text unique,
       caller_name text,caller_number text,started_at timestamptz not null default now(),duration_seconds integer default 0,
       call_status text,outcome text,disconnection_reason text,transcript text,recording_url text,summary text,
-      user_sentiment text,call_successful boolean,appointment_booked boolean default false,retell_agent_id text,updated_at timestamptz);
+      user_sentiment text,call_successful boolean,appointment_booked boolean default false,retell_agent_id text,ended_at timestamptz,updated_at timestamptz);
     insert into clients values('${client}','Synthetic business','owner@example.test');
     insert into subscriptions(client_id,plan_name,status) values('${client}','${plan}','active');
     insert into agents values('${client}','agent_test',null);`)
   if(legacy) await db.exec(`insert into calls(client_id,retell_call_id,call_status) values('${client}','legacy','ended')`)
   await db.exec(await readFile('supabase/migrations/20261014064906_call_notification_outbox.sql','utf8'))
+  await db.exec(await readFile('supabase/migrations/20261014174126_protect_call_lifecycle.sql','utf8'))
 }
 const signed=(event='call_analyzed',callId='call_test')=>{
   const body=JSON.stringify({event,call:{call_id:callId,agent_id:'agent_test',call_status:'ended',start_timestamp:Date.now(),duration_ms:60000,
