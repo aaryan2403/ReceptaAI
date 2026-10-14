@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { createHmac } from 'node:crypto'
 import { PGlite } from '@electric-sql/pglite'
 import { build } from 'esbuild'
-import { CALL_MAX_SECONDS, CALL_MIN_SECONDS } from '../netlify/lib/callMinutes.ts'
+import { CALL_MAX_SECONDS, CALL_MIN_SECONDS, DEMO_CALL_MAX_SECONDS } from '../netlify/lib/callMinutes.ts'
 
 // Signed production handlers and real PostgreSQL accounting; synthetic provider
 // boundaries. These tests never place calls, buy numbers or send owner emails.
@@ -49,12 +49,12 @@ globalThis.__minuteDb = {
   auth: { getUser: async () => ({ data: { user: { id: client } }, error: null }),
     admin: { getUserById: async () => ({ data: { user: { user_metadata: {} } }, error: null }) } },
   rpc: async (name, args) => {
-    if (name === 'reserve_recepta_inbound_call') {
-      assert.deepEqual(Object.keys(args).sort(), ['p_call_id', 'p_client_id'])
+    if (name === 'reserve_recepta_agent_call') {
+      assert.deepEqual(Object.keys(args).sort(), ['p_agent_id', 'p_call_id', 'p_client_id'])
       if (rpcFailure) return { data: null, error: { message: 'Synthetic reservation database failure' } }
       if (rpcResult !== undefined) return { data: rpcResult, error: null }
       try {
-        return { data: (await db.query('select * from reserve_recepta_inbound_call($1,$2)', [args.p_client_id, args.p_call_id])).rows, error: null }
+        return { data: (await db.query('select * from reserve_recepta_agent_call($1,$2,$3)', [args.p_client_id, args.p_call_id, args.p_agent_id])).rows, error: null }
       } catch (error) { return { data: null, error: { message: error.message } } }
     }
     assert.equal(name, 'recepta_period_usage')
@@ -69,17 +69,23 @@ const compile = async (path, exportName = 'default') => {
     } }] })
   return (await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`))[exportName]
 }
+process.env.ADMIN_EMAIL = 'admin@example.test'
 const inbound = await compile('netlify/functions/retell-inbound.ts')
 const webhook = await compile('netlify/functions/retell-webhook.ts')
 const refresh = await compile('netlify/functions/client-calls.ts')
+const syncSubscription = await compile('netlify/lib/retell.ts', 'syncRetellSubscription')
+const adminCreate = await compile('netlify/functions/create-client.ts')
+const adminUpdate = await compile('netlify/functions/update-clients.ts')
+const adminAgent = await compile('netlify/functions/update-client-agent.ts')
 const syncPhone = await compile('netlify/lib/retell.ts', 'syncRetellPhoneBinding')
 const purchasePhone = await compile('netlify/lib/retell.ts', 'purchaseRetellPhoneNumber')
 process.env.SUPABASE_URL = 'https://synthetic.test'
 process.env.SUPABASE_SECRET_KEY = 'synthetic-only'
 process.env.RETELL_API_KEY = 'synthetic-only'
+process.env.STRIPE_SECRET_KEY = 'sk_test_synthetic_only'
 delete process.env.RESEND_API_KEY
 const migration = await readFile('supabase/migrations/20261014192813_align_minute_enforcement.sql', 'utf8')
-const setup = async (minutes = 5, rollover = 0) => {
+const setup = async (minutes = 5, rollover = 0, demoMode = true) => {
   db = new PGlite(); rpcFailure = false; rpcResult = undefined
   await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
     alter default privileges in schema public grant all on tables to anon,authenticated,service_role;
@@ -112,6 +118,8 @@ const setup = async (minutes = 5, rollover = 0) => {
   await db.exec(`alter table call_minute_reservations drop constraint call_minute_reservations_reserved_seconds_check;
     alter table call_minute_reservations add constraint call_minute_reservations_reserved_seconds_check check(reserved_seconds>=180);`)
   await db.exec(migration)
+  await db.exec(await readFile('supabase/migrations/20261014201359_demo_only_call_limit.sql', 'utf8'))
+  await db.query('update agents set demo_mode=$1', [demoMode])
   await db.query('update subscriptions set rollover_seconds=$1', [rollover])
 }
 const close = async () => { await db.close(); globalThis.fetch = originalFetch }
@@ -132,7 +140,7 @@ const complete = (id, seconds = 60, more = {}) => webhook(signed({ event: 'call_
 } }))
 const assertNoPause = async () => {
   assert.equal((await db.query('select status from clients where id=$1', [client])).rows[0].status, 'active')
-  assert.equal((await db.query('select status from agents')).rows[0].status, 'active')
+  assert.ok(['active','live'].includes((await db.query('select status from agents')).rows[0].status))
 }
 
 test('database reservation and Retell duration agree at every remaining-balance boundary', async () => {
@@ -145,7 +153,7 @@ test('database reservation and Retell duration agree at every remaining-balance 
       if (remaining < CALL_MIN_SECONDS) { assert.equal(response.reject, true); assert.equal(await reservation('boundary_' + remaining), undefined) }
       else {
         const row = await reservation('boundary_' + remaining)
-        assert.equal(row.reserved_seconds, Math.min(remaining, CALL_MAX_SECONDS))
+        assert.equal(row.reserved_seconds, Math.min(remaining, DEMO_CALL_MAX_SECONDS))
         assert.equal(response.agent_override.agent.max_call_duration_ms, row.reserved_seconds * 1000)
         assert.equal(response.metadata.recepta_reservation_id, row.id)
         assert.equal(await used(true), 300 - remaining + row.reserved_seconds)
@@ -258,9 +266,14 @@ test('replacement Checkout also deducts outstanding commitments from rollover', 
       '{"monthly_minutes":5}','sub_synthetic')`, [client, newStart, newEnd])).rows[0]
     assert.equal(replaced.rollover_seconds, 120)
     assert.equal((await admit('spanning_checkout')).reject, true)
-    assert.equal((await admit('new_cycle')).agent_override.agent.max_call_duration_ms, 180000)
+    assert.equal((await db.query('select demo_mode from agents')).rows[0].demo_mode, false)
+    assert.equal((await admit('new_cycle')).agent_override.agent.max_call_duration_ms, 420000)
     await complete('spanning_checkout', 60)
     assert.equal(await used(), 0)
+    await db.exec('update agents set demo_mode=true')
+    await db.query(`select * from activate_recepta_checkout($1,'sub_replacement','cus_synthetic',$2,$3,
+      '{"monthly_minutes":5}','sub_synthetic')`, [client, newStart, newEnd])
+    assert.equal((await db.query('select demo_mode from agents')).rows[0].demo_mode, true, 'payment replay does not overwrite a later admin demo choice')
   } finally { await close() }
 })
 
@@ -274,7 +287,7 @@ test('missing identity, paused agents, database failures and invalid RPC caps re
     await db.exec("update agents set status='active'")
     rpcFailure = true; assert.equal((await admit('db_failure')).reject, true); rpcFailure = false
     for (const seconds of [0,59,180.5,7200]) {
-      rpcResult = [{ reservation_id: 'synthetic-id', reserved_seconds: seconds }]
+      rpcResult = [{ reservation_id: 'synthetic-id', reserved_seconds: seconds, demo_mode: true }]
       assert.equal((await admit('invalid_' + seconds)).reject, true)
     }
     rpcResult = undefined
@@ -289,16 +302,17 @@ test('private accounting denies customer access, prevents cross-client replay an
     await admit('private_call')
     await db.exec(`insert into subscriptions(client_id,status,monthly_minutes,current_period_start,current_period_end)
       values('${otherClient}','active',5,now()-interval '1 day',now()+interval '29 days')`)
-    await assert.rejects(db.query('select * from reserve_recepta_inbound_call($1,$2)', [otherClient,'private_call']), /belongs to another client/)
+    await db.exec(`insert into agents(client_id,retell_agent_id,status,demo_mode) values('${otherClient}','other_agent','live',false)`)
+    await assert.rejects(db.query('select * from reserve_recepta_agent_call($1,$2,$3)', [otherClient,'private_call','other_agent']), /belongs to another client/)
     for (const role of ['anon','authenticated']) {
       await db.exec('set role ' + role)
-      for (const sql of ["select * from reserve_recepta_inbound_call($1,'denied')", "select recepta_committed_usage($1,now()-interval '1 day',now()+interval '1 day')", 'select * from call_minute_reservations where client_id=$1']) {
+      for (const sql of ["select * from reserve_recepta_agent_call($1,'denied','agent_test')", "select recepta_committed_usage($1,now()-interval '1 day',now()+interval '1 day')", 'select * from call_minute_reservations where client_id=$1']) {
         await assert.rejects(db.query(sql, [client]), /permission denied/)
       }
       await db.exec('reset role')
     }
     await db.exec('set role service_role')
-    assert.equal((await db.query("select * from reserve_recepta_inbound_call($1,'service_call')", [client])).rows[0].reserved_seconds, 120)
+    assert.equal((await db.query("select * from reserve_recepta_agent_call($1,'service_call','agent_test')", [client])).rows[0].reserved_seconds, 120)
   } finally { await close() }
 })
 
@@ -324,4 +338,82 @@ test('phone provisioning and sync require the admission webhook and remove the p
     globalThis.fetch = originalFetch
     if (savedOrigin === undefined) delete process.env.RECEPTA_APP_URL; else process.env.RECEPTA_APP_URL = savedOrigin
   }
+})
+
+test('regular live customer calls go beyond three minutes and remain bounded by paid time and the provider maximum', async () => {
+  await setup(200, 0, false)
+  try {
+    await db.exec("update agents set status='live'")
+    const response = await admit('long_customer')
+    assert.equal(response.agent_override.agent.max_call_duration_ms, CALL_MAX_SECONDS * 1000)
+    const row = await reservation('long_customer')
+    assert.equal(row.demo_mode, false); assert.equal(row.retell_agent_id, 'agent_test')
+    assert.equal(row.reserved_seconds, 7200)
+    assert.equal((await complete('long_customer', 600)).status, 204)
+    assert.equal(await used(true), 600)
+    assert.equal((await reservation('long_customer')).used_seconds, 600)
+    await assertNoPause()
+    await db.exec('delete from calls; delete from call_minute_reservations; update subscriptions set monthly_minutes=15')
+    assert.equal((await admit('fifteen_minutes')).agent_override.agent.max_call_duration_ms, 900000)
+    assert.equal((await admit('no_more_paid_time')).reject, true)
+  } finally { await close() }
+})
+
+test('demo mode is authoritative per agent and cannot be selected through caller metadata', async () => {
+  await setup(20, 0, true)
+  try {
+    const demo = await admit('actual_demo')
+    assert.equal(demo.agent_override.agent.max_call_duration_ms, DEMO_CALL_MAX_SECONDS * 1000)
+    assert.equal((await reservation('actual_demo')).demo_mode, true)
+    const escapeAttempt = await inbound(signed({ event: 'call_inbound', call_inbound: {
+      call_id: 'actual_demo', to_number: '+14165550100', agent_id: 'agent_test', demo_mode: false,
+    } }))
+    assert.equal((await escapeAttempt.json()).call_inbound.agent_override.agent.max_call_duration_ms, 180000)
+
+    await db.exec('update agents set demo_mode=false')
+    // An already approved demo retry keeps its original policy and identity.
+    assert.equal((await admit('actual_demo')).metadata.recepta_reservation_id, demo.metadata.recepta_reservation_id)
+    assert.equal((await admit('actual_demo')).agent_override.agent.max_call_duration_ms, 180000)
+    const spoofed = await inbound(signed({ event: 'call_inbound', call_inbound: {
+      call_id: 'spoofed_demo_flag', to_number: '+14165550100', agent_id: 'agent_test', demo_mode: true,
+    } }))
+    assert.equal((await spoofed.json()).call_inbound.agent_override.agent.max_call_duration_ms, 1020000)
+    assert.equal((await reservation('spoofed_demo_flag')).demo_mode, false)
+    assert.equal((await db.query("select * from reserve_recepta_agent_call($1,'wrong_agent','not_assigned')", [client])).rows.length, 0)
+    assert.equal((await db.query("select * from reserve_recepta_inbound_call($1,'old_api')", [client])).rows.length, 0)
+  } finally { await close() }
+})
+
+test('Retell publishes a three-minute limit only for demo agents and clears it for normal customer agents', async () => {
+  try {
+    const updates = []
+    globalThis.fetch = async (url, options) => {
+      const path = new URL(url).pathname
+      if (path.includes('/list-agent-versions/')) return new Response(JSON.stringify({ items: [{ version: 1 }] }))
+      if (path.includes('/create-agent-version/')) return new Response(JSON.stringify({ version: 2 }))
+      if (path.includes('/update-agent/')) {
+        updates.push(JSON.parse(options.body)); return new Response(JSON.stringify({ version: 2 }))
+      }
+      assert.ok(path.includes('/publish-agent-version/'))
+      return new Response('{}')
+    }
+    for (const demoMode of [true, false, undefined]) {
+      await syncSubscription({ apiKey: 'synthetic-only', agentId: 'agent_test', active: true,
+        piiRedactionEnabled: false, safetyGuardrailsEnabled: false, demoMode })
+    }
+    assert.deepEqual(updates.map((update) => update.max_call_duration_ms), [180000,7200000,7200000])
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('customer requests cannot change demo mode through the admin create, edit or agent endpoints', async () => {
+  await setup()
+  try {
+    for (const handler of [adminCreate,adminUpdate,adminAgent]) {
+      const response = await handler(new Request('https://synthetic.test', { method: 'POST',
+        headers: { authorization: 'Bearer synthetic', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: client, demoMode: false, retellAgentId: 'agent_test' }) }))
+      assert.equal(response.status, 403, await response.text())
+    }
+    assert.equal((await db.query('select demo_mode from agents')).rows[0].demo_mode, true)
+  } finally { await close() }
 })

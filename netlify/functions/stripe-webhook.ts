@@ -270,7 +270,7 @@ export default async (request: Request) => {
             await supabaseAdmin
               .from('agents')
               .select(
-                'retell_agent_id, phone_number'
+                'retell_agent_id, phone_number, demo_mode'
               )
               .eq('client_id', clientId)
               .maybeSingle()
@@ -357,6 +357,7 @@ export default async (request: Request) => {
               phoneNumber: primaryPhoneNumber,
               phoneNumbers,
               active: true,
+              demoMode: assignedAgent.demo_mode === true,
               piiRedactionEnabled,
               safetyGuardrailsEnabled,
               aiModelId,
@@ -429,7 +430,7 @@ export default async (request: Request) => {
               await supabaseAdmin
                 .from('agents')
                 .select(
-                  'retell_agent_id, phone_number'
+                  'retell_agent_id, phone_number, demo_mode'
                 )
                 .eq(
                   'client_id',
@@ -565,7 +566,7 @@ export default async (request: Request) => {
           await supabaseAdmin
             .from('agents')
             .select(
-              'retell_agent_id, phone_number'
+              'retell_agent_id, phone_number, demo_mode'
             )
             .eq('client_id', clientId)
             .maybeSingle()

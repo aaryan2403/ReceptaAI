@@ -109,6 +109,7 @@ export default async (request: Request) => {
     monthlyMinutes?: number
     aiModelId?: string
     retellAgentId?: string | null
+    demoMode?: boolean
     phoneNumber?: string | null
     phoneNumbers?: string[] | null
     newPassword?: string | null
@@ -551,7 +552,7 @@ export default async (request: Request) => {
     error: agentLookupError,
   } = await supabaseAdmin
     .from('agents')
-    .select('client_id')
+    .select('client_id, demo_mode')
     .eq('client_id', clientId)
     .maybeSingle()
 
@@ -561,6 +562,7 @@ export default async (request: Request) => {
     })
   }
 
+  const demoMode = typeof body.demoMode === 'boolean' ? body.demoMode : existingAgent?.demo_mode === true
   if (existingAgent) {
     const { error } = await supabaseAdmin
       .from('agents')
@@ -568,6 +570,7 @@ export default async (request: Request) => {
         retell_agent_id: retellAgentId,
         phone_number: phoneNumber,
         status: nextAgentStatus,
+        demo_mode: demoMode,
       })
       .eq('client_id', clientId)
 
@@ -584,6 +587,7 @@ export default async (request: Request) => {
         retell_agent_id: retellAgentId,
         phone_number: phoneNumber,
         status: nextAgentStatus,
+        demo_mode: demoMode,
       })
 
     if (error) {
@@ -609,6 +613,7 @@ export default async (request: Request) => {
   }
 
   if (retellAgentId) {
+    if (!retellApiKey) return json(500, { error: 'RETELL_API_KEY is missing.' })
     try {
       await syncRetellSubscription({
         apiKey: retellApiKey,
@@ -616,6 +621,7 @@ export default async (request: Request) => {
         phoneNumber,
         phoneNumbers,
         active: subscriptionIsActive,
+        demoMode,
         piiRedactionEnabled,
         safetyGuardrailsEnabled,
         aiModelId,

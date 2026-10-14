@@ -11,7 +11,7 @@ import {
   buildEmployeeScheduleContext,
   getBusinessTimeZone,
 } from '../lib/employeeSchedule'
-import { CALL_MAX_SECONDS, CALL_MIN_SECONDS } from '../lib/callMinutes'
+import { getCallMaxSeconds, CALL_MIN_SECONDS } from '../lib/callMinutes'
 
 const json = (
   status: number,
@@ -326,7 +326,7 @@ export default async (request: Request) => {
     agent = data
   }
 
-  if (!agent?.retell_agent_id || agent.status !== 'active') {
+  if (!agent?.retell_agent_id || !['active', 'live'].includes(agent.status ?? '')) {
     return json(200, {
       call_inbound: {
         reject: true,
@@ -348,7 +348,7 @@ export default async (request: Request) => {
   }
 
   const { data: reservationRows, error: reservationError } = await supabaseAdmin.rpc(
-    'reserve_recepta_inbound_call', { p_client_id: agent.client_id, p_call_id: callId }
+    'reserve_recepta_agent_call', { p_client_id: agent.client_id, p_call_id: callId, p_agent_id: agent.retell_agent_id }
   )
   if (reservationError) {
     console.error('Minute reservation failed; inbound call declined:', reservationError)
@@ -357,8 +357,8 @@ export default async (request: Request) => {
   const reservation = Array.isArray(reservationRows) ? reservationRows[0] : null
   const reservationId = typeof reservation?.reservation_id === 'string' ? reservation.reservation_id : null
   const reservedSeconds = Number(reservation?.reserved_seconds ?? 0)
-  if (!reservationId || !Number.isInteger(reservedSeconds) ||
-      reservedSeconds < CALL_MIN_SECONDS || reservedSeconds > CALL_MAX_SECONDS) {
+  if (!reservationId || typeof reservation?.demo_mode !== 'boolean' || !Number.isInteger(reservedSeconds) ||
+      reservedSeconds < CALL_MIN_SECONDS || reservedSeconds > getCallMaxSeconds(reservation.demo_mode)) {
     // A busy or exhausted allowance declines this call; it never disables the
     // customer or unbinds their number. A later call can use released/renewed time.
     return json(200, { call_inbound: { reject: true } })

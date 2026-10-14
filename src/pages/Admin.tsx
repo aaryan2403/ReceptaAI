@@ -59,6 +59,7 @@ type AIModel = {
 type AgentRecord = {
   client_id: string
   retell_agent_id: string | null
+  demo_mode?: boolean
   phone_number: string | null
   phone_numbers?: string[]
   status: string | null
@@ -250,6 +251,7 @@ export default function Admin() {
     useState('')
   const [retellAgentId, setRetellAgentId] =
     useState('')
+  const [demoMode, setDemoMode] = useState(false)
   const [phoneNumber, setPhoneNumber] =
     useState('')
   const [purchasePhoneNumbers, setPurchasePhoneNumbers] =
@@ -296,6 +298,7 @@ export default function Admin() {
     useState('')
   const [editRetellAgentId, setEditRetellAgentId] =
     useState('')
+  const [editDemoMode, setEditDemoMode] = useState(false)
   const [editPhoneNumber, setEditPhoneNumber] =
     useState('')
   const [editPiiRedaction, setEditPiiRedaction] =
@@ -649,6 +652,7 @@ export default function Admin() {
             aiModelId,
             retellAgentId:
               normalizedRetellId || null,
+            demoMode,
             phoneNumbers:
               existingPhoneNumbers,
             purchasePhoneNumbers:
@@ -697,6 +701,7 @@ export default function Admin() {
         models[0]?.id || ''
       )
       setRetellAgentId('')
+      setDemoMode(false)
       setPhoneNumber('')
       setPurchasePhoneNumbers('0')
       setPhoneCountryCode('CA')
@@ -748,6 +753,7 @@ export default function Admin() {
     setEditRetellAgentId(
       client.agent?.retell_agent_id || ''
     )
+    setEditDemoMode(client.agent?.demo_mode === true)
     setEditPhoneNumber(
       (
         client.agent?.phone_numbers?.length
@@ -878,6 +884,7 @@ export default function Admin() {
             aiModelId: editAiModelId,
             retellAgentId:
               normalizedRetellId || null,
+            demoMode: editDemoMode,
             phoneNumbers:
               editedPhoneNumbers,
             newPassword:
@@ -1556,6 +1563,12 @@ export default function Admin() {
               </small>
             </label>
 
+            <label style={{ display: 'grid', gridTemplateColumns: '18px 1fr', alignItems: 'center', gap: '8px' }}>
+              <input type="checkbox" style={{ width: '18px', minHeight: '18px', padding: 0 }} checked={demoMode} onChange={(event) => setDemoMode(event.target.checked)} />
+              <span>Demo agent — 3-minute calls</span>
+              <small style={{ gridColumn: '2' }}>Use a separate demo agent when sharing a demo. Leave off for regular customer calls.</small>
+            </label>
+
             <label>
               <span>
                 Existing Recepta phone numbers{' '}
@@ -2211,6 +2224,12 @@ export default function Admin() {
                   <small>
                     Paste the full Agent ID from the Retell workspace connected to Recepta.
                   </small>
+                </label>
+
+                <label style={{ display: 'grid', gridTemplateColumns: '18px 1fr', alignItems: 'center', gap: '8px' }}>
+                  <input type="checkbox" style={{ width: '18px', minHeight: '18px', padding: 0 }} checked={editDemoMode} onChange={(event) => setEditDemoMode(event.target.checked)} />
+                  <span>Demo agent — 3-minute calls</span>
+                  <small style={{ gridColumn: '2' }}>Applies to this agent and its calls. Leave off for regular customer calls.</small>
                 </label>
 
                 <label>

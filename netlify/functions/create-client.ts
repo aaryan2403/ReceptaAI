@@ -168,6 +168,7 @@ export default async (request: Request) => {
       monthlyMinutes,
       aiModelId,
       retellAgentId,
+      demoMode,
       phoneNumber,
       phoneNumbers,
       purchasePhoneNumbers,
@@ -583,6 +584,7 @@ export default async (request: Request) => {
             : 'setup',
           retell_agent_id:
             normalizedRetellId,
+          demo_mode: demoMode === true,
         })
 
     if (agentError) {
@@ -760,6 +762,7 @@ export default async (request: Request) => {
             allPhoneNumbers[0] ?? null,
           phoneNumbers: allPhoneNumbers,
           active: true,
+          demoMode: demoMode === true,
           piiRedactionEnabled: piiEnabled,
           safetyGuardrailsEnabled:
             guardrailsEnabled,
