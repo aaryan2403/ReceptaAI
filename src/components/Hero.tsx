@@ -14,11 +14,11 @@ export default function Hero({ onBook }: { onBook: () => void }) {
           <h1 className="heroNewTitle">RECEPTA</h1>
 
           <p className="heroNewSubtitle">
-            Every call answered. Every appointment handled.
+            A clear first response. A captured next step.
           </p>
 
           <p className="heroNewDescription">
-            Recepta answers customer calls 24/7, handles enquiries, books appointments,
+            Recepta answers configured customer calls, handles enquiries, captures appointment requests,
             and transfers important calls when your team needs to step in.
           </p>
 
@@ -37,7 +37,7 @@ export default function Hero({ onBook }: { onBook: () => void }) {
           <div className="heroNewProof">
             <span>24/7 call answering</span>
             <span className="heroProofDot" />
-            <span>Appointment booking</span>
+            <span>Appointment requests</span>
             <span className="heroProofDot" />
             <span>Human handoff</span>
           </div>

@@ -12,6 +12,7 @@ type RetellEvent =
   | 'call_analyzed'
 
 type RetellCall = {
+  call_type?: string
   call_id?: string
   agent_id?: string
   call_status?: string
@@ -164,6 +165,10 @@ export default async (
   }
 
   const call = payload.call
+  // Demo calls are outside client billing and owner notification records.
+  if (call?.call_type === 'web_call' && call.metadata?.recepta_demo === true) {
+    return new Response(null, { status: 204 })
+  }
   const callId = getString(call?.call_id)
   const agentId = getString(call?.agent_id)
 

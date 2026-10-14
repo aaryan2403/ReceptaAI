@@ -15,6 +15,8 @@ import Admin from './pages/Admin.tsx'
 import AdminClient from './pages/AdminClient.tsx'
 import CustomerRequests from './pages/CustomerRequests.tsx'
 import AdminRequests from './pages/AdminRequests.tsx'
+import Demo from './pages/Demo.tsx'
+import Legal from './pages/Legal.tsx'
 
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import AdminRoute from './components/AdminRoute.tsx'
@@ -26,6 +28,9 @@ createRoot(document.getElementById('root')!).render(
       <Routes>
         {/* Public */}
         <Route path="/" element={<App />} />
+        <Route path="/demo" element={<Demo />} />
+        <Route path="/privacy" element={<Legal page="privacy" />} />
+        <Route path="/terms" element={<Legal page="terms" />} />
 
         <Route
           path="/login"

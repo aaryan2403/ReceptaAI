@@ -9,6 +9,7 @@ import type {
 } from 'react'
 import { supabase } from '../lib/supabase'
 import AdminRequestsNavItem from '../components/AdminRequestsNavItem'
+import AdminDemoLinks from '../components/AdminDemoLinks'
 
 const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
 const MAX_MONTHLY_MINUTES = 100_000_000
@@ -1335,6 +1336,7 @@ export default function Admin() {
             </a>
 
             <AdminRequestsNavItem />
+            <a href="#demo-links" className="adminNavItem">Demo links</a>
 
           </nav>
         </div>
@@ -1385,6 +1387,8 @@ export default function Admin() {
           </div>
         </div>
 
+        <AdminDemoLinks />
+
         <section className="adminPanel">
           <div className="adminPanelHeading">
             <div>
@@ -1399,7 +1403,7 @@ export default function Admin() {
               <p>
                 Standard gets Overview,
                 Calls, Agent, Billing and
-                Settings. Pro also gets AI appointment booking.
+                Settings. Pro also gets appointment request intake.
               </p>
             </div>
           </div>
