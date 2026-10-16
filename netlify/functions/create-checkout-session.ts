@@ -112,7 +112,7 @@ export default async (request: Request) => {
       error: subscriptionError,
     } = await supabaseAdmin
       .from('subscriptions')
-      .select('status, stripe_subscription_id, stripe_customer_id, plan_name, monthly_minutes, ai_model_id, pii_redaction_enabled, safety_guardrails_enabled, extra_phone_numbers')
+      .select('status, stripe_subscription_id, stripe_customer_id, plan_name, monthly_minutes, ai_model_id, pii_redaction_enabled, safety_guardrails_enabled, extra_phone_numbers, pending_configuration, configuration_revision')
       .eq('client_id', user.id)
       .maybeSingle()
 
@@ -160,6 +160,7 @@ export default async (request: Request) => {
 
     if (
       replacingSubscriptionId &&
+      !currentSubscription.pending_configuration &&
       Number(currentSubscription.monthly_minutes) === Math.floor(minutes)
     ) {
       return new Response(
@@ -171,8 +172,9 @@ export default async (request: Request) => {
       )
     }
 
-    const planName = currentSubscription.plan_name
-    const aiModelId = currentSubscription.ai_model_id
+    const configuration = { ...currentSubscription, ...(currentSubscription.pending_configuration ?? {}) }
+    const planName = configuration.plan_name
+    const aiModelId = configuration.ai_model_id
 
     if (
       (planName !== 'Recepta Standard' && planName !== 'Recepta Pro') ||
@@ -273,14 +275,14 @@ export default async (request: Request) => {
       perMinutePrice
 
     const piiRedaction =
-      currentSubscription.pii_redaction_enabled === true
+      configuration.pii_redaction_enabled === true
 
     const safetyGuardrails =
-      currentSubscription.safety_guardrails_enabled === true
+      configuration.safety_guardrails_enabled === true
 
     const extraPhoneNumbers =
       Number(
-        currentSubscription.extra_phone_numbers ?? 0
+        configuration.extra_phone_numbers ?? 0
       )
 
     if (
@@ -305,8 +307,8 @@ export default async (request: Request) => {
     try {
       phonePurchase = normalizePhonePurchase({
         count: extraPhoneNumbers + 1,
-        countryCode: 'CA',
-        areaCode: null,
+        countryCode: configuration.phone_number_country ?? 'CA',
+        areaCode: configuration.phone_number_area_code ?? null,
       })
     } catch (error) {
       return new Response(
@@ -377,6 +379,7 @@ export default async (request: Request) => {
       'http://localhost:5173'
 
     const metadata = {
+      quote_revision: String(currentSubscription.configuration_revision ?? 0),
       client_id: user.id,
       plan_name: planName,
       base_price_cad: String(basePrice),

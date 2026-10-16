@@ -46,15 +46,16 @@ export default function Billing() {
         const loadedSubscription = billingStatus.subscription
         setSecondsUsed(billingStatus.usedSeconds)
         setSubscription(loadedSubscription)
-        setSelectedMinutes(String(loadedSubscription?.monthly_minutes ?? 300))
+        const configured = { ...loadedSubscription, ...(loadedSubscription?.pending_configuration ?? {}) }
+        setSelectedMinutes(String(configured.monthly_minutes ?? 300))
 
         if (!modelsResult.error) {
           setModels((modelsResult.data ?? []) as AIModel[])
         }
 
-        if (loadedSubscription?.ai_model_id) {
+        if (configured.ai_model_id) {
           const assignedModel = (modelsResult.data ?? []).find(
-            (model) => model.id === loadedSubscription.ai_model_id
+            (model) => model.id === configured.ai_model_id
           )
           setModelRate(Math.max(0, Number(assignedModel?.customer_price_per_minute_cad ?? 0)))
         }
@@ -69,14 +70,16 @@ export default function Billing() {
     void load()
   }, [])
 
+  const checkoutConfiguration = subscription ? { ...subscription, ...(subscription.pending_configuration ?? {}) } : null
   const monthlyMinutes = Math.floor(Number(selectedMinutes))
   const proposedTotal = useMemo(() => {
     if (!subscription || !Number.isFinite(monthlyMinutes)) return 0
-    const base = subscription.plan_name === 'Recepta Pro' ? 300 : 200
+    const configuration = { ...subscription, ...(subscription.pending_configuration ?? {}) }
+    const base = configuration.plan_name === 'Recepta Pro' ? 300 : 200
     return base + monthlyMinutes * modelRate +
-      (subscription.pii_redaction_enabled ? monthlyMinutes * PII_RATE_CAD : 0) +
-      (subscription.safety_guardrails_enabled ? monthlyMinutes * GUARDRAIL_RATE_CAD : 0) +
-      Math.max(0, Number(subscription.extra_phone_numbers ?? 0)) * EXTRA_NUMBER_MONTHLY_CAD
+      (configuration.pii_redaction_enabled ? monthlyMinutes * PII_RATE_CAD : 0) +
+      (configuration.safety_guardrails_enabled ? monthlyMinutes * GUARDRAIL_RATE_CAD : 0) +
+      Math.max(0, Number(configuration.extra_phone_numbers ?? 0)) * EXTRA_NUMBER_MONTHLY_CAD
   }, [modelRate, monthlyMinutes, subscription])
 
   const balance = calculateMinuteBalance(subscription ?? {
@@ -108,7 +111,7 @@ export default function Billing() {
 
   const startMinuteCheckout = async () => {
     setError('')
-    if (!subscription?.plan_name || !subscription.ai_model_id) {
+    if (!checkoutConfiguration?.plan_name || !checkoutConfiguration.ai_model_id) {
       setError('Contact Recepta to finish configuring your subscription.')
       return
     }
@@ -162,6 +165,7 @@ export default function Billing() {
     : 'Not scheduled'
   const minuteAllowanceChanged =
     monthlyMinutes !== Number(subscription?.monthly_minutes ?? 0)
+  const paymentChangePending = Boolean(subscription?.pending_configuration) || minuteAllowanceChanged
 
   return (
     <main className="dashboardPage">
@@ -265,7 +269,7 @@ export default function Billing() {
               <div className="billingConfiguratorHeading">
                 <span className="billingPremiumEyebrow">RECEPTA CATALOGUE</span>
                 <h2>Plans, AI models and add-ons</h2>
-                <p>See every published price before you request a change. Recepta activates plan, model and security changes after confirming them with you.</p>
+                <p>See every published price before you request a change. Paid plan, model and add-on changes activate after successful payment.</p>
               </div>
 
               <div className="billingConfigSection">
@@ -427,6 +431,7 @@ export default function Billing() {
               </div>
 
               <div className="billingCheckoutSummary">
+                {subscription.pending_configuration && <p className="calendarAlert" role="status">Recepta prepared a configuration awaiting payment: {checkoutConfiguration?.plan_name}, {models.find(model => model.id === checkoutConfiguration?.ai_model_id)?.display_name || 'assigned AI model'}, PII redaction {checkoutConfiguration?.pii_redaction_enabled ? 'on' : 'off'}, Safety Guardrails {checkoutConfiguration?.safety_guardrails_enabled ? 'on' : 'off'}, and {checkoutConfiguration?.extra_phone_numbers ?? 0} additional numbers. Your current paid service stays unchanged until payment succeeds.</p>}
                 <div className="billingCheckoutSummaryHead">
                   <div>
                     <span className="billingPremiumEyebrow">UPDATED TOTAL</span>
@@ -443,19 +448,19 @@ export default function Billing() {
                     type="button"
                     className="btn btnPrimary billingUpdateSubscription"
                     onClick={startMinuteCheckout}
-                    disabled={saving || (subscription.status === 'active' && !minuteAllowanceChanged)}
+                    disabled={saving || (subscription.status === 'active' && !paymentChangePending)}
                   >
                     {saving
                       ? 'Opening secure payment...'
-                      : subscription.status === 'active' && !minuteAllowanceChanged
+                      : subscription.status === 'active' && !paymentChangePending
                         ? 'Current minute allowance selected'
-                        : 'Pay & update monthly minutes'}
+                        : 'Pay & activate configuration'}
                   </button>
                 ) : (
                   <a className="btn btnPrimary billingUpdateSubscription" href="mailto:receptahelp02@gmail.com">Contact Recepta</a>
                 )}
 
-                <p className="billingCheckoutDisclaimer">Your minute allowance changes only after Stripe confirms successful payment.</p>
+                <p className="billingCheckoutDisclaimer">Service activation and billable changes require successful Stripe payment. A cancelled or failed Checkout does not grant new minutes or features.</p>
               </div>
             </section>
           </>

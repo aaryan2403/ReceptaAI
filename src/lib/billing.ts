@@ -1,6 +1,16 @@
 import { supabase } from './supabase'
 
 export type BillingSubscription = {
+  pending_configuration?: {
+    plan_name: 'Recepta Standard' | 'Recepta Pro'
+    monthly_price: number
+    monthly_minutes: number
+    ai_model_id: string
+    pii_redaction_enabled: boolean
+    safety_guardrails_enabled: boolean
+    extra_phone_numbers: number
+  } | null
+  configuration_revision?: number
   plan_name: 'Recepta Standard' | 'Recepta Pro' | null
   monthly_price: number | null
   monthly_minutes: number | null

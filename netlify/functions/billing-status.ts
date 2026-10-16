@@ -16,7 +16,7 @@ export default async (request: Request) => {
   if (authError || !user) return json(401, { error: 'Please sign in again.' })
   try {
     const { data: subscription, error } = await db.from('subscriptions')
-      .select('client_id, stripe_subscription_id, plan_name, monthly_price, monthly_minutes, ai_model_id, pii_redaction_enabled, safety_guardrails_enabled, extra_phone_numbers, status, next_billing_date, current_period_start, current_period_end, rollover_seconds, cancel_at_period_end')
+      .select('client_id, stripe_subscription_id, plan_name, monthly_price, monthly_minutes, ai_model_id, pii_redaction_enabled, safety_guardrails_enabled, extra_phone_numbers, status, next_billing_date, current_period_start, current_period_end, rollover_seconds, cancel_at_period_end, pending_configuration, configuration_revision')
       .eq('client_id', user.id).maybeSingle()
     if (error) throw error
     const usedSeconds = subscription ? await getBillingUsage(db, subscription) : 0

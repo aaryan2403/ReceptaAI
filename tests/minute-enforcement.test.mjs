@@ -119,6 +119,7 @@ const setup = async (minutes = 5, rollover = 0, demoMode = true) => {
     alter table call_minute_reservations add constraint call_minute_reservations_reserved_seconds_check check(reserved_seconds>=180);`)
   await db.exec(migration)
   await db.exec(await readFile('supabase/migrations/20261014201359_demo_only_call_limit.sql', 'utf8'))
+  await db.exec(await readFile('supabase/migrations/20261016145008_payment_controlled_activation.sql', 'utf8'))
   await db.query('update agents set demo_mode=$1', [demoMode])
   await db.query('update subscriptions set rollover_seconds=$1', [rollover])
 }
@@ -300,8 +301,8 @@ test('private accounting denies customer access, prevents cross-client replay an
   await setup()
   try {
     await admit('private_call')
-    await db.exec(`insert into subscriptions(client_id,status,monthly_minutes,current_period_start,current_period_end)
-      values('${otherClient}','active',5,now()-interval '1 day',now()+interval '29 days')`)
+    await db.exec(`insert into subscriptions(client_id,status,monthly_minutes,stripe_subscription_id,current_period_start,current_period_end)
+      values('${otherClient}','active',5,'sub_other',now()-interval '1 day',now()+interval '29 days')`)
     await db.exec(`insert into agents(client_id,retell_agent_id,status,demo_mode) values('${otherClient}','other_agent','live',false)`)
     await assert.rejects(db.query('select * from reserve_recepta_agent_call($1,$2,$3)', [otherClient,'private_call','other_agent']), /belongs to another client/)
     for (const role of ['anon','authenticated']) {

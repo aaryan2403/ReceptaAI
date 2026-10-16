@@ -162,6 +162,8 @@ export default async (request: Request) => {
           pii_redaction_enabled,
           safety_guardrails_enabled,
           extra_phone_numbers,
+          pending_configuration,
+          configuration_revision,
           current_period_start,
           current_period_end,
           status

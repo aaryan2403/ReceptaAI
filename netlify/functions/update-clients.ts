@@ -1,3 +1,4 @@
+import { hasPaidSubscription, saveSubscriptionConfiguration } from '../lib/subscriptionConfiguration'
 
 import { createClient } from '@supabase/supabase-js'
 import {
@@ -289,6 +290,8 @@ export default async (request: Request) => {
     })
   }
 
+  if (reactivateSubscription) return json(409, { error: 'Reactivation requires successful Checkout payment. Save the configuration and ask the client to open Billing.' })
+
   const authChanges: {
     email?: string
     password?: string
@@ -355,7 +358,7 @@ export default async (request: Request) => {
   } = await supabaseAdmin
     .from('subscriptions')
     .select(
-      'client_id, status, extra_phone_numbers'
+      'client_id, status, stripe_subscription_id, current_period_start, current_period_end, pending_configuration, extra_phone_numbers'
     )
     .eq('client_id', clientId)
     .maybeSingle()
@@ -366,28 +369,6 @@ export default async (request: Request) => {
         subscriptionLookupError.message,
     })
   }
-
-  if (
-    reactivateSubscription &&
-    existingSubscription?.status !== 'cancelled'
-  ) {
-    return json(409, {
-      error:
-        'Only a cancelled subscription can be reactivated.',
-    })
-  }
-
-  const subscriptionIsActive =
-    reactivateSubscription ||
-    !existingSubscription ||
-    existingSubscription.status === 'active'
-
-  const nextAgentStatus =
-    subscriptionIsActive
-      ? retellAgentId
-        ? 'live'
-        : 'setup'
-      : 'paused'
 
   const { data: existingPhoneRows, error: phoneLookupError } =
     await supabaseAdmin
@@ -428,85 +409,30 @@ export default async (request: Request) => {
         modelMinutePrice,
       piiRedactionEnabled,
       safetyGuardrailsEnabled,
-      extraPhoneNumbers: Math.max(0, phoneNumbers.length - 1),
+      extraPhoneNumbers: Math.max(Number(existingSubscription?.pending_configuration?.extra_phone_numbers ?? existingSubscription?.extra_phone_numbers ?? 0), phoneNumbers.length - 1),
     })
 
-  const periodStart = new Date()
-  const periodEnd = new Date(periodStart)
-  periodEnd.setUTCMonth(
-    periodEnd.getUTCMonth() + 1
-  )
-
-  if (existingSubscription) {
-    const { error } = await supabaseAdmin
-      .from('subscriptions')
-      .update({
-        plan_name: planName,
-        monthly_price: monthlyPrice,
-        monthly_minutes:
-          Math.floor(monthlyMinutes),
-        ai_model_id: aiModelId,
-        pii_redaction_enabled:
-          piiRedactionEnabled,
-        safety_guardrails_enabled:
-          safetyGuardrailsEnabled,
-        extra_phone_numbers: Math.max(
-          0,
-          phoneNumbers.length - 1
-        ),
-        ...(reactivateSubscription
-          ? {
-              status: 'active',
-              stripe_subscription_id: null,
-              current_period_start:
-                periodStart.toISOString(),
-              current_period_end:
-                periodEnd.toISOString(),
-              next_billing_date:
-                periodEnd.toISOString(),
-            }
-          : {}),
-      })
-      .eq('client_id', clientId)
-
-    if (error) {
-      return json(400, {
-        error: error.message,
-      })
-    }
-  } else {
-    const { error } = await supabaseAdmin
-      .from('subscriptions')
-      .insert({
-        client_id: clientId,
-        plan_name: planName,
-        monthly_price: monthlyPrice,
-        monthly_minutes:
-          Math.floor(monthlyMinutes),
-        ai_model_id: aiModelId,
-        pii_redaction_enabled:
-          piiRedactionEnabled,
-        safety_guardrails_enabled:
-          safetyGuardrailsEnabled,
-        extra_phone_numbers: Math.max(
-          0,
-          phoneNumbers.length - 1
-        ),
-        status: 'active',
-        current_period_start:
-          periodStart.toISOString(),
-        current_period_end:
-          periodEnd.toISOString(),
-        next_billing_date:
-          periodEnd.toISOString(),
-      })
-
-    if (error) {
-      return json(400, {
-        error: error.message,
-      })
-    }
+  if (!existingSubscription) return json(409, { error: 'Create a pending subscription configuration before editing this client.' })
+  if (hasPaidSubscription(existingSubscription) && phoneNumbers.length > Number(existingSubscription.extra_phone_numbers ?? 0) + 1) {
+    return json(409, { error: 'Additional numbers require a paid quote. Use Add Phone Numbers to prepare it for Checkout.' })
   }
+  let savedSubscription
+  try {
+    savedSubscription = await saveSubscriptionConfiguration(supabaseAdmin, clientId, {
+      plan_name: planName as PlanName, monthly_price: monthlyPrice,
+      monthly_minutes: Math.floor(monthlyMinutes), ai_model_id: aiModelId,
+      pii_redaction_enabled: piiRedactionEnabled, safety_guardrails_enabled: safetyGuardrailsEnabled,
+      extra_phone_numbers: Math.max(Number(existingSubscription.pending_configuration?.extra_phone_numbers ?? existingSubscription.extra_phone_numbers ?? 0), phoneNumbers.length - 1),
+      ...(existingSubscription.pending_configuration?.phone_number_country ? {
+        phone_number_country: existingSubscription.pending_configuration.phone_number_country,
+        phone_number_area_code: existingSubscription.pending_configuration.phone_number_area_code,
+      } : {}),
+    })
+  } catch (error) {
+    return json(400, { error: error instanceof Error ? error.message : 'Could not save billing configuration.' })
+  }
+  const subscriptionIsActive = hasPaidSubscription(savedSubscription)
+  const nextAgentStatus = subscriptionIsActive ? retellAgentId ? 'live' : 'setup' : 'setup'
 
   const removedManualPhoneNumbers = (existingPhoneRows ?? [])
     .filter(
@@ -622,9 +548,9 @@ export default async (request: Request) => {
         phoneNumbers,
         active: subscriptionIsActive,
         demoMode,
-        piiRedactionEnabled,
-        safetyGuardrailsEnabled,
-        aiModelId,
+        piiRedactionEnabled: savedSubscription.pii_redaction_enabled,
+        safetyGuardrailsEnabled: savedSubscription.safety_guardrails_enabled,
+        aiModelId: savedSubscription.ai_model_id,
       })
 
       const scheduleContext = await loadClientScheduleContext({
@@ -667,6 +593,7 @@ export default async (request: Request) => {
   return json(200, {
     success: true,
     monthlyPrice,
+    paymentRequired: savedSubscription.status !== 'active' || Boolean(savedSubscription.pending_configuration),
     phoneNumbers,
     buyerEmailNotificationsEnabled,
     buyerSmsNotificationsEnabled,
