@@ -35,6 +35,8 @@ type ClientRecord = {
 }
 
 type SubscriptionRecord = {
+  pending_configuration?: Partial<Pick<SubscriptionRecord, 'plan_name' | 'monthly_price' | 'monthly_minutes' | 'ai_model_id' | 'pii_redaction_enabled' | 'safety_guardrails_enabled' | 'extra_phone_numbers'>> | null
+  configuration_revision?: number
   client_id: string
   plan_name: string | null
   monthly_price: number | null
@@ -368,6 +370,7 @@ export default function Admin() {
         editSafetyGuardrails,
         Math.max(
           0,
+          Number(editingClient?.subscription?.pending_configuration?.extra_phone_numbers ?? editingClient?.subscription?.extra_phone_numbers ?? 0),
           parsePhoneNumberInput(editPhoneNumber).length - 1
         )
       ),
@@ -378,6 +381,7 @@ export default function Admin() {
       editPiiRedaction,
       editSafetyGuardrails,
       editPhoneNumber,
+      editingClient,
       models,
     ]
   )
@@ -688,7 +692,7 @@ export default function Admin() {
       }
 
       setCreateSuccess(
-        `${companyName.trim()} created successfully.`
+        `${companyName.trim()} created pending payment. Ask the client to sign in and complete Checkout from Billing.`
       )
 
       setCompanyName('')
@@ -727,6 +731,7 @@ export default function Admin() {
   const openEditClient = (
     client: ClientWithSubscription
   ) => {
+    const configuration = { ...client.subscription, ...(client.subscription?.pending_configuration ?? {}) }
     setEditingClient(client)
     setEditCompanyName(
       client.company_name || ''
@@ -735,19 +740,19 @@ export default function Admin() {
       client.contact_email || ''
     )
     setEditPlanName(
-      client.subscription?.plan_name ===
+      configuration.plan_name ===
         'Recepta Pro'
         ? 'Recepta Pro'
         : 'Recepta Standard'
     )
     setEditMonthlyMinutes(
       String(
-        client.subscription?.monthly_minutes ||
+        configuration.monthly_minutes ||
           300
       )
     )
     setEditAiModelId(
-      client.subscription?.ai_model_id ||
+      configuration.ai_model_id ||
         models[0]?.id ||
         ''
     )
@@ -765,12 +770,12 @@ export default function Admin() {
       ).join('\n')
     )
     setEditPiiRedaction(
-      client.subscription
-        ?.pii_redaction_enabled === true
+      configuration
+        .pii_redaction_enabled === true
     )
     setEditSafetyGuardrails(
-      client.subscription
-        ?.safety_guardrails_enabled === true
+      configuration
+        .safety_guardrails_enabled === true
     )
     setEditBuyerEmailEnabled(
       client.appointment_email_notifications_enabled !== false
@@ -918,8 +923,8 @@ export default function Admin() {
       }
 
       setActionSuccess(
-        reactivateSubscription
-          ? `${editCompanyName.trim()} subscription reactivated.`
+        result.paymentRequired
+          ? `${editCompanyName.trim()} saved. Activation or billable changes await payment from Billing; existing paid service is preserved.`
           : `${editCompanyName.trim()} updated.`
       )
       setEditingClient(null)
@@ -943,18 +948,6 @@ export default function Admin() {
     await updateClient(false)
   }
 
-  const handleReactivateSubscription = async () => {
-    if (
-      !window.confirm(
-        'Reactivate this client and restore dashboard access? This admin action does not create a new Stripe charge.'
-      )
-    ) {
-      return
-    }
-
-    await updateClient(true)
-  }
-
   const handlePurchasePhoneNumbers = async () => {
     if (!editingClient) return
 
@@ -976,9 +969,9 @@ export default function Admin() {
 
     if (
       !window.confirm(
-        `Purchase ${quantity} real Retell phone ${
+        `Prepare a paid quote for ${quantity} additional phone ${
           quantity === 1 ? 'number' : 'numbers'
-        } for this client now?`
+        }? Numbers are assigned only after successful payment.`
       )
     ) {
       return
@@ -1024,9 +1017,7 @@ export default function Admin() {
       }
 
       setActionSuccess(
-        `${quantity} phone ${
-          quantity === 1 ? 'number was' : 'numbers were'
-        } purchased and assigned to ${editingClient.company_name || 'the client'}.`
+        `Phone-number quote prepared for ${editingClient.company_name || 'the client'}. They must pay from Billing before numbers are provisioned.`
       )
       setEditingClient(null)
       await loadData()
@@ -1355,9 +1346,7 @@ export default function Admin() {
 
             <p>
               Create a client once. Their
-              plan, dashboard, billing
-              configuration and AI model are
-              assigned immediately.
+              configuration is prepared immediately; paid access starts after successful Checkout.
             </p>
           </div>
 
@@ -1651,7 +1640,7 @@ export default function Admin() {
                   color: '#ffcf66',
                 }}
               >
-                Creating this client will purchase {Math.floor(Number(purchasePhoneNumbers) || 0)}
+                After successful payment, Checkout will provision {Math.floor(Number(purchasePhoneNumbers) || 0)}
                 {' '}number{Math.floor(Number(purchasePhoneNumbers) || 0) === 1 ? '' : 's'} from Retell.
               </p>
             )}
@@ -1743,7 +1732,7 @@ export default function Admin() {
                   fontSize: '1.15rem',
                 }}
               >
-                Total monthly billing: C$
+                Proposed monthly billing: C$
                 {createMonthlyTotal.toFixed(2)}
               </strong>
             </div>
@@ -1759,7 +1748,7 @@ export default function Admin() {
               >
                 {creating
                   ? 'Creating...'
-                  : 'Create & Activate Client'}
+                  : 'Create Pending Client'}
               </button>
             </div>
           </form>
@@ -1890,6 +1879,7 @@ export default function Admin() {
                         >
                           {client.contact_email ||
                             'No email'}
+                          {client.subscription?.pending_configuration && <small style={{ display: 'block', color: '#7cf0a2' }}>Configuration awaiting payment</small>}
                         </div>
                       </div>
                     </div>
@@ -2267,15 +2257,15 @@ export default function Admin() {
                   }}
                 >
                   <div style={{ gridColumn: '1 / -1' }}>
-                    <strong>Purchase additional Retell numbers</strong>
+                    <strong>Prepare additional-number quote</strong>
                     <p style={{ margin: '6px 0 0', opacity: 0.65 }}>
-                      Admin only. Purchase several numbers at once and assign
+                      Admin only. Prepare numbers for payment before assigning
                       them to this client’s connected Retell agent.
                     </p>
                   </div>
 
                   <label>
-                    <span>Numbers to purchase</span>
+                    <span>Additional numbers requested</span>
                     <input
                       type="number"
                       min="1"
@@ -2328,18 +2318,17 @@ export default function Admin() {
                     className="btn btnPrimary"
                     disabled={
                       purchasingPhoneNumbers ||
-                      editingClient.subscription?.status !== 'active' ||
                       !editingClient.agent?.retell_agent_id
                     }
                     onClick={handlePurchasePhoneNumbers}
                   >
                     {purchasingPhoneNumbers
-                      ? 'Purchasing...'
-                      : 'Purchase & Assign Numbers'}
+                      ? 'Preparing quote...'
+                      : 'Prepare Paid Quote'}
                   </button>
 
                   <small style={{ gridColumn: '1 / -1' }}>
-                    This makes a real Retell purchase. The first account number
+                    Numbers are provisioned after the client pays from Billing. The first account number
                     is included; every additional number adds C$20/month to the
                     Recepta bill.
                   </small>
@@ -2449,7 +2438,7 @@ export default function Admin() {
                       fontSize: '1.15rem',
                     }}
                   >
-                    Total monthly billing: C$
+                    Proposed monthly billing: C$
                     {editMonthlyTotal.toFixed(2)}
                   </strong>
                 </div>
@@ -2506,20 +2495,6 @@ export default function Admin() {
                     gap: '10px',
                   }}
                 >
-                  {editingClient.subscription?.status ===
-                    'cancelled' && (
-                    <button
-                      type="button"
-                      className="btn btnPrimary"
-                      disabled={savingEdit}
-                      onClick={handleReactivateSubscription}
-                    >
-                      {savingEdit
-                        ? 'Reactivating...'
-                        : 'Reactivate Subscription'}
-                    </button>
-                  )}
-
                   <button
                     type="button"
                     className="btn btnOutline"

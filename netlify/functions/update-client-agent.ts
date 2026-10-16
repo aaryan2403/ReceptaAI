@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { assertRetellAgentAvailable, syncRetellSubscription } from '../lib/retell'
+import { hasPaidSubscription } from '../lib/subscriptionConfiguration'
 
 const ADMIN_EMAIL =
   (
@@ -186,12 +187,12 @@ export default async (request: Request) => {
     if (normalizedRetellId && process.env.RETELL_API_KEY) {
       const [agentResult, subscriptionResult] = await Promise.all([
         supabaseAdmin.from('agents').select('demo_mode').eq('client_id', clientId).maybeSingle(),
-        supabaseAdmin.from('subscriptions').select('pii_redaction_enabled, safety_guardrails_enabled, ai_model_id').eq('client_id', clientId).maybeSingle(),
+        supabaseAdmin.from('subscriptions').select('status, stripe_subscription_id, current_period_start, current_period_end, pii_redaction_enabled, safety_guardrails_enabled, ai_model_id').eq('client_id', clientId).maybeSingle(),
       ])
       if (agentResult.error) throw agentResult.error
       if (subscriptionResult.error) throw subscriptionResult.error
       await syncRetellSubscription({
-        apiKey: process.env.RETELL_API_KEY, agentId: normalizedRetellId, active: true,
+        apiKey: process.env.RETELL_API_KEY, agentId: normalizedRetellId, active: hasPaidSubscription(subscriptionResult.data),
         demoMode: agentResult.data?.demo_mode === true,
         piiRedactionEnabled: subscriptionResult.data?.pii_redaction_enabled === true,
         safetyGuardrailsEnabled: subscriptionResult.data?.safety_guardrails_enabled === true,

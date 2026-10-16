@@ -325,10 +325,7 @@ export default function Dashboard() {
   const effectiveAgentStatus: ClientStatus =
     isSubscriptionCancelled
       ? 'paused'
-      : agent?.retell_agent_id &&
-          agent.status === 'setup'
-        ? 'live'
-        : agent?.status || client?.status || 'setup'
+      : agent?.status || client?.status || 'setup'
 
   const activeCall = calls.find(
     (call) =>
@@ -589,7 +586,7 @@ export default function Dashboard() {
           <div className="dashboardHeader">
             <div>
               <p className="dashboardEyebrow">
-                SETUP PENDING
+                PAYMENT PENDING
               </p>
 
               <h1>
@@ -598,23 +595,22 @@ export default function Dashboard() {
               </h1>
 
               <p>
-                Your account has been created. Recepta
-                is assigning your plan, AI model and
-                monthly minutes.
+                Your account has been created. Review your configured
+                plan, AI model and monthly minutes in Billing.
               </p>
             </div>
           </div>
 
           <div className="dashboardEmptyState">
             <h2>
-              Your workspace is being prepared
+              Complete payment to activate your receptionist
             </h2>
 
             <p>
-              You do not need to choose or purchase a
-              subscription yourself. Recepta will finish
-              the account configuration for you.
+              Your receptionist starts handling calls after successful payment.
+              Open Billing to review the full monthly price and complete secure Checkout.
             </p>
+            <a href="/dashboard/billing" className="btn btnPrimary">Review Billing &amp; Pay</a>
           </div>
         </section>
       </main>

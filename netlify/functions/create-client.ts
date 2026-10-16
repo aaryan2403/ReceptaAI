@@ -2,8 +2,6 @@ import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import {
   assertRetellAgentAvailable,
-  purchaseRetellPhoneNumber,
-  releaseRetellPhoneNumber,
   syncRetellSchedule,
   syncRetellSubscription,
 } from '../lib/retell'
@@ -466,22 +464,7 @@ export default async (request: Request) => {
     let stripeCustomerId:
       | string
       | null = null
-    const purchasedPhoneNumbers: string[] = []
-
     const rollback = async () => {
-      if (retellApiKey) {
-        for (const purchasedPhoneNumber of purchasedPhoneNumbers) {
-          try {
-            await releaseRetellPhoneNumber({
-              apiKey: retellApiKey,
-              phoneNumber: purchasedPhoneNumber,
-            })
-          } catch {
-            // Best effort rollback for externally purchased numbers.
-          }
-        }
-      }
-
       await supabaseAdmin
         .from('subscriptions')
         .delete()
@@ -554,9 +537,7 @@ export default async (request: Request) => {
             normalizedCompany,
           contact_email:
             normalizedEmail,
-          status: normalizedRetellId
-            ? 'live'
-            : 'setup',
+          status: 'setup',
           role: 'client',
         })
 
@@ -579,9 +560,7 @@ export default async (request: Request) => {
             'Not configured',
           phone_number:
             normalizedPhoneList.phoneNumbers[0] ?? null,
-          status: normalizedRetellId
-            ? 'live'
-            : 'setup',
+          status: 'setup',
           retell_agent_id:
             normalizedRetellId,
           demo_mode: demoMode === true,
@@ -625,12 +604,6 @@ export default async (request: Request) => {
         ),
       })
 
-    const periodStart = new Date()
-    const periodEnd = new Date(periodStart)
-    periodEnd.setUTCMonth(
-      periodEnd.getUTCMonth() + 1
-    )
-
     const {
       error:
         subscriptionError,
@@ -655,13 +628,18 @@ export default async (request: Request) => {
             0,
             requestedPhoneNumberTotal - 1
           ),
-          status: 'active',
-          current_period_start:
-            periodStart.toISOString(),
-          current_period_end:
-            periodEnd.toISOString(),
-          next_billing_date:
-            periodEnd.toISOString(),
+          status: 'pending',
+          current_period_start: null,
+          current_period_end: null,
+          next_billing_date: null,
+          pending_configuration: {
+            plan_name: planName, monthly_price: monthlyPrice, monthly_minutes: Math.floor(minutes),
+            ai_model_id: aiModelId, pii_redaction_enabled: piiEnabled, safety_guardrails_enabled: guardrailsEnabled,
+            extra_phone_numbers: Math.max(0, requestedPhoneNumberTotal - 1),
+            phone_number_country: phonePurchase.countryCode,
+            phone_number_area_code: phonePurchase.areaCode === null ? null : String(phonePurchase.areaCode),
+          },
+          configuration_revision: 1,
           stripe_customer_id:
             stripeCustomerId,
           stripe_subscription_id:
@@ -673,46 +651,7 @@ export default async (request: Request) => {
       throw subscriptionError
     }
 
-    if (
-      phonePurchase.purchaseCount > 0 &&
-      normalizedRetellId &&
-      retellApiKey
-    ) {
-      try {
-        for (
-          let index = 0;
-          index < phonePurchase.purchaseCount;
-          index += 1
-        ) {
-          const purchasedPhoneNumber =
-            await purchaseRetellPhoneNumber({
-              apiKey: retellApiKey,
-              agentId: normalizedRetellId,
-              countryCode: phonePurchase.countryCode,
-              areaCode: phonePurchase.areaCode,
-              nickname: `${normalizedCompany} ${
-                normalizedPhoneList.phoneNumbers.length + index + 1
-              }`,
-            })
-
-          purchasedPhoneNumbers.push(purchasedPhoneNumber)
-        }
-      } catch (error) {
-        await rollback()
-        throw new Error(
-          error instanceof Error
-            ? `Retell phone-number purchase failed: ${error.message}`
-            : 'Retell phone-number purchase failed.'
-        )
-      }
-    }
-
-    const allPhoneNumbers = Array.from(
-      new Set([
-        ...normalizedPhoneList.phoneNumbers,
-        ...purchasedPhoneNumbers,
-      ])
-    )
+    const allPhoneNumbers = normalizedPhoneList.phoneNumbers
 
     if (allPhoneNumbers.length > 0) {
       const { error: phoneNumbersError } = await supabaseAdmin
@@ -722,9 +661,7 @@ export default async (request: Request) => {
             client_id: newUser.id,
             phone_number: assignedPhoneNumber,
             is_primary: index === 0,
-            source: purchasedPhoneNumbers.includes(assignedPhoneNumber)
-              ? 'retell'
-              : 'manual',
+            source: 'manual',
           }))
         )
 
@@ -761,7 +698,7 @@ export default async (request: Request) => {
           phoneNumber:
             allPhoneNumbers[0] ?? null,
           phoneNumbers: allPhoneNumbers,
-          active: true,
+          active: false,
           demoMode: demoMode === true,
           piiRedactionEnabled: piiEnabled,
           safetyGuardrailsEnabled:
@@ -801,7 +738,7 @@ export default async (request: Request) => {
         userId: newUser.id,
         stripeCustomerId,
         subscription: {
-          status: 'active',
+          status: 'pending',
           planName,
           monthlyPrice,
           monthlyMinutes:
@@ -812,10 +749,8 @@ export default async (request: Request) => {
             guardrailsEnabled,
           phoneNumbers: allPhoneNumbers,
         },
-        aiConfigurationStatus:
-          normalizedRetellId
-            ? 'live'
-            : 'pending',
+        aiConfigurationStatus: 'pending',
+        paymentRequired: true,
       }),
       {
         status: 200,

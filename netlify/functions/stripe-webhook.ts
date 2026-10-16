@@ -241,6 +241,7 @@ export default async (request: Request) => {
             p_period_end: period.end,
             p_replaces_subscription_id: replacingSubscriptionId,
             p_configuration: {
+              quote_revision: session.metadata?.quote_revision ?? '-1',
               plan_name: planName, monthly_price: monthlyTotal,
               monthly_minutes: Math.floor(monthlyMinutes), ai_model_id: aiModelId,
               pii_redaction_enabled: piiRedactionEnabled,
