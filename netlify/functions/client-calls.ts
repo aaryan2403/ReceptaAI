@@ -1,5 +1,6 @@
 import { appointmentCallId, isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 import { createClient } from '@supabase/supabase-js'
+import { isDeletingClient } from '../lib/requestAuth'
 
 type RetellCall = {
   call_id?: string
@@ -331,6 +332,8 @@ export default async (request: Request) => {
     return json(401, { error: 'Unauthorized.' })
   }
 
+  if (await isDeletingClient(supabaseAdmin,user.id)) return json(403,{ error:'This account is awaiting deletion.' })
+
   const [agentResult, subscriptionResult, storedCallsResult, appointmentResult, notificationResult] =
     await Promise.all([
       supabaseAdmin
@@ -353,14 +356,14 @@ export default async (request: Request) => {
         .eq('client_id', user.id)
         .in('status', ['booked', 'completed']),
       supabaseAdmin.from('call_notifications')
-        .select('retell_call_id, status, attempts, last_error, accepted_at')
+        .select('retell_call_id, status, attempts, last_error, accepted_at, delivery_status')
         .eq('client_id', user.id).order('created_at', { ascending: false }),
     ])
 
   const notifications = new Map((notificationResult.data ?? []).map((notice) => [notice.retell_call_id, notice]))
   const enrichNotifications = <T extends { retell_call_id?: string | null }>(records: T[]) => records.map((record) => {
     const notice = notifications.get(record.retell_call_id)
-    return { ...record, notification_status: notice?.status ?? (notificationResult.error ? 'unavailable' : null),
+    return { ...record, notification_status: notice?.delivery_status ?? notice?.status ?? (notificationResult.error ? 'unavailable' : null),
       notification_attempts: notice?.attempts ?? 0, notification_last_error: notice?.last_error ?? null }
   })
 
@@ -477,16 +480,16 @@ export default async (request: Request) => {
       return {
         id: String(stored?.id ?? record.retell_call_id),
         retell_call_id: record.retell_call_id,
-        caller_name: stored?.caller_name ?? record.caller_name,
-        caller_number: stored?.caller_number ?? record.caller_number,
+        caller_name: stored ? stored.caller_name : record.caller_name,
+        caller_number: stored ? stored.caller_number : record.caller_number,
         started_at: stored?.started_at ?? record.started_at,
         duration_seconds: Number(stored?.duration_seconds ?? record.duration_seconds),
-        outcome: stored?.outcome ?? record.outcome,
+        outcome: stored ? stored.outcome : record.outcome,
         appointment_booked: record.appointment_booked,
         call_status: stored?.call_status ?? record.call_status,
         transcript: stored ? stored.transcript : record.transcript,
         recording_url: stored ? stored.recording_url : record.recording_url,
-        summary: stored?.summary ?? record.summary,
+        summary: stored ? stored.summary : record.summary,
       }
     })
 

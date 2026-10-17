@@ -49,6 +49,7 @@ globalThis.__minuteDb = {
   auth: { getUser: async () => ({ data: { user: { id: client } }, error: null }),
     admin: { getUserById: async () => ({ data: { user: { user_metadata: {} } }, error: null }) } },
   rpc: async (name, args) => {
+    if (name === 'record_recepta_callback') return { data:null, error:null }
     if (name === 'reserve_recepta_agent_call') {
       assert.deepEqual(Object.keys(args).sort(), ['p_agent_id', 'p_call_id', 'p_client_id'])
       if (rpcFailure) return { data: null, error: { message: 'Synthetic reservation database failure' } }
@@ -416,5 +417,31 @@ test('customer requests cannot change demo mode through the admin create, edit o
       assert.equal(response.status, 403, await response.text())
     }
     assert.equal((await db.query('select demo_mode from agents')).rows[0].demo_mode, true)
+  } finally { await close() }
+})
+
+test('closed store hours do not stop a 24/7 receptionist; answering only in store hours is explicit', async () => {
+  await setup(60, 0, false)
+  try {
+    const hours = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(day => ({ day, open: false, start:'09:00', end:'17:00' }))
+    await db.query('update agents set business_hours=$1', [JSON.stringify({ mode:'custom', timeZone:'America/Toronto', hours })])
+    const response = await admit('closed_store_answered')
+    assert.equal(response.reject, undefined)
+    assert.equal(response.dynamic_variables.recepta_business_open, 'closed')
+    assert.equal(response.dynamic_variables.recepta_answering_mode, '24/7')
+    await db.query('update agents set business_hours=$1', [JSON.stringify({ mode:'custom', answeringMode:'business_hours', timeZone:'America/Toronto', hours })])
+    assert.equal((await admit('explicit_closed_hours')).reject, true)
+    assert.equal(await reservation('explicit_closed_hours'), undefined)
+  } finally { await close() }
+})
+
+test('unconfigured store hours never become an invented 24/7 opening promise', async () => {
+  await setup()
+  try {
+    const response=await admit('unknown_store_hours')
+    assert.equal(response.dynamic_variables.recepta_schedule_mode,'unconfigured')
+    assert.equal(response.dynamic_variables.recepta_business_open,'unknown')
+    assert.match(response.dynamic_variables.recepta_business_hours,/not configured/)
+    assert.equal(response.dynamic_variables.recepta_answering_mode,'24/7')
   } finally { await close() }
 })

@@ -1,3 +1,4 @@
+import { getAnsweringMode } from './businessHours'
 import type {
   RetellOperatingDay,
   RetellSchedule,
@@ -81,12 +82,14 @@ export const getStoredBusinessSchedule = (
 ): RetellSchedule => {
   const timeZone = getBusinessTimeZone(businessHours)
   const fallback: RetellSchedule = {
-    mode: '24/7',
+    mode: 'unconfigured',
+    answeringMode: getAnsweringMode(businessHours),
     timeZone,
     hours: DEFAULT_OPERATING_HOURS,
   }
 
   if (!businessHours) return fallback
+  if (businessHours.trim().toLowerCase() === '24/7') return { ...fallback, mode: '24/7' }
 
   try {
     const parsed = JSON.parse(businessHours) as
@@ -95,7 +98,7 @@ export const getStoredBusinessSchedule = (
     const hours = Array.isArray(parsed) ? parsed : parsed.hours
     const mode = Array.isArray(parsed) ? 'custom' : parsed.mode
 
-    if (mode === '24/7') return fallback
+    if (mode === '24/7') return { ...fallback, mode: '24/7' }
 
     if (
       mode !== 'custom' ||
@@ -107,6 +110,7 @@ export const getStoredBusinessSchedule = (
 
     return {
       mode: 'custom',
+      answeringMode: getAnsweringMode(businessHours),
       timeZone,
       hours,
     }

@@ -153,6 +153,10 @@ export default async (request: Request) => {
       )
     }
 
+    const clientAvailability = await supabaseAdmin.from('clients').select('deletion_pending').eq('id', user.id).maybeSingle()
+    if (clientAvailability.error) throw clientAvailability.error
+    if (clientAvailability.data?.deletion_pending) return new Response(JSON.stringify({ error: 'This account is awaiting deletion.' }), { status: 409, headers: { 'Content-Type': 'application/json' } })
+
     const replacingSubscriptionId =
       currentSubscription.status === 'active'
         ? currentSubscription.stripe_subscription_id

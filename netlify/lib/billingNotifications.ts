@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isDeletingClient } from './requestAuth'
 import { calculateMinuteBalance, formatMinuteSeconds } from '../../src/lib/minuteBalance'
 
 type BillingSubscription = {
@@ -114,33 +115,41 @@ export const deliverBillingNotices = async (db: SupabaseClient, limit = 5) => {
   const { data, error } = await db.rpc('claim_recepta_billing_notifications', { p_limit: limit })
   if (error) throw error
   for (const notice of data ?? []) {
-    // Keep below the email provider's default request-rate limit.
     await new Promise((resolve) => setTimeout(resolve, 550))
     try {
-      const { data: client, error: clientError } = await db.from('clients')
-        .select('contact_email').eq('id', notice.client_id).maybeSingle()
-      if (clientError) throw clientError
-      let email = client?.contact_email?.trim()
-      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        const { data: user, error: userError } = await db.auth.admin.getUserById(notice.client_id)
-        if (userError) throw userError
-        email = user.user?.email
-      }
-      if (!email) throw new Error('Customer billing email is missing.')
-      const payload = notice.payload as NotificationPayload
-      const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': notice.notification_key },
-        signal: AbortSignal.timeout(3000),
-        body: JSON.stringify({
+      if (await isDeletingClient(db,notice.client_id)) continue
+      let mail = notice.mail_payload
+      if (!mail) {
+        const { data: client, error: clientError } = await db.from('clients')
+          .select('contact_email, deletion_pending').eq('id', notice.client_id).maybeSingle()
+        if (clientError) throw clientError
+        if (client?.deletion_pending) continue
+        let email = client?.contact_email?.trim()
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          const { data: user, error: userError } = await db.auth.admin.getUserById(notice.client_id)
+          if (userError) throw userError
+          email = user.user?.email
+        }
+        if (!email) throw new Error('Customer billing email is missing.')
+        const payload = notice.payload as NotificationPayload
+        mail = {
           from: process.env.BILLING_FROM_EMAIL?.trim() || process.env.APPOINTMENT_FROM_EMAIL?.trim() || process.env.REQUEST_NOTIFICATION_FROM_EMAIL?.trim() || 'Recepta Billing <billing@mail.recepta.ca>',
           to: [email], reply_to: process.env.RECEPTA_SUPPORT_EMAIL || 'receptahelp02@gmail.com',
           subject: payload.subject, text: payload.text,
-        }),
+        }
+        const prepared = await db.from('billing_notifications').update({ mail_payload:mail,first_send_at:new Date().toISOString() }).eq('notification_key',notice.notification_key)
+        if (prepared.error) throw new Error('Could not preserve the billing email before sending.')
+      }
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': notice.notification_key },
+        signal: AbortSignal.timeout(3000), body: JSON.stringify(mail),
       })
       if (!response.ok) throw new Error(`Billing email delivery failed (${response.status}).`)
+      const receipt = await response.json() as { id?:string }
+      if (!receipt.id) throw new Error('Billing email acceptance was not confirmed.')
       const { error: saveError } = await db.from('billing_notifications')
-        .update({ sent_at: new Date().toISOString(), last_error: null })
+        .update({ sent_at: new Date().toISOString(), provider_message_id:receipt.id, last_error: null })
         .eq('notification_key', notice.notification_key)
       if (saveError) throw saveError
     } catch (sendError) {
