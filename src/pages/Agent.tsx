@@ -51,6 +51,7 @@ export default function Agent() {
   const [scheduleModeMessage, setScheduleModeMessage] = useState('')
   const [scheduleMode, setScheduleMode] =
     useState<'24/7' | 'custom' | null>(null)
+  const [answeringMode, setAnsweringMode] = useState<'24/7' | 'business_hours'>('24/7')
   const [businessTimeZone, setBusinessTimeZone] = useState(
     () =>
       Intl.DateTimeFormat().resolvedOptions().timeZone ||
@@ -126,6 +127,7 @@ export default function Agent() {
         if (agentData.business_hours) {
           try {
             const parsed = JSON.parse(agentData.business_hours)
+            setAnsweringMode(parsed?.answeringMode === 'business_hours' ? 'business_hours' : '24/7')
             const parsedHours = Array.isArray(parsed)
               ? parsed
               : parsed?.hours
@@ -200,6 +202,7 @@ export default function Agent() {
       }
 
       const result = await saveSchedulePreference('custom', {
+        answeringMode,
         operatingHours,
         timeZone: businessTimeZone,
       })
@@ -244,6 +247,7 @@ export default function Agent() {
 
     try {
       const result = await saveSchedulePreference(mode, {
+        answeringMode,
         operatingHours:
           mode === 'custom' ? operatingHours : undefined,
         timeZone: businessTimeZone,
@@ -721,7 +725,26 @@ export default function Agent() {
           </div>
         </section>
 
-      {/* OPERATING HOURS */}
+        <section className="agentPanel">
+          <div className="agentPanelHeading"><div>
+            <span className="agentSectionLabel">AI ANSWERING HOURS</span>
+            <h2>Answer calls while your business is closed</h2>
+            <p>Store hours tell callers when the business is open. Your AI can answer after closing to take messages and appointment requests, subject to your paid minutes.</p>
+            <label style={{ display: 'grid', gap: 8, marginTop: 16 }}>
+              <span>When should the AI answer?</span>
+              <select value={answeringMode} onChange={event => setAnsweringMode(event.target.value as '24/7' | 'business_hours')}>
+                <option value="24/7">24/7, including outside store hours</option>
+                <option value="business_hours">Only during the store hours below</option>
+              </select>
+            </label>
+            <button type="button" className="btn btnPrimary" style={{ marginTop: 16 }} disabled={savingScheduleMode} onClick={() => chooseScheduleMode(scheduleMode ?? '24/7')}>
+              {savingScheduleMode ? 'Saving & Syncing...' : 'Save AI Answering Hours'}
+            </button>
+            {scheduleModeMessage && <p role="status">{scheduleModeMessage}</p>}
+          </div></div>
+        </section>
+
+      {/* STORE HOURS */}
 
         {scheduleMode === 'custom' ? (
         <section className="agentPanel">
@@ -738,14 +761,13 @@ export default function Agent() {
               </span>
 
               <h2>
-                When should your receptionist answer?
+                When is your business open?
               </h2>
 
               <p>
-                Set your normal weekly call-answering hours.
-                Calls outside these hours will not connect to the
-                receptionist. Saving here also updates your assigned
-                AI receptionist automatically.
+                Set your weekly store hours. The AI uses these hours when
+                answering questions about your business. AI answering hours
+                are controlled separately above.
               </p>
 
               <div className="callsScheduleActions">
@@ -1021,8 +1043,8 @@ export default function Agent() {
 
                 <p>
                   {scheduleMode === '24/7'
-                    ? 'Your receptionist is configured to answer at any time, every day.'
-                    : 'Choose either 24/7 or Custom below.'}
+                    ? 'Your business is open at any time, every day. AI answering hours are controlled separately above.'
+                    : 'Choose your store hours below. AI answering hours are controlled separately above.'}
                 </p>
 
                 <div className="callsScheduleActions">

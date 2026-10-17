@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { isDeletingClient } from '../lib/requestAuth'
 import { getBillingUsage } from '../lib/billingNotifications'
 
 const json = (status: number, body: object) => new Response(JSON.stringify(body), {
@@ -15,6 +16,7 @@ export default async (request: Request) => {
   const { data: { user }, error: authError } = await db.auth.getUser(token)
   if (authError || !user) return json(401, { error: 'Please sign in again.' })
   try {
+    if (await isDeletingClient(db,user.id)) return json(403,{ error:'This account is awaiting deletion.' })
     const { data: subscription, error } = await db.from('subscriptions')
       .select('client_id, stripe_subscription_id, plan_name, monthly_price, monthly_minutes, ai_model_id, pii_redaction_enabled, safety_guardrails_enabled, extra_phone_numbers, status, next_billing_date, current_period_start, current_period_end, rollover_seconds, cancel_at_period_end, pending_configuration, configuration_revision')
       .eq('client_id', user.id).maybeSingle()

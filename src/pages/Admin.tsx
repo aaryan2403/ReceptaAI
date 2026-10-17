@@ -10,6 +10,7 @@ import type {
 import { supabase } from '../lib/supabase'
 import AdminRequestsNavItem from '../components/AdminRequestsNavItem'
 import AdminDemoLinks from '../components/AdminDemoLinks'
+import AdminOperations from '../components/AdminOperations'
 
 const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
 const MAX_MONTHLY_MINUTES = 100_000_000
@@ -1092,7 +1093,7 @@ export default function Admin() {
       }
 
       setActionSuccess(
-        `${clientName} deleted.`
+        result.pending ? `${clientName} is paused and queued for deletion. Provider cleanup must succeed before the account is removed; track progress in Operations.` : `${clientName} deleted.`
       )
 
       await loadData()
@@ -1377,6 +1378,7 @@ export default function Admin() {
         </div>
 
         <AdminDemoLinks />
+        <AdminOperations />
 
         <section className="adminPanel">
           <div className="adminPanelHeading">

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildCallNotification, type CallEmailPayload } from './callNotificationEmail'
 import { getStoredBusinessSchedule } from './employeeSchedule'
+import { isDeletingClient } from './requestAuth'
 
 type CallNotice = {
   notification_key: string
@@ -69,6 +70,7 @@ export const deliverCallNotices = async (db: SupabaseClient, limit = 5, key?: st
   for (const notice of (data ?? []) as CallNotice[]) {
     if (Date.now() >= deadline) break // unused leases expire and become retryable
     try {
+      if (await isDeletingClient(db,notice.client_id)) continue
       const apiKey = process.env.RESEND_API_KEY
       if (!apiKey) throw new Error('Call email configuration is missing.')
       const payload = notice.mail_payload ?? await buildQueuedEmail(db, notice)

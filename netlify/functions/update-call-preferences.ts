@@ -1,3 +1,4 @@
+import { getAnsweringMode } from '../lib/businessHours'
 import { createClient } from '@supabase/supabase-js'
 import {
   normalizeEmailNotificationsEnabled,
@@ -136,6 +137,7 @@ export default async (request: Request) => {
     operatingHours?: unknown
     timeZone?: unknown
     useSchedule?: boolean
+    answeringMode?: unknown
   }
 
   try {
@@ -197,6 +199,9 @@ export default async (request: Request) => {
     })
   }
 
+  const answeringMode = body.answeringMode ?? getAnsweringMode(agent.business_hours)
+  if (answeringMode !== '24/7' && answeringMode !== 'business_hours') return json(400, { error: 'Choose valid AI answering hours.' })
+
   let schedule: RetellSchedule
 
   try {
@@ -206,6 +211,7 @@ export default async (request: Request) => {
 
     schedule = {
       mode: scheduleMode,
+      answeringMode,
       timeZone: normalizeTimeZone(
         body.timeZone ?? storedTimeZone
       ),
@@ -307,6 +313,7 @@ export default async (request: Request) => {
 
     return json(200, {
       scheduleMode,
+      answeringMode,
       scheduleEnabled: scheduleMode === 'custom',
       businessHours,
       timeZone: schedule.timeZone,

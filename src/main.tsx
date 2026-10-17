@@ -12,7 +12,6 @@ import Billing from './pages/Billing.tsx'
 import Settings from './pages/Settings.tsx'
 import ResetPassword from './pages/ResetPassword.tsx'
 import Admin from './pages/Admin.tsx'
-import AdminClient from './pages/AdminClient.tsx'
 import CustomerRequests from './pages/CustomerRequests.tsx'
 import AdminRequests from './pages/AdminRequests.tsx'
 import Demo from './pages/Demo.tsx'
@@ -169,7 +168,7 @@ createRoot(document.getElementById('root')!).render(
           path="/admin/client/:id"
           element={
             <AdminRoute>
-              <AdminClient />
+              <Navigate to="/admin" replace />
             </AdminRoute>
           }
         />

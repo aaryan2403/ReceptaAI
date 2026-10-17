@@ -11,6 +11,8 @@ import {
   buildEmployeeScheduleContext,
   getBusinessTimeZone,
 } from '../lib/employeeSchedule'
+import { getAnsweringMode, isBusinessOpen } from '../lib/businessHours'
+import { getStoredBusinessSchedule } from '../lib/employeeSchedule'
 import { getCallMaxSeconds, CALL_MIN_SECONDS } from '../lib/callMinutes'
 
 const json = (
@@ -23,140 +25,6 @@ const json = (
       'Content-Type': 'application/json',
     },
   })
-
-type OperatingDay = {
-  day: string
-  open: boolean
-  start: string
-  end: string
-}
-
-type StoredSchedule = {
-  mode: '24/7' | 'custom'
-  timeZone: string
-  hours: OperatingDay[]
-}
-
-const DAY_ORDER = [
-  'Sunday',
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-]
-
-const toMinutes = (time: string) => {
-  const [hours, minutes] = time.split(':').map(Number)
-  return hours * 60 + minutes
-}
-
-const parseSchedule = (
-  businessHours?: string | null
-): StoredSchedule | null => {
-  const normalized = businessHours?.trim().toLowerCase()
-
-  if (
-    !normalized ||
-    normalized === 'not configured' ||
-    normalized === 'not required' ||
-    normalized === '24/7'
-  ) {
-    return null
-  }
-
-  try {
-    const parsed = JSON.parse(businessHours ?? '') as
-      | OperatingDay[]
-      | Partial<StoredSchedule>
-    const hours = Array.isArray(parsed) ? parsed : parsed.hours
-    const mode = Array.isArray(parsed) ? 'custom' : parsed.mode
-
-    if (mode === '24/7') return null
-
-    if (
-      mode !== 'custom' ||
-      !Array.isArray(hours) ||
-      hours.length !== 7
-    ) {
-      return null
-    }
-
-    return {
-      mode: 'custom',
-      timeZone:
-        !Array.isArray(parsed) &&
-        typeof parsed.timeZone === 'string' &&
-        parsed.timeZone.trim()
-          ? parsed.timeZone
-          : 'America/Toronto',
-      hours,
-    }
-  } catch {
-    return null
-  }
-}
-
-const isInsideCustomHours = (
-  schedule: StoredSchedule,
-  date = new Date()
-) => {
-  try {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: schedule.timeZone,
-      weekday: 'long',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    }).formatToParts(date)
-    const values = Object.fromEntries(
-      parts.map((part) => [part.type, part.value])
-    )
-    const day = values.weekday
-    const currentMinutes =
-      Number(values.hour) * 60 + Number(values.minute)
-    const today = schedule.hours.find((item) => item.day === day)
-
-    if (today?.open) {
-      const start = toMinutes(today.start)
-      const end = toMinutes(today.end)
-
-      if (
-        (end > start &&
-          currentMinutes >= start &&
-          currentMinutes < end) ||
-        (end < start && currentMinutes >= start)
-      ) {
-        return true
-      }
-    }
-
-    const dayIndex = DAY_ORDER.indexOf(day)
-    const previousDay =
-      DAY_ORDER[(dayIndex + DAY_ORDER.length - 1) % DAY_ORDER.length]
-    const previous = schedule.hours.find(
-      (item) => item.day === previousDay
-    )
-
-    if (previous?.open) {
-      const previousStart = toMinutes(previous.start)
-      const previousEnd = toMinutes(previous.end)
-
-      if (
-        previousEnd < previousStart &&
-        currentMinutes < previousEnd
-      ) {
-        return true
-      }
-    }
-
-    return false
-  } catch (error) {
-    console.error('Could not evaluate custom hours:', error)
-    return true
-  }
-}
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -326,25 +194,33 @@ export default async (request: Request) => {
     agent = data
   }
 
-  if (!agent?.retell_agent_id || !['active', 'live'].includes(agent.status ?? '')) {
-    return json(200, {
-      call_inbound: {
-        reject: true,
-      },
-    })
+  const decline = async (reason: 'agent_unavailable' | 'outside_answering_hours' | 'allowance_unavailable' | 'admission_unavailable') => {
+    if (agent?.client_id) {
+      const result = await supabaseAdmin.rpc('record_recepta_callback', {
+        p_client_id: agent.client_id, p_call_id: callId, p_from: normalizeE164(payload.call_inbound?.from_number), p_to: toNumber, p_reason: reason,
+      })
+      if (result.error) {
+        console.error('Could not preserve declined call for callback:', result.error)
+        // Let Retell retry; there is no static inbound agent that can bypass admission.
+        return json(503, { error: 'Callback storage is temporarily unavailable.' })
+      }
+    }
+    return json(200, { call_inbound: { reject:true } })
   }
 
-  const customSchedule = parseSchedule(agent.business_hours)
+  if (!agent?.retell_agent_id || !['active', 'live'].includes(agent.status ?? '')) {
+    return decline('agent_unavailable')
+  }
+
+  const businessSchedule = getStoredBusinessSchedule(agent.business_hours)
+  const customSchedule = businessSchedule.mode === 'custom' ? businessSchedule : null
+  const businessOpen = isBusinessOpen(businessSchedule)
+  const answeringMode = getAnsweringMode(agent.business_hours)
 
   if (
-    customSchedule &&
-    !isInsideCustomHours(customSchedule)
+    answeringMode === 'business_hours' && !businessOpen
   ) {
-    return json(200, {
-      call_inbound: {
-        reject: true,
-      },
-    })
+    return decline('outside_answering_hours')
   }
 
   const { data: reservationRows, error: reservationError } = await supabaseAdmin.rpc(
@@ -352,7 +228,7 @@ export default async (request: Request) => {
   )
   if (reservationError) {
     console.error('Minute reservation failed; inbound call declined:', reservationError)
-    return json(200, { call_inbound: { reject: true } })
+    return decline('admission_unavailable')
   }
   const reservation = Array.isArray(reservationRows) ? reservationRows[0] : null
   const reservationId = typeof reservation?.reservation_id === 'string' ? reservation.reservation_id : null
@@ -361,7 +237,7 @@ export default async (request: Request) => {
       reservedSeconds < CALL_MIN_SECONDS || reservedSeconds > getCallMaxSeconds(reservation.demo_mode)) {
     // A busy or exhausted allowance declines this call; it never disables the
     // customer or unbinds their number. A later call can use released/renewed time.
-    return json(200, { call_inbound: { reject: true } })
+    return decline('allowance_unavailable')
   }
 
   const employeeScheduleTimeZone = getBusinessTimeZone(
@@ -453,10 +329,12 @@ export default async (request: Request) => {
         },
       },
       dynamic_variables: {
-        recepta_schedule_mode: customSchedule ? 'custom' : '24/7',
+        recepta_answering_mode: answeringMode,
+        recepta_business_open: businessSchedule.mode === 'unconfigured' ? 'unknown' : businessOpen ? 'open' : 'closed',
+        recepta_schedule_mode: businessSchedule.mode,
         recepta_business_hours: customSchedule
           ? JSON.stringify(customSchedule.hours)
-          : 'Available 24 hours a day, 7 days a week',
+          : businessSchedule.mode === 'unconfigured' ? 'Store hours are not configured; do not guess opening hours.' : 'Available 24 hours a day, 7 days a week',
         recepta_business_timezone:
           customSchedule?.timeZone ?? 'America/Toronto',
         recepta_employee_schedule: employeeSchedule,
@@ -475,7 +353,9 @@ export default async (request: Request) => {
         recepta_client_id: agent.client_id,
         recepta_reservation_id:
           reservationId,
-        recepta_schedule_mode: customSchedule ? 'custom' : '24/7',
+        recepta_answering_mode: answeringMode,
+        recepta_business_open: businessSchedule.mode === 'unconfigured' ? 'unknown' : businessOpen ? 'open' : 'closed',
+        recepta_schedule_mode: businessSchedule.mode,
       },
     },
   })

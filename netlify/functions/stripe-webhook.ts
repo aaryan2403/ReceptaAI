@@ -10,6 +10,7 @@ import {
 import { normalizePhonePurchase } from '../lib/phoneNumbers'
 import { getInvoicePeriod, getInvoiceSubscriptionId } from '../lib/billingPeriods'
 import { deliverBillingNotices, getBillingUsage, queueBillingNotice } from '../lib/billingNotifications'
+import { isDeletingClient } from '../lib/requestAuth'
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -252,6 +253,7 @@ export default async (request: Request) => {
           if (updateError) throw updateError
           const activatedSubscription = activatedRows?.[0]
           if (!activatedSubscription) return new Response(null, { status: 200 })
+          if (await isDeletingClient(supabaseAdmin,clientId)) return new Response(null,{ status:200 })
           await queueBillingNotice(supabaseAdmin, `paid:${invoiceId}`, 'payment_success',
             activatedSubscription, await getBillingUsage(supabaseAdmin, activatedSubscription), paidInvoice.hosted_invoice_url)
 
@@ -303,6 +305,7 @@ export default async (request: Request) => {
             )
 
             for (let index = 0; index < numbersToPurchase; index += 1) {
+              if (await isDeletingClient(supabaseAdmin,clientId)) return new Response(null,{ status:200 })
               const purchasedPhoneNumber =
                 await purchaseRetellPhoneNumber({
                   apiKey: retellApiKey,
@@ -330,6 +333,13 @@ export default async (request: Request) => {
                     phoneNumber: purchasedPhoneNumber,
                   })
                 } catch (releaseError) {
+                  // Keep a cleanup task even if account deletion has already
+                  // removed its normal number ledger or this release failed.
+                  const orphan=await supabaseAdmin.from('service_jobs').upsert({
+                    job_key:`orphan-number:${clientId}:${purchasedPhoneNumber}`,client_id:clientId,kind:'delete_client',
+                    payload:{ billing_done:true,agent_id:null,numbers:[{ number:purchasedPhoneNumber,source:'retell' }] },
+                  },{ onConflict:'job_key',ignoreDuplicates:true })
+                  if (orphan.error) throw orphan.error
                   console.error(
                     'Could not roll back an untracked Retell number:',
                     releaseError
@@ -343,6 +353,7 @@ export default async (request: Request) => {
             }
 
             const primaryPhoneNumber = phoneNumbers[0] ?? null
+            if (await isDeletingClient(supabaseAdmin,clientId)) return new Response(null,{ status:200 })
 
             const { error: primaryPhoneError } = await supabaseAdmin
               .from('agents')

@@ -2,6 +2,7 @@ import { formatAppointmentPreference, type AppointmentStatus } from '../lib/appo
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchClientCalls } from '../lib/clientCalls'
+import CallbackQueue from '../components/CallbackQueue'
 import type { ClientCallRecord } from '../lib/clientCalls'
 
 type CallRecord = ClientCallRecord
@@ -360,6 +361,8 @@ export default function Calls() {
           </div>
         )}
 
+        <CallbackQueue />
+
         {/* LIVE MONITOR */}
 
         <section className="callsLiveCard">
@@ -621,7 +624,12 @@ export default function Calls() {
                   <div>
                     <span>Owner email</span>
                     <strong>
-                      {selectedCall.notification_status === 'accepted' ? 'Accepted by email service'
+                      {selectedCall.notification_status === 'delivered' ? 'Delivered to receiving mail server'
+                        : selectedCall.notification_status === 'bounced' ? 'Bounced — business email needs attention'
+                        : selectedCall.notification_status === 'complained' ? 'Recipient reported spam'
+                        : ['failed','suppressed'].includes(selectedCall.notification_status ?? '') ? 'Delivery failed — contact Recepta'
+                        : selectedCall.notification_status === 'delivery_delayed' ? 'Delivery delayed — provider is retrying'
+                        : selectedCall.notification_status === 'accepted' ? 'Accepted by email service; delivery not confirmed'
                         : selectedCall.notification_status === 'retrying' ? 'Sending / retrying'
                         : selectedCall.notification_status === 'queued' ? 'Pending — automatic retry scheduled'
                         : selectedCall.notification_status === 'needs_attention' ? 'Needs attention — check delivery'

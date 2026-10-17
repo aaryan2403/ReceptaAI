@@ -103,6 +103,7 @@ export const saveSchedulePreference = async (
       end: string
     }>
     timeZone?: string
+    answeringMode?: '24/7' | 'business_hours'
   }
 ) => {
   const {
@@ -125,6 +126,7 @@ export const saveSchedulePreference = async (
         scheduleMode,
         operatingHours: options?.operatingHours,
         timeZone: options?.timeZone,
+        answeringMode: options?.answeringMode,
       }),
     }
   )
@@ -133,6 +135,7 @@ export const saveSchedulePreference = async (
     error?: string
     scheduleMode?: '24/7' | 'custom'
     scheduleEnabled?: boolean
+    answeringMode?: '24/7' | 'business_hours'
     businessHours?: string
     timeZone?: string
     retellSynced?: boolean
@@ -148,6 +151,7 @@ export const saveSchedulePreference = async (
     scheduleMode:
       body.scheduleMode ??
       (body.scheduleEnabled ? 'custom' : '24/7'),
+    answeringMode: body.answeringMode ?? '24/7',
     businessHours: body.businessHours ?? null,
     timeZone: body.timeZone ?? null,
     retellSynced: body.retellSynced === true,
