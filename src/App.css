@@ -9255,3 +9255,308 @@
     min-height: 42px;
   }
 }
+
+/* =========================================================
+   HOMEPAGE & CUSTOMER WORKSPACE — PRESENTATION ONLY
+   Scoped styling; existing markup, content and behaviour are retained.
+   ========================================================= */
+
+.pageWrapper,
+.dashboardPage {
+  --green: #81e7a6;
+  --text-light: #edf0e9;
+  --text-muted: #a1aea4;
+  --glass: rgba(12, 16, 14, 0.9);
+  --glass-border: #293b30;
+  --card-bg: #141e17;
+  --card-border: #304336;
+  --surface-base: #0c100e;
+  --surface-raised: #141e17;
+  --surface-inset: #101912;
+  --surface-line: #304336;
+  color: var(--text-light);
+  background: var(--surface-base);
+}
+
+:is(.pageWrapper, .dashboardPage) :focus-visible {
+  outline: 2px solid #81e7a6;
+  outline-offset: 4px;
+}
+
+:is(.pageWrapper, .dashboardPage) .btn {
+  border-radius: 7px;
+  padding: 12px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+:is(.pageWrapper, .dashboardPage) .btnPrimary {
+  color: #142b1c;
+  background: #81e7a6;
+  border-color: #81e7a6;
+  box-shadow: none;
+}
+
+:is(.pageWrapper, .dashboardPage) .btnPrimary:hover {
+  background: #a2f5bf;
+  border-color: #a2f5bf;
+  box-shadow: 0 5px 20px #0000001a;
+}
+
+:is(.pageWrapper, .dashboardPage) .btnOutline,
+.pageWrapper .btnGhost {
+  color: #d5e4d9;
+  background: transparent;
+  border-color: #425d4a;
+}
+
+:is(.pageWrapper, .dashboardPage) .btnOutline:hover,
+.pageWrapper .btnGhost:hover {
+  background: #23382a;
+  border-color: #73977e;
+}
+
+/* Homepage: preserve all sections, actions and content. */
+.pageWrapper .animatedBg { background: #0c100e; opacity: 0.18; }
+.pageWrapper .nav { background: rgba(12, 16, 14, 0.92); border-color: #293b30; }
+.pageWrapper .heroNew { min-height: 90vh; padding-block: 160px 105px; }
+.pageWrapper .heroNewGlow { background: radial-gradient(circle, #4b9a6324, transparent 67%); }
+.pageWrapper .heroNewEyebrow { color: #9fbeaa; font-size: 10px; font-weight: 600; letter-spacing: 0.18em; margin-bottom: 30px; }
+.pageWrapper .heroNewTitle { color: #edf0e9; font-weight: 500; letter-spacing: -0.065em; font-size: clamp(78px, 13vw, 156px); line-height: 1; }
+.pageWrapper .heroNewSubtitle { color: #81e7a6; font-size: clamp(24px, 3vw, 36px); font-weight: 450; margin-top: 28px; }
+.pageWrapper .heroNewDescription { color: #a8b8ad; font-size: 16px; line-height: 1.85; max-width: 600px; margin-top: 22px; }
+.pageWrapper .heroNewCtas { gap: 16px; margin-top: 34px; }
+.pageWrapper .heroNewCtas .btn { padding: 15px 23px; }
+.pageWrapper .heroNewProof { color: #9eb2a5; font-size: 11px; font-weight: 450; gap: 15px; margin-top: 29px; }
+.pageWrapper .section { padding-block: 90px; }
+.pageWrapper .section + .section { border-top: 1px solid #293b30; }
+.pageWrapper .sectionHeader { margin-bottom: 44px; }
+.pageWrapper .eyebrow { color: #97bca3; font-size: 10px; font-weight: 600; letter-spacing: 0.15em; }
+.pageWrapper .sectionTitle { color: #e7eee7; font-size: clamp(30px, 3.5vw, 46px); font-weight: 500; line-height: 1.18; letter-spacing: -0.045em; }
+.pageWrapper .sectionSubtitle { color: #a1b3a7; font-size: 15px; line-height: 1.85; }
+.pageWrapper .featureGrid { gap: 20px; }
+.pageWrapper .featureCard { padding: 27px; border-radius: 10px; border-color: #314838; background: #152019; box-shadow: 0 8px 25px #0000000d; }
+.pageWrapper .featureCard:hover { border-color: #61846a; box-shadow: 0 12px 30px #0000001a; }
+.pageWrapper .featureIcon { color: #9ce9b5; background: #253f2e; border: 1px solid #3b5c45; border-radius: 10px; width: 44px; height: 44px; }
+.pageWrapper .featureTitle { color: #deebe1; font-size: 16px; font-weight: 550; letter-spacing: -0.02em; line-height: 1.5; margin-top: 20px; }
+.pageWrapper .featureDesc { color: #a2b6a9; font-size: 13px; line-height: 1.85; }
+.pageWrapper .sectionOutro { border-color: #344a3b; background: #111b15; border-radius: 8px; }
+.pageWrapper .sectionOutroLine { color: #b2c8ba; font-size: 12px; }
+.pageWrapper .outroIcon,.pageWrapper .checkListIcon,.pageWrapper .pricingBulletIcon { color: #81e7a6; }
+.pageWrapper .panel { padding: 30px; background: #18271d; border-color: #3b5844; border-radius: 12px; box-shadow: 0 15px 40px #0000001a; }
+.pageWrapper .panelHead { border-color: #3c5643; padding-bottom: 20px; }
+.pageWrapper .panelHeadName { font-weight: 500; font-size: 21px; }
+.pageWrapper .panelHeadIcon { background: #294a33; color: #a8edbf; border-color: #4b6e55; border-radius: 9px; }
+.pageWrapper .panelItem { padding: 16px; border: 1px solid #34513e; border-radius: 8px; background: #132017; }
+.pageWrapper .panelLabel { color: #94b59f; font-size: 10px; font-weight: 550; letter-spacing: 0.07em; }
+.pageWrapper .panelValue { color: #d5e5da; font-size: 14px; }
+.pageWrapper .chip { background: #14231a; border-color: #3c5745; color: #acbfb2; font-weight: 500; border-radius: 6px; padding: 9px 12px; }
+.pageWrapper .chipActive { background: #294a33; border-color: #7ca989; color: #d2f3dd; }
+.pageWrapper .checkList { color: #c0d3c6; font-size: 14px; line-height: 1.8; }
+.pageWrapper .workCard { border-color: #3a5242; border-radius: 12px; background: #141e17; box-shadow: none; }
+.pageWrapper .workBody { padding: 28px; }
+.pageWrapper .workChrome { background: #0c1710b3; border-color: #38513f; }
+.pageWrapper .workCategory { color: #9cc9aa; font-size: 10px; letter-spacing: 0.1em; }
+.pageWrapper .workName { font-size: 28px; font-weight: 500; color: #e6eee7; }
+.pageWrapper .workBlurb { color: #a8bcaf; font-size: 14px; line-height: 1.8; }
+.pageWrapper .workTag { background: #213328; color: #b3cebc; border: 1px solid #3b5543; border-radius: 5px; font-weight: 450; }
+.pageWrapper .workLink { color: #b1e9c3; }
+.pageWrapper .pricingGrid { gap: 26px; }
+.pageWrapper .pricingCard { padding: 34px; background: #142018; border: 1px solid #405b49; border-radius: 11px; box-shadow: none; }
+.pageWrapper .pricingCard:first-child { background: #1d3224; border-color: #6f967a; }
+.pageWrapper .pricingCard:hover { border-color: #7ba387; }
+.pageWrapper .pricingName { color: #dfece3; font-size: 21px; font-weight: 500; }
+.pageWrapper .pricingIcon { color: #adefc2; background: #294733; border-color: #4d7257; border-radius: 9px; }
+.pageWrapper .pricingPrice { color: #e8f3e9; font-size: clamp(24px, 3vw, 34px); font-weight: 500; letter-spacing: -0.045em; line-height: 1.35; }
+.pageWrapper .pricingCostNote { color: #a8c3b0; font-size: 11px; }
+.pageWrapper .pricingDesc,.pageWrapper .pricingBullets { color: #b8cebf; font-size: 13px; line-height: 1.85; }
+.pageWrapper .publicPriceBreakdown { background: #152019; border-color: #3a5342; border-radius: 10px; padding: 32px; }
+.pageWrapper .publicPriceBreakdown h3 { color: #e5eee7; font-size: 28px; font-weight: 500; letter-spacing: -0.035em; }
+.pageWrapper .publicPriceBreakdown p { color: #afc4b6; line-height: 1.8; }
+.pageWrapper .publicPriceInputs label { color: #b7cdbf; font-size: 12px; }
+.pageWrapper .publicPriceInputs select,.pageWrapper .publicPriceInputs input[type='number'] { background: #101b13; border-color: #445f4b; color: #e1eee5; border-radius: 6px; font-family: inherit; }
+.pageWrapper .publicPriceSummary { background: #1d3123; border-color: #42644c; border-radius: 8px; }
+.pageWrapper .publicPriceSummary span { color: #afc6b7; }
+.pageWrapper .publicPriceSummary strong { color: #e3f0e6; font-weight: 550; }
+.pageWrapper .publicPriceTotal strong { color: #a5efbc; }
+.pageWrapper .publicPriceNotes { border-color: #3d5545; }
+.pageWrapper .bookCard { background: #1c3023; border: 1px solid #4a7054; border-radius: 12px; padding: 55px 40px; box-shadow: none; }
+.pageWrapper .bookIcon { color: #b6f1c9; background: #2e4c36; border-color: #52785e; border-radius: 13px; }
+.pageWrapper .bookPoint { color: #bed4c6; background: #243c2b; border: 1px solid #405e49; border-radius: 7px; font-size: 12px; }
+.pageWrapper .footer { border-color: #304235; background: #0b120e; padding-block: 45px; }
+.pageWrapper .footerLink { color: #acc1b3; font-size: 12px; font-weight: 450; }
+.pageWrapper .footerLink:hover { color: #b0f2c5; }
+.pageWrapper .footerText { color: #8da697; font-size: 11px; }
+.pageWrapper .modalCard { background: #131f17; border-color: #46614e; border-radius: 12px; }
+.pageWrapper .modalHeader { border-color: #37503e; }
+.pageWrapper .modalList { color: #b8d0c0; font-size: 14px; line-height: 1.9; }
+
+/* Workspace shell: the same six pages and their original controls. */
+.dashboardPage { grid-template-columns: 236px minmax(0, 1fr); background: #0c100e; }
+.dashboardPage .dashboardSidebar { padding: 30px 20px; border-color: #2a3b30; background: #101812; box-shadow: none; }
+.dashboardPage .dashboardBrand { padding: 6px 10px 28px; margin-bottom: 24px; border-color: #2d4133; }
+.dashboardPage .dashboardBrand img { height: 35px; }
+.dashboardPage .dashboardNav { gap: 8px; }
+.dashboardPage .dashboardNavItem { min-height: 46px; padding: 12px 15px; border-radius: 7px; color: #a4b8ab; font-size: 13px; font-weight: 450; border: 1px solid transparent; }
+.dashboardPage .dashboardNavItem:hover { color: #e0eee4; background: #1b2c20; transform: none; }
+.dashboardPage .dashboardNavItemActive { color: #acf0c2; background: #213b2a; border-color: #3e644a; box-shadow: inset 2px 0 0 #81e7a6; font-weight: 550; }
+.dashboardPage .dashboardMain { min-width: 0; width: 100%; max-width: 1500px; padding: 46px 42px 65px; margin-inline: auto; }
+.dashboardPage .dashboardMain::before { background: #81e7a60d; opacity: 0.25; }
+.dashboardPage .dashboardHeader { padding-bottom: 27px; margin-bottom: 28px; border-bottom: 1px solid #2c3d31; gap: 28px; }
+.dashboardPage .dashboardHeader h1 { color: #ecf0e9; font-size: clamp(29px, 3vw, 39px); font-weight: 500; line-height: 1.2; letter-spacing: -0.045em; overflow-wrap: anywhere; }
+.dashboardPage .dashboardHeader p { color: #a5b7ab; font-size: 13px; line-height: 1.85; }
+.dashboardPage .dashboardHeader .dashboardEyebrow,
+.dashboardPage :is(.dashboardEyebrow, .agentSectionLabel, .callsSectionLabel, .settingsSectionLabel, .billingPremiumEyebrow) { color: #94cba5; font-size: 9px; font-weight: 600; letter-spacing: 0.15em; }
+.dashboardPage .agentLiveBadge { font-size: 11px; font-weight: 500; min-height: 33px; padding: 7px 12px; }
+
+/* Consistent panels and a readable type hierarchy. */
+.dashboardPage :is(.dashboardStatCard, .dashboardPhoneNumbersPanel, .dashboardCompanyChart, .dashboardTodayCard, .dashboardRequestShortcut, .agentControlHero, .agentPanel, .callsLiveCard, .callsHistoryPanel, .callsDetailPanel, .callsAnalytics, .settingsPanel, .customerRequestPanel, .customerRequestHistory, .billingConfigCurrent, .billingConfigurator, .billingCheckoutSummary, .onboardingProgressCard) {
+  background: #151f18;
+  border: 1px solid #314638;
+  border-radius: 11px;
+  box-shadow: 0 8px 25px #0000000d;
+}
+.dashboardPage :is(.agentControlHero, .agentPanel, .callsLiveCard, .callsHistoryPanel, .callsDetailPanel, .callsAnalytics, .settingsPanel, .customerRequestPanel, .customerRequestHistory, .billingConfigCurrent, .billingConfigurator, .billingCheckoutSummary) { padding: 26px; }
+.dashboardPage :is(.dashboardPhoneNumbersPanel, .dashboardCompanyChart, .dashboardTodayCard) { padding: 27px; }
+.dashboardPage :is(.dashboardRequestShortcut, .dashboardTodayCard) { background: #1b3022; border-color: #3d5e47; }
+.dashboardPage .dashboardRequestShortcut { padding: 25px 28px; }
+.dashboardPage :is(.dashboardRequestShortcut, .dashboardTodayCard) h2 { color: #e2eee5; font-size: 21px; font-weight: 500; letter-spacing: -0.03em; }
+.dashboardPage :is(.dashboardRequestShortcut, .dashboardTodayCard) p:not(.dashboardEyebrow) { color: #a9c2b1; font-size: 12px; line-height: 1.8; }
+.dashboardPage .dashboardStats { gap: 18px; }
+.dashboardPage .dashboardStats .dashboardStatCard { padding: 24px; border-color: #3a5142; background: #17241b; }
+.dashboardPage .dashboardStatCard:hover { transform: translateY(-2px); box-shadow: 0 10px 28px #00000012; }
+.dashboardPage .dashboardStatCard::after { opacity: 0.2; }
+.dashboardPage .dashboardStatCard span { color: #9fbaaa; font-size: 10px; font-weight: 550; letter-spacing: 0.06em; }
+.dashboardPage .dashboardStatCard strong { color: #e8f2eb; font-size: clamp(23px, 2.4vw, 34px); font-weight: 500; line-height: 1.3; letter-spacing: -0.04em; overflow-wrap: anywhere; }
+.dashboardPage .dashboardStatCard small { color: #9fb9a9; font-size: 11px; line-height: 1.8; }
+.dashboardPage :is(.dashboardCompanyChart, .dashboardPhoneNumbersPanel) h2 { color: #e1ede4; font-size: 22px; font-weight: 500; letter-spacing: -0.03em; }
+.dashboardPage .dashboardCompanyChartHeader>div:first-child>p:last-child { color: #9cb5a5; font-size: 12px; }
+.dashboardPage .dashboardCompanyChartTotal { border-color: #46614e; background: #1e3526; border-radius: 7px; }
+.dashboardPage .dashboardCompanyChartTotal strong { color: #c4f2d3; font-weight: 500; }
+.dashboardPage .dashboardCompanyChartCanvas svg [stroke='#00e676'] { stroke: #81e7a6; }
+.dashboardPage .dashboardCompanyChartCanvas svg stop[stop-color='#00e676'] { stop-color: #81e7a6; }
+.dashboardPage .dashboardPhoneNumbersList>span { background: #1e3125; border-color: #3e5c48; color: #d3e6da; border-radius: 7px; }
+.dashboardPage .dashboardPhoneNumbersList small { color: #acdab9; font-weight: 500; }
+.dashboardPage .dashboardActiveCall { background: #141f17; border-color: #354d3d; border-radius: 8px; padding: 18px 20px; }
+.dashboardPage .dashboardActiveCall--live { background: #1e3726; border-color: #527c5e; }
+.dashboardPage .dashboardActiveCall strong { color: #dceae1; font-weight: 500; }
+.dashboardPage .dashboardActiveCall small { color: #9eb6a6; }
+.dashboardPage .dashboardActiveCallLink { color: #acd8ba; font-weight: 500; }
+.dashboardPage :is(.dashboardEmptyState, .callsInnerEmpty) { background: #111c14; border-color: #3a5543; border-radius: 10px; padding: 38px 25px; }
+.dashboardPage :is(.dashboardEmptyState, .callsInnerEmpty) :is(h2, strong) { color: #d9e8de; font-weight: 500; }
+.dashboardPage :is(.dashboardEmptyState, .callsInnerEmpty) p { color: #a0baa9; font-size: 13px; line-height: 1.85; }
+.dashboardPage :is(.agentPanel, .settingsPanel, .customerRequestHistory, .callsSectionHeading, .billingConfiguratorHeading, .billingConfigCurrentTop) h2 { color: #e3eee6; font-size: 22px; font-weight: 500; letter-spacing: -0.03em; }
+.dashboardPage .agentControlIdentity h2 { color: #e3eee6; font-weight: 500; font-size: 26px; }
+.dashboardPage .agentPanel>p { color: #a6bdaf; font-size: 13px; line-height: 1.85; margin-block: 12px; }
+.dashboardPage :is(.agentControlIdentity, .agentLiveState, .agentActivityText, .settingsActionRow, .customerRequestMeeting, .billingConfiguratorHeading, .billingConfigCurrentTop) p { color: #a0b9a9; font-size: 12px; line-height: 1.8; }
+.dashboardPage :is(.agentControlFacts, .agentConfigurationGrid, .agentPerformanceGrid, .settingsInfoGrid, .callsDetailGrid, .callsAnalyticsGrid, .billingCurrentStats)>div { padding: 17px; background: #101c14; border-color: #2d4435; border-radius: 7px; }
+.dashboardPage :is(.agentControlFacts, .agentConfigurationGrid, .agentPerformanceGrid, .settingsInfoGrid, .callsDetailGrid, .callsAnalyticsGrid, .billingCurrentStats) span { color: #99b6a4; font-size: 9px; font-weight: 550; letter-spacing: 0.07em; }
+.dashboardPage :is(.agentControlFacts, .agentConfigurationGrid, .agentPerformanceGrid, .settingsInfoGrid, .callsDetailGrid, .callsAnalyticsGrid, .billingCurrentStats) strong { color: #e1eee5; font-weight: 500; line-height: 1.65; }
+.dashboardPage :is(.callsLiveEmpty, .agentLiveState) { background: #182a1e; border-color: #355b40; border-radius: 8px; }
+.dashboardPage .callsLiveEmpty p { color: #9fbaa9; font-size: 12px; line-height: 1.8; }
+.dashboardPage .callsHistoryItem { background: #142119; border-color: #304b3a; border-radius: 7px; padding: 16px; }
+.dashboardPage .callsHistoryItem:hover { border-color: #5c8267; background: #1d3325; }
+.dashboardPage .callsHistoryItem--active { background: #233d2c; border-color: #7aa487; box-shadow: none; }
+.dashboardPage .callsHistoryMain strong { color: #d7e9df; font-size: 13px; font-weight: 500; }
+.dashboardPage .callsHistoryMain span { color: #a1b9aa; font-size: 11px; }
+.dashboardPage .callsHistorySide strong { color: #c1d5c9; font-weight: 500; }
+.dashboardPage .callsDetailHero { border-color: #3b5544; background: #1a2e21; border-radius: 8px; }
+.dashboardPage .callsDetailHero strong { color: #dceddf; font-weight: 500; }
+.dashboardPage .callsSummaryBox { border-color: #3b5846; background: #1b3022; border-radius: 8px; }
+.dashboardPage .callsSummaryBox>span { color: #a9dab8; font-weight: 550; }
+.dashboardPage .callsSummaryBox p { color: #b3cdbd; font-size: 13px; line-height: 1.85; }
+.dashboardPage .customerRequestCard { background: #14221a; border-color: #35503e; border-radius: 8px; padding: 22px; }
+.dashboardPage .customerRequestCard h3 { color: #e1ece4; font-weight: 500; }
+.dashboardPage .customerRequestCard>p { color: #aec7b7; font-size: 13px; line-height: 1.85; }
+.dashboardPage .customerRequestCard>small { color: #91b09d; font-size: 11px; }
+.dashboardPage .customerRequestCardTop>div>span { color: #97bea5; font-weight: 550; }
+.dashboardPage :is(.customerRequestPanel label>span, .billingCustomMinutes label) { color: #b3cbbb; font-size: 12px; font-weight: 500; }
+.dashboardPage :is(input:not([type='checkbox']):not([type='radio']):not([type='range']), select, textarea) { color: #deebe3; background: #0e1912; border: 1px solid #415f4c; border-radius: 6px; padding: 11px 12px; font-family: inherit; font-size: 13px; line-height: 1.5; min-height: 42px; }
+.dashboardPage :is(input, textarea)::placeholder { color: #87a392; }
+.dashboardPage :is(select, textarea, input):focus { border-color: #81e7a6; }
+.dashboardPage select option { color: #e0eee4; background: #15251b; }
+.dashboardPage .agentHoursToggle input:checked + .agentHoursToggleTrack { background: #81e7a6; border-color: #81e7a6; }
+.dashboardPage .agentHoursDay { background: #132019; border-color: #35513e; border-radius: 8px; }
+.dashboardPage .agentHoursDay--open { border-color: #4e7959; }
+.dashboardPage .agentHoursDayName strong { color: #d8e9de; font-weight: 500; }
+.dashboardPage .agentHoursSummary,.dashboardPage .agentHoursDayName span { color: #a6c2b0; }
+.dashboardPage .billingConfigSection { border-color: #344e3c; }
+.dashboardPage .billingConfigSectionHead h3 { color: #dcebe1; font-weight: 500; font-size: 17px; }
+.dashboardPage .billingConfigSectionHead p { color: #a8c0b1; font-size: 12px; line-height: 1.8; }
+.dashboardPage .billingConfigNumber { color: #bbebcb; background: #294333; border: 1px solid #476c52; border-radius: 7px; }
+.dashboardPage .billingCurrentUsage { background: #102016; border-color: #36553f; border-radius: 8px; padding: 19px; }
+.dashboardPage .billingUsageFill { background: #81e7a6; box-shadow: none; }
+.dashboardPage .billingCurrentUsageTop span,.dashboardPage .billingCurrentUsage small { color: #abc9b6; font-size: 11px; }
+.dashboardPage .billingMinuteChoice { background: #14251b; border-color: #3a5a45; border-radius: 7px; padding: 15px; }
+.dashboardPage .billingMinuteChoice strong { color: #deeee4; font-weight: 500; }
+.dashboardPage .billingMinuteChoice span { color: #a2bead; }
+.dashboardPage .billingMinuteChoice--selected { background: #294c35; border-color: #81e7a6; box-shadow: inset 0 0 0 1px #81e7a6; }
+.dashboardPage .billingCheckoutRows>div { border-color: #344e3d; }
+.dashboardPage .billingCheckoutRows span { color: #abc6b5; font-size: 12px; }
+.dashboardPage .billingCheckoutRows strong { color: #e4f0e7; font-weight: 500; }
+.dashboardPage .billingCheckoutEquation { border-color: #3f6049; background: #203d2a; border-radius: 7px; }
+.dashboardPage .billingCheckoutEquation strong,.dashboardPage .billingCheckoutTotal strong { color: #c4f3d2; font-weight: 500; }
+.dashboardPage .billingCheckoutDisclaimer { color: #a1bca9; font-size: 11px; line-height: 1.85; }
+.dashboardPage .onboardingProgressHead h2 { color: #e1eee5; font-weight: 500; }
+.dashboardPage .onboardingProgressHead p { color: #a2beac; font-size: 13px; line-height: 1.85; }
+
+/* Existing page order and controls remain visible at smaller widths. */
+@media (min-width: 901px) and (max-width: 1150px) {
+  .dashboardPage { grid-template-columns: 212px minmax(0, 1fr); }
+  .dashboardPage .dashboardSidebar { padding-inline: 14px; }
+  .dashboardPage .dashboardMain { padding-inline: 28px; }
+  .dashboardPage .dashboardStats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboardPage .customerRequestGrid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 900px) {
+  .pageWrapper .section { padding-block: 70px; }
+  .pageWrapper .heroNew { min-height: 80vh; padding-block: 135px 80px; }
+  .pageWrapper .featureCard { padding: 22px; }
+  .pageWrapper .panel { padding: 24px; }
+  .pageWrapper .pricingCard { padding: 27px; }
+  .dashboardPage { grid-template-columns: minmax(0, 1fr); }
+  .dashboardPage .dashboardSidebar { min-height: auto; padding: 20px 24px 17px; border-right: 0; border-bottom: 1px solid #304638; }
+  .dashboardPage .dashboardBrand { padding: 0 0 18px; margin-bottom: 14px; }
+  .dashboardPage .dashboardBrand img { height: 30px; }
+  .dashboardPage .dashboardNav { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 8px; }
+  .dashboardPage .dashboardNavItem { flex-shrink: 0; white-space: nowrap; padding: 10px 14px; min-height: 42px; font-size: 12px; }
+  .dashboardPage .dashboardMain { padding: 30px 24px 50px; }
+  .dashboardPage .dashboardHeader { padding-bottom: 23px; gap: 18px; }
+  .dashboardPage .dashboardStats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboardPage .customerRequestGrid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .pageWrapper .heroNew { padding-block: 125px 65px; }
+  .pageWrapper .heroNewTitle { font-size: clamp(60px, 18vw, 90px); }
+  .pageWrapper .heroNewSubtitle { font-size: 24px; line-height: 1.4; }
+  .pageWrapper .heroNewDescription { font-size: 14px; max-width: 100%; }
+  .pageWrapper .heroNewProof { gap: 9px; font-size: 10px; }
+  .pageWrapper .section { padding-block: 55px; }
+  .pageWrapper .sectionTitle { font-size: 31px; }
+  .pageWrapper .sectionSubtitle { font-size: 14px; }
+  .pageWrapper .featureCard { padding: 23px; }
+  .pageWrapper .featureTitle { font-size: 16px; }
+  .pageWrapper .featureDesc { font-size: 13px; }
+  .pageWrapper .panel,.pageWrapper .pricingCard { padding: 22px; }
+  .pageWrapper .publicPriceBreakdown { padding: 22px; }
+  .pageWrapper .publicPriceBreakdown h3 { font-size: 24px; }
+  .pageWrapper .bookCard { padding: 35px 23px; }
+  .pageWrapper .bookPoint { font-size: 11px; }
+  .pageWrapper .footer { padding-block: 32px; }
+  .dashboardPage .dashboardMain { padding: 26px 18px 40px; }
+  .dashboardPage .dashboardHeader h1 { font-size: 30px; }
+  .dashboardPage .dashboardHeader p { font-size: 12px; }
+  .dashboardPage .dashboardHeader { margin-bottom: 23px; }
+  .dashboardPage .dashboardStats { grid-template-columns: minmax(0, 1fr); gap: 13px; }
+  .dashboardPage .dashboardStats .dashboardStatCard { padding: 22px; min-height: 120px; }
+  .dashboardPage .dashboardStatCard strong { font-size: 30px; }
+  .dashboardPage :is(.agentControlHero, .agentPanel, .callsLiveCard, .callsHistoryPanel, .callsDetailPanel, .callsAnalytics, .settingsPanel, .customerRequestPanel, .customerRequestHistory, .billingConfigCurrent, .billingConfigurator, .billingCheckoutSummary, .dashboardPhoneNumbersPanel, .dashboardCompanyChart, .dashboardTodayCard) { padding: 21px; }
+  .dashboardPage .dashboardRequestShortcut { padding: 22px; }
+  .dashboardPage :is(.dashboardRequestShortcut, .dashboardTodayCard) h2 { font-size: 20px; }
+  .dashboardPage .dashboardActiveCall { padding: 16px; }
+  .dashboardPage .callsDetailGrid { grid-template-columns: minmax(0, 1fr); }
+  .dashboardPage .billingCurrentStats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
