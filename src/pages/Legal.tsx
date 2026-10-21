@@ -42,6 +42,6 @@ export default function Legal({ page }: { page: 'privacy' | 'terms' }) {
       <nav className="legalContents" aria-label="On this page">{sections.map((section, index) => <a key={section.title} href={`#section-${index + 1}`}>{section.title}</a>)}</nav>
       {sections.map((section, index) => <section id={`section-${index + 1}`} key={section.title}><h2>{section.title}</h2>{section.content}</section>)}
     </article>
-    <nav className="publicFooter"><a href="/">Recepta home</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:receptahelp02@gmail.com">Contact</a></nav>
+    <nav className="publicFooter"><a href="/">Recepta home</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/contact">Contact Us</a></nav>
   </main>
 }

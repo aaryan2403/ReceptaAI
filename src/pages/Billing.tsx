@@ -4,14 +4,6 @@ import { fetchBillingStatus } from '../lib/billing'
 import type { BillingSubscription as Subscription } from '../lib/billing'
 import { calculateMinuteBalance, formatMinuteSeconds, ROLLOVER_POLICY } from '../lib/minuteBalance'
 
-type AIModel = {
-  id: string
-  display_name: string
-  provider: string
-  tier_name: string
-  customer_price_per_minute_cad: number | null
-}
-
 const MAX_MONTHLY_MINUTES = 100_000_000
 const PII_RATE_CAD = 0.014
 const GUARDRAIL_RATE_CAD = 0.007
@@ -22,8 +14,8 @@ export default function Billing() {
   const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [secondsUsed, setSecondsUsed] = useState(0)
   const [managingBilling, setManagingBilling] = useState(false)
-  const [models, setModels] = useState<AIModel[]>([])
   const [modelRate, setModelRate] = useState(0)
+  const [assignedModelName, setAssignedModelName] = useState('assigned AI model')
   const [selectedMinutes, setSelectedMinutes] = useState('300')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -49,15 +41,12 @@ export default function Billing() {
         const configured = { ...loadedSubscription, ...(loadedSubscription?.pending_configuration ?? {}) }
         setSelectedMinutes(String(configured.monthly_minutes ?? 300))
 
-        if (!modelsResult.error) {
-          setModels((modelsResult.data ?? []) as AIModel[])
-        }
-
         if (configured.ai_model_id) {
           const assignedModel = (modelsResult.data ?? []).find(
             (model) => model.id === configured.ai_model_id
           )
           setModelRate(Math.max(0, Number(assignedModel?.customer_price_per_minute_cad ?? 0)))
+          setAssignedModelName(assignedModel?.display_name || 'assigned AI model')
         }
 
       } catch (loadError) {
@@ -265,124 +254,9 @@ export default function Billing() {
               <p className="billingCheckoutDisclaimer">We email you before renewal, after payment, if payment fails, and at 80% and 100% usage. New AI calls pause when your paid allowance is used; calls in progress can finish.</p>
             </section>
 
-            <section className="billingConfigurator billingCatalogue">
-              <div className="billingConfiguratorHeading">
-                <span className="billingPremiumEyebrow">RECEPTA CATALOGUE</span>
-                <h2>Plans, AI models and add-ons</h2>
-                <p>See every published price before you request a change. Paid plan, model and add-on changes activate after successful payment.</p>
-              </div>
-
-              <div className="billingConfigSection">
-                <div className="billingConfigSectionHead">
-                  <span className="billingConfigNumber">1</span>
-                  <div>
-                    <h3>Plans</h3>
-                    <p>Plan prices are monthly base fees. AI usage and selected add-ons are calculated separately.</p>
-                  </div>
-                </div>
-
-                <div className="billingPlanChoices">
-                  <article className={`billingPlanChoice ${subscription.plan_name === 'Recepta Standard' ? 'billingPlanChoice--selected' : ''}`}>
-                    <div className="billingPlanChoiceTop">
-                      <div><span>STANDARD</span><h3>Recepta Standard</h3></div>
-                      {subscription.plan_name === 'Recepta Standard' && <span className="billingCurrentBadge">CURRENT</span>}
-                    </div>
-                    <div className="billingChoicePrice"><strong>C$200</strong><span>/ month base</span></div>
-                    <p>AI call answering and the essential customer dashboard.</p>
-                    <ul>
-                      <li>Call history and AI summaries</li>
-                      <li>Monthly minute selection and rollover</li>
-                      <li>Agent settings and basic notifications</li>
-                    </ul>
-                  </article>
-
-                  <article className={`billingPlanChoice ${subscription.plan_name === 'Recepta Pro' ? 'billingPlanChoice--selected' : ''}`}>
-                    <div className="billingPlanChoiceTop">
-                      <div><span>PRO</span><h3>Recepta Pro</h3></div>
-                      {subscription.plan_name === 'Recepta Pro' && <span className="billingCurrentBadge">CURRENT</span>}
-                    </div>
-                    <div className="billingChoicePrice"><strong>C$300</strong><span>/ month base</span></div>
-                    <p>Everything in Standard, plus AI appointment intake.</p>
-                    <ul>
-                      <li>Appointment details inside each call</li>
-                      <li>Admin-defined custom intake fields</li>
-                      <li>Full appointment notifications and AI summary</li>
-                    </ul>
-                  </article>
-                </div>
-              </div>
-
-              <div className="billingConfigSection">
-                <div className="billingConfigSectionHead">
-                  <span className="billingConfigNumber">2</span>
-                  <div>
-                    <h3>AI model catalogue</h3>
-                    <p>The model rate is charged for each selected monthly minute. Your assigned model is marked below.</p>
-                  </div>
-                </div>
-
-                {models.length > 0 ? (
-                  <div className="billingModelGrid">
-                    {models.map((model) => (
-                      <article key={model.id} className={`billingModelCard ${subscription.ai_model_id === model.id ? 'billingModelCard--selected' : ''}`}>
-                        <div className="billingModelTop">
-                          <span className="billingModelProvider">{model.provider}</span>
-                          {subscription.ai_model_id === model.id && <span className="billingCurrentBadge">ASSIGNED</span>}
-                        </div>
-                        <div className="billingModelTier">{model.tier_name}</div>
-                        <h3>{model.display_name}</h3>
-                        <div className="billingModelPrice">
-                          <strong>C${Number(model.customer_price_per_minute_cad ?? 0).toFixed(3)}</strong>
-                          <span>/ selected minute</span>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="billingCatalogueEmpty">AI model prices are being configured. Contact Recepta for the current options.</p>
-                )}
-              </div>
-
-              <div className="billingConfigSection">
-                <div className="billingConfigSectionHead">
-                  <span className="billingConfigNumber">3</span>
-                  <div>
-                    <h3>Optional add-ons</h3>
-                    <p>Security add-ons apply to every selected monthly minute. Recepta Admin enables them after your request.</p>
-                  </div>
-                </div>
-
-                <div className="billingAddOnGrid">
-                  <article className={subscription.pii_redaction_enabled ? 'billingAddOnCard billingAddOnCard--enabled' : 'billingAddOnCard'}>
-                    <div><span>PRIVACY</span>{subscription.pii_redaction_enabled && <strong>ENABLED</strong>}</div>
-                    <h3>PII Redaction</h3>
-                    <p>Automatically redacts supported personal information categories from Retell call data.</p>
-                    <strong>C$0.014 <small>/ selected minute</small></strong>
-                  </article>
-
-                  <article className={subscription.safety_guardrails_enabled ? 'billingAddOnCard billingAddOnCard--enabled' : 'billingAddOnCard'}>
-                    <div><span>SAFETY</span>{subscription.safety_guardrails_enabled && <strong>ENABLED</strong>}</div>
-                    <h3>Safety Guardrails</h3>
-                    <p>Enables supported input and output safeguards for the assigned AI receptionist.</p>
-                    <strong>C$0.007 <small>/ selected minute</small></strong>
-                  </article>
-
-                  <article className="billingAddOnCard">
-                    <div><span>PHONE</span>{subscription.extra_phone_numbers > 0 && <strong>{subscription.extra_phone_numbers} ACTIVE</strong>}</div>
-                    <h3>Extra Phone Number</h3>
-                    <p>Add another Recepta phone number to the same active subscription.</p>
-                    <strong>C$20 <small>/ number / month</small></strong>
-                  </article>
-                </div>
-
-                <a
-                  className="btn btnOutline billingCatalogueRequest"
-                  href={`mailto:receptahelp02@gmail.com?subject=${encodeURIComponent('Recepta catalogue change request')}&body=${encodeURIComponent(`Please contact me about changing my Recepta plan, AI model or add-ons. Current plan: ${subscription.plan_name || 'Not assigned'}.`)}`}
-                >
-                  Request a plan, model or add-on
-                </a>
-              </div>
-            </section>
+            <p className="billingCheckoutDisclaimer" style={{ marginTop: 20 }}>
+              Looking for plans, models or add-ons? <a href="/our-product#plans" style={{ color: '#81e7a6', textDecoration: 'underline' }}>Explore Our Product</a> or <a href="/contact" style={{ color: '#81e7a6', textDecoration: 'underline' }}>contact Recepta</a> to discuss a change.
+            </p>
 
             <section className="billingConfigurator">
               <div className="billingConfiguratorHeading">
@@ -393,7 +267,7 @@ export default function Billing() {
 
               <div className="billingConfigSection">
                 <div className="billingConfigSectionHead">
-                  <span className="billingConfigNumber">4</span>
+                  <span className="billingConfigNumber">1</span>
                   <div>
                     <h3>Select your monthly minutes</h3>
                     <p>You can update the allowance whenever your call volume changes.</p>
@@ -431,7 +305,7 @@ export default function Billing() {
               </div>
 
               <div className="billingCheckoutSummary">
-                {subscription.pending_configuration && <p className="calendarAlert" role="status">Recepta prepared a configuration awaiting payment: {checkoutConfiguration?.plan_name}, {models.find(model => model.id === checkoutConfiguration?.ai_model_id)?.display_name || 'assigned AI model'}, PII redaction {checkoutConfiguration?.pii_redaction_enabled ? 'on' : 'off'}, Safety Guardrails {checkoutConfiguration?.safety_guardrails_enabled ? 'on' : 'off'}, and {checkoutConfiguration?.extra_phone_numbers ?? 0} additional numbers. Your current paid service stays unchanged until payment succeeds.</p>}
+                {subscription.pending_configuration && <p className="calendarAlert" role="status">Recepta prepared a configuration awaiting payment: {checkoutConfiguration?.plan_name}, {assignedModelName}, PII redaction {checkoutConfiguration?.pii_redaction_enabled ? 'on' : 'off'}, Safety Guardrails {checkoutConfiguration?.safety_guardrails_enabled ? 'on' : 'off'}, and {checkoutConfiguration?.extra_phone_numbers ?? 0} additional numbers. Your current paid service stays unchanged until payment succeeds.</p>}
                 <div className="billingCheckoutSummaryHead">
                   <div>
                     <span className="billingPremiumEyebrow">UPDATED TOTAL</span>

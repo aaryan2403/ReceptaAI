@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { CalendarIcon } from './icons'
+import { DISCOVERY_CALL_URL } from '../lib/publicCompany'
 
 export default function ContactModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
@@ -18,6 +19,7 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
     <div
       className="modalOverlay bookingOverlay"
       role="dialog"
+      aria-modal="true"
       aria-label="Book a Recepta discovery call"
     >
       <div
@@ -68,7 +70,7 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
           }}
         >
           <iframe
-            src="https://cal.com/recepta/30min?embed=true&theme=dark&layout=month_view"
+            src={`${DISCOVERY_CALL_URL}?embed=true&theme=dark&layout=month_view`}
             title="Recepta Discovery Call"
             className="bookingCalendar"
             style={{
@@ -79,6 +81,7 @@ export default function ContactModal({ onClose }: { onClose: () => void }) {
             }}
           />
         </div>
+        <a className="marketingCalendarFallback" href={DISCOVERY_CALL_URL} target="_blank" rel="noreferrer">Calendar not loading? Open the discovery-call booking ↗</a>
       </div>
     </div>
   )

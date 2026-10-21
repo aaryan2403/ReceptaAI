@@ -16,6 +16,9 @@ import CustomerRequests from './pages/CustomerRequests.tsx'
 import AdminRequests from './pages/AdminRequests.tsx'
 import Demo from './pages/Demo.tsx'
 import Legal from './pages/Legal.tsx'
+import OurProduct from './pages/OurProduct.tsx'
+import Contact from './pages/Contact.tsx'
+import About from './pages/About.tsx'
 
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import AdminRoute from './components/AdminRoute.tsx'
@@ -27,6 +30,10 @@ createRoot(document.getElementById('root')!).render(
       <Routes>
         {/* Public */}
         <Route path="/" element={<App />} />
+        <Route path="/our-product" element={<OurProduct />} />
+        <Route path="/product" element={<Navigate to="/our-product" replace />} />
+        <Route path="/contact" element={<Contact />} />
+        <Route path="/about" element={<About />} />
         <Route path="/demo" element={<Demo />} />
         <Route path="/privacy" element={<Legal page="privacy" />} />
         <Route path="/terms" element={<Legal page="terms" />} />

@@ -4,7 +4,7 @@ import { calculateMonthlyPriceCad, EXTRA_PHONE_NUMBER_MONTHLY_CAD, PII_REDACTION
 type Model = { id: string; display_name: string; tier_name: string; customer_price_per_minute_cad: string | number }
 const money = (value: number) => `C$${value.toFixed(2)}`
 
-export default function PublicPricing() {
+export default function PublicPricing({ showModels = false }: { showModels?: boolean }) {
   const [models, setModels] = useState<Model[]>([])
   const [selectedModel, setSelectedModel] = useState('')
   const [plan, setPlan] = useState<'Recepta Standard' | 'Recepta Pro'>('Recepta Standard')
@@ -33,6 +33,7 @@ export default function PublicPricing() {
 
   return <div className="publicPriceBreakdown">
     <div><span className="eyebrow">FULL MONTHLY COST</span><h3>Choose a budget. See every charge.</h3><p>The base fee includes setup, ongoing support and one phone number. Purchased call minutes and selected extras are added below.</p></div>
+    {showModels && models.length > 0 && <div className="marketingModelCatalogue"><h4>Current AI model options</h4><p>Choose a model below to explore its monthly cost. Recepta configures the selected model for your business.</p><div>{models.map(item => <button type="button" key={item.id} aria-pressed={selectedModel === item.id} onClick={() => setSelectedModel(item.id)}><span>{item.tier_name}</span><strong>{item.display_name}</strong><small>C${Number(item.customer_price_per_minute_cad).toFixed(3)} / purchased minute</small></button>)}</div></div>}
     <div className="publicPriceGrid">
       <div className="publicPriceInputs">
         <label>Plan<select value={plan} onChange={event => setPlan(event.target.value as typeof plan)}><option>Recepta Standard</option><option>Recepta Pro</option></select></label>
