@@ -136,7 +136,7 @@ export default function Landing() {
         'Employee availability schedules',
         'Ongoing maintenance and support included',
         '24/7 availability',
-        'Call transfer functionality',
+        'Callback requests for calls the AI cannot accept',
         'Additional phone number integration: C$20/month per number',
         'Perfect for: Service-oriented businesses managing calls and schedules',
       ],
@@ -155,7 +155,7 @@ export default function Landing() {
         'Employee availability schedules',
         'Ongoing maintenance and support included',
         '24/7 availability',
-        'Call transfer functionality',
+        'Callback requests for calls the AI cannot accept',
         'Additional phone number integration: C$20/month per number',
         'Perfect for: Businesses that want around-the-clock call coverage without booking',
       ],
@@ -264,8 +264,8 @@ export default function Landing() {
               />
               <FeatureCard
                 icon={ShuffleIcon}
-                title="Smart call transfers"
-                description="Instant routing to the right team member when human attention is required, no awkward delays."
+                title="A clear callback queue"
+                description="Calls the AI cannot accept create callback requests when caller details are available. Your team can track each follow-up through to resolution."
               />
               <FeatureCard
                 icon={MessageIcon}
@@ -554,7 +554,7 @@ export default function Landing() {
             <img className="footerLogo" src="/components/logoR.png" alt="Recepta" />
 
             <nav className="footerLinks" aria-label="Footer">
-              <a className="footerLink" href="#product">
+              <a className="footerLink" href="/our-product">
                 <SparklesIcon size={14} />
                 Product
               </a>
@@ -576,7 +576,8 @@ export default function Landing() {
               </button>
               <a className="footerLink" href="/privacy">Privacy</a>
               <a className="footerLink" href="/terms">Terms</a>
-              <a className="footerLink" href="mailto:receptahelp02@gmail.com">Contact</a>
+              <a className="footerLink" href="/about">About Us</a>
+              <a className="footerLink" href="/contact">Contact Us</a>
             </nav>
 
             <div className="footerText">© {new Date().getFullYear()} Recepta. Less hassle, more hustle.</div>

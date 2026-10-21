@@ -19,7 +19,7 @@ export default function Hero({ onBook }: { onBook: () => void }) {
 
           <p className="heroNewDescription">
             Recepta answers configured customer calls, handles enquiries, captures appointment requests,
-            and transfers important calls when your team needs to step in.
+            and keeps useful details ready for your team’s follow-up.
           </p>
 
           <div className="heroNewCtas">
@@ -28,7 +28,7 @@ export default function Hero({ onBook }: { onBook: () => void }) {
               Book a Demo
             </button>
 
-            <a className="btn btnOutline btnLg" href="#product">
+            <a className="btn btnOutline btnLg" href="/our-product">
               See How It Works
               <ArrowRightIcon size={18} />
             </a>
@@ -39,7 +39,7 @@ export default function Hero({ onBook }: { onBook: () => void }) {
             <span className="heroProofDot" />
             <span>Appointment requests</span>
             <span className="heroProofDot" />
-            <span>Human handoff</span>
+            <span>Clear follow-up</span>
           </div>
         </div>
       </div>

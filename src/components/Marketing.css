@@ -1,0 +1,304 @@
+/* Public Recepta pages — charcoal, soft ivory and a single green accent. */
+.marketingPage { --mk-bg:#0c100e; --mk-panel:#121914; --mk-line:#29342c; --mk-ink:#edf0e9; --mk-muted:#a1aea4; --mk-green:#81e7a6; background:var(--mk-bg); color:var(--mk-ink); min-height:100vh; }
+.marketingContainer { width:min(1180px,calc(100% - 96px)); margin-inline:auto; }
+.marketingPage h1,.marketingPage h2,.marketingPage h3,.marketingPage h4 { font-weight:500; line-height:1.12; letter-spacing:-.045em; }
+.marketingPage h1 { font-size:clamp(48px,6.5vw,88px); }
+.marketingPage h1>span,.marketingPage h2>span { color:var(--mk-green); }
+.marketingPage h2 { font-size:clamp(34px,4.3vw,56px); }
+.marketingPage p { color:var(--mk-muted); line-height:1.8; font-size:15px; }
+.marketingPage a,.marketingPage button { -webkit-tap-highlight-color:transparent; }
+.marketingPage :focus-visible,.marketingNavGroup :focus-visible,.marketingMenuToggle:focus-visible { outline:2px solid #81e7a6; outline-offset:5px; }
+.marketingPage section[id],.marketingPreview { scroll-margin-top:108px; }
+.marketingEyebrow { display:block; color:#94b39e; font-size:10px; font-weight:650; line-height:1.5; letter-spacing:.16em; text-transform:uppercase; }
+.marketingEyebrow>svg { vertical-align:middle; }
+.marketingButton { display:inline-flex; align-items:center; justify-content:center; gap:28px; background:#81e7a6; color:#102519; padding:16px 22px; border:1px solid #81e7a6; border-radius:7px; font-size:13px; font-weight:650; transition:background .18s,transform .18s; }
+.marketingButton:hover { background:#a2f5bf; transform:translateY(-2px); }
+.marketingTextLink { display:inline-flex; align-items:center; gap:13px; font-size:13px; font-weight:550; color:var(--mk-ink); }
+.marketingTextLink:hover { color:#81e7a6; }
+.marketingSection { padding-block:108px; }
+.marketingSectionHead { max-width:720px; margin-bottom:52px; }
+.marketingSectionHead h2 { margin-top:20px; }
+.marketingSectionHead p { max-width:570px; margin-top:22px; }
+.marketingSmallLabel { color:#8b9c90; font-size:9px; font-weight:600; letter-spacing:.13em; }
+.marketingNavGroup { display:flex; align-items:center; gap:38px; }
+.marketingNavLinks { display:flex; align-items:center; gap:27px; }
+.marketingNavLinks a { font-size:12px; font-weight:500; color:#c6cfc8; transition:color .2s; }
+.marketingNavLinks a:hover,.marketingNavLinks a.active { color:#81e7a6; }
+.marketingNavLinks a.active::after { content:''; display:block; height:2px; background:#81e7a6; margin-top:5px; }
+.marketingMenuToggle { display:none; color:#edf0e9; background:none; border:0; cursor:pointer; }
+.marketingSkip { position:fixed; top:-80px; left:20px; padding:12px 20px; background:#81e7a6; color:#102519; z-index:100; }
+.marketingSkip:focus { top:12px; }
+.marketingCalendarFallback { display:block; padding-top:10px; color:#a7dcb8; font-size:12px; text-align:center; }
+.marketingProductHero { padding-top:164px; position:relative; }
+.marketingProductHero>.marketingEyebrow { display:flex; align-items:center; gap:9px; }
+.marketingPulse { height:6px; width:6px; border-radius:50%; background:#81e7a6; box-shadow:0 0 0 4px #81e7a615; }
+.marketingProductHero h1 { margin-top:27px; }
+.marketingProductHero>p { margin-top:24px; max-width:560px; font-size:17px; }
+.marketingHeroActions { display:flex; align-items:center; gap:29px; margin-top:32px; }
+.marketingHeroNotes { display:flex; gap:21px; margin-top:23px; }
+.marketingHeroNotes span { display:flex; align-items:center; gap:6px; font-size:10px; color:#9ba99e; }
+.marketingHeroNotes svg { color:#81e7a6; }
+.marketingHeroOrbit { position:absolute; top:206px; right:5%; width:230px; height:230px; border:1px solid #364a3b; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; transform:rotate(8deg); }
+.marketingHeroOrbit::before { content:''; position:absolute; inset:16px; border:1px dashed #364a3b; border-radius:50%; }
+.marketingHeroOrbit::after { content:''; position:absolute; left:12px; bottom:45px; width:12px; height:12px; border-radius:50%; background:#81e7a6; box-shadow:0 0 30px #81e7a680; }
+.marketingHeroOrbit>svg { width:43px; height:43px; color:#81e7a6; stroke-width:1; }
+.marketingHeroOrbit>span { font-size:14px; text-align:center; color:#bdcfc0; line-height:1.5; }
+.marketingPreview { margin-top:68px; border:1px solid #36453a; border-radius:13px 13px 0 0; overflow:hidden; background:#131a15; box-shadow:0 -20px 100px #76df9620; position:relative; }
+.marketingPreviewBar { display:flex; align-items:center; justify-content:space-between; height:40px; padding:0 20px; border-bottom:1px solid #29352d; background:#1a241d; }
+.marketingPreviewBar>span { display:flex; align-items:center; gap:7px; color:#8fa395; font-size:10px; }
+.marketingPreviewBar i { width:6px; height:6px; background:#536759; border-radius:50%; }
+.marketingPreviewBar small { color:#8fa395; font-size:8px; letter-spacing:.12em; }
+.marketingPreviewBody { display:flex; }
+.marketingPreviewSidebar { width:62px; border-right:1px solid #29352d; padding:18px 0; display:flex; align-items:center; flex-direction:column; gap:26px; color:#8b9b90; }
+.marketingPreviewSidebar>svg:nth-of-type(2) { color:#81e7a6; }
+.marketingMiniLogo { font-size:29px; font-weight:700; letter-spacing:-.1em; color:#e3efe4; }
+.marketingMiniLogo>span { color:#81e7a6; }
+.marketingAvatar { display:grid; place-items:center; font-size:11px; border:1px solid #455d4b; background:#273b2d; border-radius:50%; width:28px; height:28px; margin-top:auto; }
+.marketingPreviewContent { padding:28px 32px 24px; flex:1; min-width:0; }
+.marketingPreviewHeading { display:flex; align-items:center; justify-content:space-between; gap:15px; }
+.marketingPreviewHeading>div>span { font-size:8px; letter-spacing:.13em; color:#8d9f92; }
+.marketingPreviewHeading h3 { font-size:22px; margin-top:8px; letter-spacing:-.03em; }
+.marketingStatus { display:flex; align-items:center; gap:7px; font-size:9px; color:#a4c4af; border:1px solid #344d3c; padding:6px 9px; border-radius:30px; white-space:nowrap; }
+.marketingStatus i { width:4px; height:4px; border-radius:50%; background:#81e7a6; }
+.marketingDemoTabs { display:flex; gap:7px; border-bottom:1px solid #2c3a30; margin-top:25px; padding-bottom:15px; }
+.marketingDemoTabs button { background:transparent; border:1px solid transparent; color:#a0b0a5; font-size:11px; cursor:pointer; padding:9px 14px; display:flex; align-items:center; gap:8px; border-radius:5px; }
+.marketingDemoTabs button[aria-pressed=true] { color:#adf4c5; border-color:#3b5e46; background:#1c3324; }
+.marketingDemoTabs button:hover { background:#243a2b; }
+.marketingDemoGrid { display:grid; grid-template-columns:1.3fr 1fr; gap:32px; padding-top:23px; }
+.marketingConversation { padding:10px 5px; }
+.marketingChat { padding:14px 16px; border:1px solid #324336; border-radius:8px; margin-top:13px; }
+.marketingChat span { font-size:8px; letter-spacing:.1em; color:#9cad9f; display:flex; align-items:center; gap:6px; }
+.marketingChat p { font-size:12px; color:#d6e0d8; line-height:1.65; margin-top:7px; }
+.marketingChatCaller { background:#1c2620; margin-right:40px; }
+.marketingChatAI { background:#1b2f21; border-color:#34573e; margin-left:24px; }
+.marketingChatAI span { color:#81e7a6; }
+.marketingWave { display:flex; align-items:center; gap:3px; justify-content:center; height:50px; margin-top:7px; }
+.marketingWave i { width:3px; border-radius:3px; background:#81e7a6; opacity:.7; }
+.marketingCallDetail { background:#1a251d; border:1px solid #334237; border-radius:9px; padding:23px; display:flex; align-items:flex-start; flex-direction:column; }
+.marketingDetailIcon { margin-top:20px; display:grid; place-items:center; width:47px; height:47px; background:#294632; color:#98edb5; border-radius:11px; }
+.marketingDetailTag { display:inline-block; margin-top:16px; font-size:9px; color:#9ce8b5; }
+.marketingCallDetail h4 { font-size:21px; margin-top:9px; max-width:230px; }
+.marketingCallDetail p { font-size:10px; margin-top:8px; }
+.marketingCallDetail>div { display:flex; align-items:center; justify-content:space-between; gap:15px; width:100%; padding-top:13px; margin-top:13px; border-top:1px solid #344639; font-size:9px; color:#90a397; }
+.marketingCallDetail>div strong { color:#d1e0d5; font-weight:500; text-align:right; }
+.marketingPreviewCaption { margin-top:17px; border-top:1px solid #2c3a30; padding-top:16px; }
+.marketingPreviewCaption strong { font-weight:500; font-size:12px; }
+.marketingPreviewCaption p { font-size:11px; margin-top:4px; max-width:820px; }
+.marketingIndustryStrip { background:#131b16; border-block:1px solid #2c3830; }
+.marketingIndustryStrip>div { display:flex; align-items:center; justify-content:space-between; gap:25px; padding-block:27px; }
+.marketingIndustryStrip span { color:#b1c0b5; font-size:15px; font-weight:500; }
+.marketingIndustryStrip span:first-child { color:#7b9483; font-size:8px; letter-spacing:.1em; max-width:120px; }
+.marketingNetwork { height:250px; position:relative; display:grid; grid-template-columns:1fr 1fr 1fr; align-items:center; justify-items:center; border-block:1px solid #293a2f; margin-top:12px; background:radial-gradient(ellipse at center,#24402e70,transparent 60%); }
+.marketingNetworkLines { position:absolute; inset:0; pointer-events:none; }
+.marketingNetworkLines svg { height:100%; width:100%; fill:none; stroke:#496a50; stroke-width:1.3; }
+.marketingNetworkColumn { display:flex; flex-direction:column; gap:58px; z-index:1; }
+.marketingNetworkColumn>div { display:flex; align-items:center; gap:12px; background:#111b14; border:1px solid #39513f; border-radius:7px; padding:14px 20px; font-size:12px; }
+.marketingNetworkColumn svg { color:#91b49c; }
+.marketingCloud { display:flex; flex-direction:column; align-items:center; z-index:1; background:#14231a; border:1px solid #4d6b55; padding:25px 28px; border-radius:22px; box-shadow:0 0 60px #81e7a60a; }
+.marketingCloud>svg { color:#81e7a6; }
+.marketingCloud strong { font-size:28px; font-weight:600; letter-spacing:-.06em; }
+.marketingCloud strong span { color:#81e7a6; }
+.marketingCloud small { color:#9cb5a3; font-size:9px; }
+.marketingThreeColumns { display:grid; grid-template-columns:repeat(3,1fr); gap:48px; margin-top:42px; }
+.marketingThreeColumns article>span { font-family:monospace; font-size:11px; color:#76a183; }
+.marketingThreeColumns h3 { font-size:22px; margin-block:17px 12px; }
+.marketingThreeColumns p { font-size:13px; }
+.marketingFeatureBand { background:#141d17; border-block:1px solid #2b3930; }
+.marketingHeadSplit { display:flex; justify-content:space-between; gap:70px; max-width:none; align-items:flex-end; }
+.marketingHeadSplit>p { max-width:330px; }
+.marketingCapabilities { display:grid; grid-template-columns:repeat(3,1fr); }
+.marketingCapabilities article { padding:34px 30px 34px 0; border-top:1px solid #34473a; }
+.marketingCapabilities article:nth-child(3n+2) { padding-left:30px; border-inline:1px solid #34473a; }
+.marketingCapabilities article:nth-child(3n) { padding-left:30px; padding-right:0; }
+.marketingCapabilities svg { color:#9be8b4; }
+.marketingCapabilities h3 { font-size:21px; margin-block:24px 13px; }
+.marketingCapabilities p { font-size:13px; }
+.marketingLinesSection { display:grid; grid-template-columns:1.1fr 1fr; gap:85px; align-items:center; }
+.marketingLinesSection h2 { margin-top:22px; }
+.marketingLinesSection>div>p { margin-top:24px; }
+.marketingCheckList { list-style:none; margin-top:25px; display:grid; gap:15px; }
+.marketingCheckList li { display:flex; align-items:flex-start; gap:11px; font-size:13px; color:#c2d0c6; }
+.marketingCheckList svg { color:#81e7a6; width:16px; height:16px; flex-shrink:0; margin-top:3px; }
+.marketingPage .marketingFinePrint { font-size:11px; color:#8ba193; }
+.marketingPhoneArtwork { min-height:450px; position:relative; border:1px solid #2b4032; background:#16251b; border-radius:12px; display:grid; place-items:center; overflow:hidden; }
+.marketingArtworkGrid { position:absolute; inset:0; background-image:linear-gradient(#81e7a60b 1px,transparent 1px),linear-gradient(90deg,#81e7a60b 1px,transparent 1px); background-size:32px 32px; }
+.marketingPhone { background:#101914; border:5px solid #3c5142; border-radius:34px; width:224px; height:360px; display:flex; flex-direction:column; align-items:center; padding:30px 15px; position:relative; transform:rotate(-6deg); box-shadow:25px 25px 0 #0e1c1360; }
+.marketingPhoneNotch { position:absolute; width:65px; height:12px; top:0; background:#3c5142; border-radius:0 0 9px 9px; }
+.marketingPhone .marketingSmallLabel { font-size:8px; }
+.marketingPhoneAvatar { display:grid; place-items:center; border-radius:50%; width:64px; height:64px; background:#294b34; color:#9deeb6; margin-top:23px; }
+.marketingPhone h3 { font-size:16px; margin-top:17px; }
+.marketingPhone p { font-size:9px; margin-top:6px; }
+.marketingPhoneWave { color:#81e7a6; height:65px; margin-top:5px; }
+.marketingPhonePill { display:flex; align-items:center; gap:6px; font-size:9px; padding:7px 10px; border:1px solid #385640; border-radius:30px; color:#a1d8b2; margin-top:10px; }
+.marketingPhone small { font-size:7px; color:#809b89; margin-top:13px; }
+.marketingFloatingNote { position:absolute; bottom:45px; right:17px; padding:12px; background:#d1e5d2; border:1px solid #efffea60; border-radius:7px; box-shadow:0 10px 30px #06180e70; color:#243f2e; font-size:10px; display:flex; align-items:center; gap:8px; transform:rotate(4deg); }
+.marketingPlans { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.marketingPlan { border:1px solid #34493a; border-radius:10px; padding:36px; display:flex; flex-direction:column; background:#121c15; }
+.marketingPlanPro { border-color:#709b7c; background:#1b3022; }
+.marketingPlan h3 { font-size:30px; margin-top:19px; }
+.marketingPlanPrice { font-size:50px; line-height:1.2; letter-spacing:-.055em; margin-top:24px; }
+.marketingPlanPrice>span { font-size:12px; color:#a2b4a8; margin-left:10px; letter-spacing:0; }
+.marketingPlan>p { font-size:13px; margin-top:14px; min-height:48px; }
+.marketingPlan ul { display:grid; gap:15px; list-style:none; padding-block:27px 35px; margin-top:25px; border-top:1px solid #395241; }
+.marketingPlan li { font-size:12px; display:flex; align-items:flex-start; gap:11px; color:#c4d5c9; }
+.marketingPlan li svg { flex-shrink:0; color:#81e7a6; }
+.marketingPlan .marketingButton { margin-top:auto; }
+.marketingPlan:not(.marketingPlanPro) .marketingButton { background:transparent; color:#cfe9d6; border-color:#4f7359; }
+.marketingPage .marketingPlanNote { display:flex; align-items:flex-start; gap:10px; font-size:11px; margin-top:21px; color:#a6bdaf; }
+.marketingPlanNote>svg { flex-shrink:0; color:#81e7a6; }
+.marketingAddons { display:grid; grid-template-columns:1.1fr 1fr 1fr 1fr; gap:25px; margin-top:70px; padding-block:30px; border-block:1px solid #2c4032; }
+.marketingAddons h3 { font-size:24px; margin-top:15px; }
+.marketingAddons article { padding-left:20px; border-left:1px solid #2c4032; }
+.marketingAddons article svg { color:#81e7a6; margin-bottom:17px; }
+.marketingAddons h4 { font-size:15px; margin-bottom:10px; letter-spacing:-.01em; }
+.marketingAddons p { font-size:11px; }
+.marketingAddons strong { display:block; font-size:15px; font-weight:500; margin-top:17px; }
+.marketingAddons small { color:#91a799; font-size:9px; }
+.marketingPage .publicPriceBreakdown { background:#141f17; border:1px solid #34493b; border-radius:10px; padding:36px; margin-top:40px; }
+.marketingPage .publicPriceBreakdown h3 { font-size:28px; margin-block:15px; }
+.marketingPage .publicPriceBreakdown p { font-size:12px; }
+.marketingPage .publicPriceGrid { display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:30px; }
+.marketingPage .publicPriceInputs { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+.marketingPage .publicPriceInputs label { display:flex; flex-direction:column; gap:7px; color:#afc3b6; font-size:10px; }
+.marketingPage .publicPriceInputs select,.marketingPage .publicPriceInputs input[type=number] { background:#0f1912; border:1px solid #3b5242; color:#e4ede5; border-radius:5px; min-width:0; width:100%; padding:11px; font-family:inherit; font-size:11px; }
+.marketingPage .publicPriceInputs label:nth-child(2) { grid-column:1/-1; grid-row:2; }
+.marketingPage .publicPriceInputs .publicPriceCheck { flex-direction:row; align-items:center; grid-column:1/-1; }
+.marketingPage input[type=checkbox] { accent-color:#81e7a6; }
+.marketingPage .publicPriceSummary { padding:22px; border:1px solid #3b5242; background:#1c2c20; border-radius:7px; }
+.marketingPage .publicPriceSummary>div { display:flex; justify-content:space-between; gap:15px; padding-block:10px; font-size:11px; color:#b1c3b6; }
+.marketingPage .publicPriceSummary strong { white-space:nowrap; color:#e8f2eb; font-weight:500; }
+.marketingPage .publicPriceSummary .publicPriceTotal { border-top:1px solid #435e49; margin-top:12px; padding-top:20px; color:#d3ebda; }
+.marketingPage .publicPriceTotal strong { font-size:23px; color:#81e7a6; }
+.marketingPage .publicPriceSummary>p { margin-top:15px; font-size:10px; }
+.marketingPage .publicPriceNotes { border-top:1px solid #34493b; display:grid; grid-template-columns:repeat(3,1fr); gap:25px; margin-top:28px; padding-top:24px; }
+.marketingPage .publicPriceNotes p { font-size:10px; }
+.marketingPage .publicPriceNotes strong { color:#c7dbcd; font-weight:500; }
+.marketingFaq { border-top:1px solid #293c30; display:grid; grid-template-columns:.8fr 1.3fr; gap:75px; }
+.marketingFaq h2 { margin-top:20px; }
+.marketingFaq details { border-bottom:1px solid #34473a; }
+.marketingFaq summary { padding:22px 0; display:flex; justify-content:space-between; gap:25px; font-size:14px; cursor:pointer; list-style:none; }
+.marketingFaq summary::-webkit-details-marker { display:none; }
+.marketingFaq summary svg { flex-shrink:0; color:#81e7a6; transition:transform .2s; }
+.marketingFaq details[open] summary svg { transform:rotate(45deg); }
+.marketingFaq details p { font-size:12px; padding-bottom:25px; }
+.marketingServiceNote { border-block:1px solid #2e4033; padding-block:20px; display:flex; gap:15px; align-items:center; }
+.marketingServiceNote svg { color:#81e7a6; flex-shrink:0; }
+.marketingServiceNote p { font-size:12px; }
+.marketingServiceNote a { color:#c5e6cf; display:inline-flex; align-items:center; gap:5px; }
+.marketingClosing { margin-block:85px; background:#bfe9ca; border-radius:10px; padding:55px; display:flex; justify-content:space-between; align-items:center; gap:40px; position:relative; overflow:hidden; }
+.marketingClosing::after { content:''; position:absolute; border:1px solid #42674b25; width:250px; height:250px; border-radius:50%; right:-70px; top:-140px; box-shadow:0 0 0 35px #42674b0a,0 0 0 70px #42674b08; pointer-events:none; }
+.marketingClosing .marketingEyebrow { color:#477052; font-size:8px; }
+.marketingClosing h2 { font-size:36px; color:#173923; max-width:500px; margin-top:16px; }
+.marketingClosing p { color:#45694f; font-size:12px; margin-top:17px; }
+.marketingClosing .marketingButton { background:#153d23; color:#d5f0dc; border:0; flex-shrink:0; }
+.marketingFooter { border-top:1px solid #2c3c31; background:#0a0f0c; padding-top:60px; }
+.marketingFooterTop { display:grid; grid-template-columns:1.7fr 1fr 1fr; gap:40px; padding-bottom:50px; }
+.marketingFooterTop img { width:105px; height:auto; }
+.marketingFooterTop p { color:#c9d7cc; line-height:1.5; font-size:16px; margin-top:24px; }
+.marketingFooterTop>div>span { display:block; color:#839b8b; font-size:10px; margin-top:17px; }
+.marketingFooterTop h2 { font-size:11px; color:#b3c7b9; letter-spacing:0; margin-bottom:22px; }
+.marketingFooterTop>div>a:not(:first-child) { display:flex; align-items:center; gap:8px; width:fit-content; color:#8ea396; font-size:11px; margin-top:14px; }
+.marketingFooter a:hover { color:#81e7a6; }
+.marketingFooterBottom { border-top:1px solid #28382d; padding-block:23px; display:flex; align-items:center; justify-content:space-between; color:#82988b; font-size:9px; }
+.marketingFooterBottom>div { display:flex; gap:24px; }
+/* Contact */
+.marketingContactHero { padding-top:165px; }
+.marketingContactHero h1 { margin-top:25px; }
+.marketingContactIntro { display:flex; justify-content:space-between; align-items:end; gap:30px; margin-top:30px; }
+.marketingContactIntro p { max-width:440px; font-size:17px; }
+.marketingContactIntro>span,.marketingAboutHeroBottom>span { display:flex; align-items:center; gap:8px; color:#99ae9f; font-size:11px; }
+.marketingContactOptions { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-top:65px; }
+.marketingContactOption { border:1px solid #364b3c; background:#141f17; padding:40px; border-radius:10px; transition:background .2s,border-color .2s; position:relative; }
+.marketingContactOption:hover { background:#1b3022; border-color:#6e9e7a; }
+.marketingContactIcon { width:54px; height:54px; display:grid; place-items:center; border:1px solid #405e48; border-radius:12px; color:#81e7a6; margin-bottom:34px; }
+.marketingContactOption h2 { font-size:35px; margin-top:18px; }
+.marketingContactOption p { font-size:13px; margin-top:20px; max-width:340px; min-height:48px; }
+.marketingContactOption strong { display:flex; align-items:center; justify-content:space-between; gap:12px; color:#b5ecc5; font-size:14px; font-weight:500; border-top:1px solid #3a5140; padding-top:24px; margin-top:34px; overflow-wrap:anywhere; }
+.marketingContactBooking { background:#213b29; border-color:#57775e; }
+.marketingDuration { position:absolute; right:25px; top:27px; color:#9dbfa7; font-size:9px; }
+.marketingContactAgenda { display:grid; grid-template-columns:1.1fr 1fr; gap:80px; }
+.marketingContactAgenda h2 { margin-top:20px; font-size:42px; }
+.marketingContactAgenda .marketingTextLink { margin-top:30px; }
+.marketingCalendarSection { background:#141d17; border-block:1px solid #2f4235; padding-block:85px; scroll-margin-top:100px; }
+.marketingCalendarFrame { border:1px solid #3e5846; border-radius:10px; overflow:hidden; background:#101712; }
+.marketingCalendarFrame iframe { width:100%; height:650px; display:block; border:0; }
+.marketingCalendarFrame>a { display:flex; align-items:center; justify-content:center; gap:10px; padding:18px; border-top:1px solid #344a3c; font-size:12px; color:#b2d9bf; }
+.marketingSupportNote { display:flex; align-items:center; gap:25px; padding-block:65px; }
+.marketingSupportNote>svg { flex-shrink:0; color:#81e7a6; }
+.marketingSupportNote h2 { font-size:21px; }
+.marketingSupportNote p { font-size:12px; max-width:620px; margin-top:10px; }
+.marketingSupportNote>a { flex-shrink:0; margin-left:auto; }
+/* About */
+.marketingAboutHero { padding-top:165px; }
+.marketingAboutHero h1 { margin-top:26px; max-width:950px; }
+.marketingAboutHeroBottom { display:flex; justify-content:space-between; align-items:end; gap:40px; margin-top:33px; }
+.marketingAboutHeroBottom p { max-width:490px; font-size:17px; }
+.marketingFieldArt { margin-top:60px; border:1px solid #3c5744; border-radius:12px; overflow:hidden; position:relative; }
+.marketingFieldArt>svg { display:block; width:100%; height:auto; max-height:530px; background:#163123; }
+.marketingFieldArt figcaption { position:absolute; bottom:20px; right:24px; font-size:9px; color:#b9d2c0; }
+.marketingStory { display:grid; grid-template-columns:1.1fr 1fr; gap:90px; }
+.marketingStory h2 { margin-top:23px; font-size:44px; }
+.marketingStory p { margin-bottom:20px; font-size:14px; }
+.marketingPage p.marketingLargeCopy { color:#d1dfd4; font-size:22px; line-height:1.6; }
+.marketingFounderBand { background:#18251c; border-block:1px solid #324b3b; padding-block:75px; }
+.marketingFounder { display:grid; grid-template-columns:.8fr 1.2fr; gap:85px; align-items:center; }
+.marketingFounderMark { height:330px; border:1px solid #3f5b47; background:repeating-linear-gradient(45deg,transparent,transparent 24px,#81e7a607 24px,#81e7a607 25px),#203c29; border-radius:9px; display:flex; align-items:center; justify-content:center; position:relative; }
+.marketingFounderMark>span { font-size:110px; font-weight:500; letter-spacing:-.08em; color:#ccdfcd; }
+.marketingFounderMark>span>span { color:#81e7a6; }
+.marketingFounderMark small { position:absolute; bottom:22px; left:23px; font-family:monospace; font-size:9px; letter-spacing:.1em; color:#89ae93; }
+.marketingFounder h2 { margin-top:20px; }
+.marketingFounderLocation { display:block; color:#91ba9d; font-size:12px; margin-top:12px; }
+.marketingFounder p { margin-top:24px; font-size:14px; }
+.marketingFounder .marketingTextLink { margin-top:28px; }
+.marketingValues { display:grid; grid-template-columns:repeat(3,1fr); gap:35px; }
+.marketingValues article { padding-top:30px; border-top:1px solid #3e5846; }
+.marketingValues article>div { display:flex; align-items:center; justify-content:space-between; color:#81e7a6; }
+.marketingValues article>div>span { font-family:monospace; font-size:10px; color:#728d7c; }
+.marketingValues h3 { font-size:24px; margin-block:36px 15px; }
+.marketingValues p { font-size:13px; }
+.marketingPromise { border-block:1px solid #324b3b; padding-block:70px; display:grid; grid-template-columns:1fr 1fr; gap:100px; }
+.marketingPromise h2 { margin-top:20px; }
+.marketingPromise .marketingTextLink { margin-top:30px; }
+/* Responsive navigation and content */
+@media (min-width:1101px) { .navMinimal .container { max-width:1276px; } .navMinimal .navLogo { width:110px; } }
+@media (max-width:1100px) {
+ .marketingNavGroup { gap:22px; }.marketingNavLinks { gap:18px; }.marketingNavLinks a { font-size:11px; }.navMinimalActions .btn { font-size:11px; padding:10px 13px; }
+ .marketingHeroOrbit { right:0; width:180px; height:180px; top:220px; }.marketingHeroOrbit>span { font-size:11px; }
+ .marketingContainer { width:calc(100% - 72px); }.marketingAddons { grid-template-columns:1fr 1fr; gap:35px; }.marketingAddons article { padding-left:0; border:0; }
+ .marketingLinesSection,.marketingStory,.marketingContactAgenda,.marketingFounder { gap:45px; }
+}
+@media (max-width:800px) {
+ .navMinimalInner { padding-inline:24px; }.marketingMenuToggle { display:block; }.marketingNavGroup { display:none; position:absolute; top:100%; left:0; right:0; background:#0e1812; border-bottom:1px solid #3b5543; padding:25px; }.marketingNavGroupOpen { display:flex; flex-direction:column; align-items:stretch; gap:25px; }.marketingNavLinks { flex-direction:column; align-items:stretch; gap:0; }.marketingNavLinks a { font-size:15px; padding:14px 0; border-bottom:1px solid #2c4032; }.marketingNavLinks a.active::after { display:none; }.marketingNavGroup .navMinimalActions { justify-content:space-between; }.marketingNavGroup .btn { padding:12px 17px; font-size:12px; }
+ .marketingContainer { width:calc(100% - 48px); }.marketingProductHero,.marketingContactHero,.marketingAboutHero { padding-top:135px; }.marketingHeroOrbit { display:none; }.marketingSection { padding-block:75px; }
+ .marketingHeadSplit { gap:30px; }.marketingHeadSplit>p { max-width:260px; }.marketingThreeColumns { gap:25px; }.marketingThreeColumns h3 { font-size:20px; }
+ .marketingCapabilities { grid-template-columns:repeat(2,1fr); gap:0 30px; }.marketingCapabilities article:nth-child(n) { padding:28px 0; border-inline:0; }
+ .marketingLinesSection,.marketingContactAgenda,.marketingStory { grid-template-columns:1fr; gap:40px; }.marketingPhoneArtwork { max-width:500px; width:100%; margin:auto; }
+ .marketingPreviewContent { padding:23px; }.marketingPreviewSidebar { width:45px; }.marketingStatus { display:none; }.marketingDemoTabs button { padding:8px; font-size:9px; gap:5px; }.marketingDemoGrid { gap:20px; }.marketingCallDetail { padding:20px; }.marketingCallDetail h4 { font-size:18px; }.marketingCallDetail>div { font-size:8px; }
+ .marketingIndustryStrip>div { flex-wrap:wrap; justify-content:center; gap:20px 30px; }.marketingIndustryStrip span { font-size:12px; }.marketingIndustryStrip span:first-child { max-width:none; width:100%; text-align:center; }
+ .marketingNetworkColumn>div { padding:12px; gap:7px; font-size:10px; }.marketingCloud { padding:20px; }.marketingCloud strong { font-size:24px; }
+ .marketingPlan { padding:26px; }.marketingPlan h3 { font-size:25px; }.marketingPlanPrice { font-size:43px; }.marketingPlanPrice>span { display:block; margin-left:0; margin-top:8px; }.marketingPage .publicPriceGrid { grid-template-columns:1fr; gap:25px; }.marketingPage .publicPriceNotes { grid-template-columns:1fr; gap:15px; }
+ .marketingFaq { gap:40px; grid-template-columns:1fr; }.marketingClosing { padding:35px; }.marketingClosing h2 { font-size:29px; }.marketingClosing .marketingButton { gap:15px; }
+ .marketingContactOption { padding:27px; }.marketingContactOption h2 { font-size:28px; }.marketingContactOption strong { font-size:11px; }.marketingContactIntro,.marketingAboutHeroBottom { align-items:start; flex-direction:column; gap:22px; }
+ .marketingSupportNote { flex-wrap:wrap; }.marketingSupportNote>a { margin-left:48px; }.marketingSupportNote>div { flex:1; min-width:200px; }
+ .marketingFounder { grid-template-columns:.8fr 1.2fr; gap:35px; }.marketingFounderMark { height:290px; }.marketingFounderMark>span { font-size:85px; }.marketingValues { gap:25px; }.marketingValues h3 { font-size:20px; }.marketingPromise { gap:50px; }
+}
+@media (max-width:560px) {
+ .marketingPage h1 { font-size:47px; }.marketingPage h2 { font-size:34px; }.marketingProductHero>p,.marketingContactIntro p,.marketingAboutHeroBottom p { font-size:15px; }
+ .marketingHeroActions { gap:22px; flex-wrap:wrap; }.marketingHeroNotes { flex-wrap:wrap; gap:10px 15px; }.marketingHeroNotes span { font-size:9px; }.marketingPreview { margin-top:42px; }.marketingPreviewBar { padding-inline:12px; }.marketingPreviewBar small { font-size:6px; }.marketingPreviewBar>span { font-size:8px; }.marketingPreviewSidebar { display:none; }.marketingPreviewContent { padding:18px 15px; }.marketingPreviewHeading h3 { font-size:19px; }.marketingDemoTabs { flex-direction:column; gap:5px; }.marketingDemoTabs button { font-size:11px; padding:10px; }.marketingDemoGrid { grid-template-columns:1fr; }.marketingCallDetail { padding:20px; }.marketingCallDetail>div { font-size:10px; }.marketingCallDetail h4 { font-size:23px; max-width:none; }.marketingDetailIcon { margin-top:15px; }.marketingWave { gap:3px; }.marketingWave i { width:2px; }
+ .marketingNetwork { height:auto; grid-template-columns:1fr; padding-block:25px; gap:25px; }.marketingNetworkColumn { flex-direction:row; gap:20px; }.marketingNetworkColumn>div { flex-direction:column; width:125px; font-size:10px; }.marketingNetworkLines { display:none; }.marketingCloud { position:relative; }.marketingCloud::before,.marketingCloud::after { content:''; position:absolute; width:1px; height:25px; background:#4a6e54; left:50%; }.marketingCloud::before { top:-26px; }.marketingCloud::after { bottom:-26px; }
+ .marketingThreeColumns { grid-template-columns:1fr; gap:28px; }.marketingThreeColumns article { border-bottom:1px solid #293c30; padding-bottom:25px; }.marketingThreeColumns h3 { margin-top:10px; }.marketingHeadSplit { flex-direction:column; align-items:start; }.marketingHeadSplit>p { max-width:none; margin-top:0; }.marketingCapabilities { grid-template-columns:1fr; }.marketingCapabilities h3 { margin-top:17px; }.marketingPhoneArtwork { min-height:430px; }
+ .marketingPlans { grid-template-columns:1fr; gap:20px; }.marketingPlan { padding:30px; }.marketingPlanPrice>span { display:inline; margin-left:10px; }.marketingPlan>p { min-height:0; }.marketingAddons { grid-template-columns:1fr; gap:30px; margin-top:45px; }.marketingAddons article { border-top:1px solid #2c4032; padding-top:25px; }.marketingAddons article svg { float:right; }.marketingAddons h3 br { display:none; }.marketingPage .publicPriceBreakdown { padding:23px; }.marketingPage .publicPriceInputs { grid-template-columns:1fr; }.marketingPage .publicPriceInputs label:nth-child(2) { grid-column:auto; grid-row:auto; }.marketingPage .publicPriceInputs .publicPriceCheck { grid-column:auto; }.marketingPage .publicPriceSummary { padding:16px; }.marketingPage .publicPriceSummary>div { font-size:10px; }.marketingPage .publicPriceBreakdown h3 { font-size:25px; }
+ .marketingClosing { margin-block:60px; flex-direction:column; align-items:start; gap:25px; padding:30px 25px; }.marketingClosing h2 { font-size:30px; }.marketingClosing p { font-size:12px; }
+ .marketingFooterTop { grid-template-columns:1fr 1fr; gap:35px; }.marketingFooterTop>div:first-child { grid-column:1/-1; }.marketingFooterBottom { align-items:start; flex-direction:column; gap:15px; }.marketingFooterTop>div>a:not(:first-child) { font-size:10px; }
+ .marketingContactOptions { grid-template-columns:1fr; margin-top:40px; }.marketingContactOption { padding:30px; }.marketingContactOption h2 { font-size:32px; }.marketingContactOption strong { font-size:12px; }.marketingContactIcon { margin-bottom:27px; }.marketingContactOption p { min-height:0; }.marketingCalendarFrame iframe { height:700px; }.marketingCalendarFrame>a { font-size:10px; }.marketingSupportNote { padding-block:45px; gap:16px; }.marketingSupportNote h2 { font-size:21px; }.marketingSupportNote>a { margin-left:39px; }
+ .marketingFieldArt { margin-top:35px; }.marketingFieldArt figcaption { display:none; }.marketingFounderBand { padding-block:50px; }.marketingFounder { grid-template-columns:1fr; }.marketingFounderMark { height:230px; }.marketingFounderMark>span { font-size:100px; }.marketingValues { grid-template-columns:1fr; gap:35px; }.marketingValues h3 { font-size:24px; margin-top:25px; }.marketingPromise { grid-template-columns:1fr; gap:30px; padding-block:50px; }.marketingPage p.marketingLargeCopy { font-size:20px; }
+}
+@media (prefers-reduced-motion:reduce) { .marketingPage *,.marketingPage *::before,.marketingPage *::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }
+.marketingModelCatalogue { margin-top:30px; padding-bottom:10px; border-bottom:1px solid #34493b; }
+.marketingModelCatalogue h4 { font-size:18px; margin-bottom:9px; }
+.marketingModelCatalogue>div { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-block:20px; }
+.marketingModelCatalogue button { text-align:left; color:#c6dccd; background:#0f1912; border:1px solid #3b5242; border-radius:7px; padding:18px; cursor:pointer; font-family:inherit; }
+.marketingModelCatalogue button[aria-pressed=true] { background:#213e2a; border-color:#81e7a6; }
+.marketingModelCatalogue button>span { display:block; color:#8bb79a; font-size:9px; letter-spacing:.1em; text-transform:uppercase; }
+.marketingModelCatalogue button>strong { display:block; font-weight:500; font-size:15px; margin-top:12px; }
+.marketingModelCatalogue button>small { display:block; font-size:10px; margin-top:9px; color:#aac6b3; }
