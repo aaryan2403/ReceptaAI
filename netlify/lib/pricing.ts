@@ -1,8 +1,8 @@
 export const MAX_MONTHLY_MINUTES =
   100_000_000
 
-export const STANDARD_BASE_MONTHLY_CAD = 200
-export const PRO_BASE_MONTHLY_CAD = 300
+export const STANDARD_BASE_MONTHLY_CAD = 199
+export const PRO_BASE_MONTHLY_CAD = 299
 
 export const PII_REDACTION_PER_MINUTE_CAD =
   0.014

@@ -251,8 +251,8 @@ export default async (request: Request) => {
 
     const basePrice =
       planName === 'Recepta Pro'
-        ? 300
-        : 200
+        ? 299
+        : 199
 
     const perMinutePrice =
       Number(

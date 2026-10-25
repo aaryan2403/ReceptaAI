@@ -64,7 +64,7 @@ export default function Billing() {
   const proposedTotal = useMemo(() => {
     if (!subscription || !Number.isFinite(monthlyMinutes)) return 0
     const configuration = { ...subscription, ...(subscription.pending_configuration ?? {}) }
-    const base = configuration.plan_name === 'Recepta Pro' ? 300 : 200
+    const base = configuration.plan_name === 'Recepta Pro' ? 299 : 199
     return base + monthlyMinutes * modelRate +
       (configuration.pii_redaction_enabled ? monthlyMinutes * PII_RATE_CAD : 0) +
       (configuration.safety_guardrails_enabled ? monthlyMinutes * GUARDRAIL_RATE_CAD : 0) +
