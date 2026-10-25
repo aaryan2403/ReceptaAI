@@ -106,7 +106,7 @@ export default function AdminClient() {
     useState('Recepta Standard')
 
   const [monthlyPrice, setMonthlyPrice] =
-    useState('200')
+    useState('199')
 
   const [billingStatus, setBillingStatus] =
     useState<BillingStatus>('pending')
@@ -217,7 +217,7 @@ export default function AdminClient() {
         setMonthlyPrice(
           String(
             subscriptionData.monthly_price ??
-              200
+              199
           )
         )
 
@@ -363,9 +363,9 @@ export default function AdminClient() {
     if (
       value === 'Recepta Standard'
     ) {
-      setMonthlyPrice('200')
+      setMonthlyPrice('199')
     } else {
-      setMonthlyPrice('300')
+      setMonthlyPrice('299')
     }
   }
 

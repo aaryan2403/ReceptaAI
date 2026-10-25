@@ -208,6 +208,6 @@ test('public pricing uses the active catalogue and the same complete monthly cal
   assert.equal(selections[0].columns.includes('cost'), false)
   const catalogue = await response.json()
   assert.equal(catalogue.models[0].customer_price_per_minute_cad, '0.117')
-  assert.equal(calculateMonthlyPriceCad({ planName: 'Recepta Standard', monthlyMinutes: 300, modelPricePerMinuteCad: 0.117, piiRedactionEnabled: false, safetyGuardrailsEnabled: false }), 235.1)
-  assert.equal(calculateMonthlyPriceCad({ planName: 'Recepta Pro', monthlyMinutes: 300, modelPricePerMinuteCad: 0.217, piiRedactionEnabled: true, safetyGuardrailsEnabled: true, extraPhoneNumbers: 2 }), 411.4)
+  assert.equal(calculateMonthlyPriceCad({ planName: 'Recepta Standard', monthlyMinutes: 300, modelPricePerMinuteCad: 0.117, piiRedactionEnabled: false, safetyGuardrailsEnabled: false }), 234.1)
+  assert.equal(calculateMonthlyPriceCad({ planName: 'Recepta Pro', monthlyMinutes: 300, modelPricePerMinuteCad: 0.217, piiRedactionEnabled: true, safetyGuardrailsEnabled: true, extraPhoneNumbers: 2 }), 410.4)
 })

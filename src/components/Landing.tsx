@@ -124,7 +124,7 @@ export default function Landing() {
   const pricingPlans = [
     {
       name: 'Recepta Pro',
-      monthly: 'C$300/month base fee',
+      monthly: 'C$299/month base fee',
       summary: [
         'Appointment request intake + full call handling',
         'Employee availability schedules',
@@ -143,7 +143,7 @@ export default function Landing() {
     },
     {
       name: 'Recepta Standard',
-      monthly: 'C$200/month base fee',
+      monthly: 'C$199/month base fee',
       summary: [
         'Call handling and information calls',
         'Employee availability schedules',

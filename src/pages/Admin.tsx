@@ -97,7 +97,7 @@ const calculateTotal = (
     ) || 0
   )
   const base =
-    selectedPlan === 'Recepta Pro' ? 300 : 200
+    selectedPlan === 'Recepta Pro' ? 299 : 199
 
   return (
     base +
@@ -1475,10 +1475,10 @@ export default function Admin() {
                 }
               >
                 <option value="Recepta Standard">
-                  Standard — C$200
+                  Standard — C$199
                 </option>
                 <option value="Recepta Pro">
-                  Pro — C$300
+                  Pro — C$299
                 </option>
               </select>
             </label>
@@ -2159,10 +2159,10 @@ export default function Admin() {
                     }
                   >
                     <option value="Recepta Standard">
-                      Standard — C$200
+                      Standard — C$199
                     </option>
                     <option value="Recepta Pro">
-                      Pro — C$300
+                      Pro — C$299
                     </option>
                   </select>
                 </label>
