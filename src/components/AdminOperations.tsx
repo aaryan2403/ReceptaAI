@@ -8,7 +8,7 @@ type Operations={ jobs:AlertRow[];callAlerts:AlertRow[];billingAlerts:AlertRow[]
 export default function AdminOperations() {
   const [data,setData]=useState<Operations|null>(null)
   const [error,setError]=useState('')
-  const [actionError,setActionError]=useState('')
+  const [actionError,setActionError]=useState<{ action:string;message:string }|null>(null)
   const [message,setMessage]=useState('')
   const [connecting,setConnecting]=useState(false)
   const [busy,setBusy]=useState(false)
@@ -65,20 +65,22 @@ export default function AdminOperations() {
     actionInFlight.current=true
     refreshVersion.current+=1
     const isConnecting=body.action==='connect_email_tracking'
-    setBusy(true);setConnecting(isConnecting);setActionError('');setMessage(isConnecting ? 'Connecting email delivery tracking…' : 'Saving…')
+    setBusy(true);setConnecting(isConnecting);setActionError(null);setMessage(isConnecting ? 'Connecting email delivery tracking…' : 'Saving…')
     try {
       const result=await request(body)
       setData(result);setError('')
       if (isConnecting && !result.configuration.deliveryTracking) throw new Error('Setup finished without confirming a connection. Please try again.')
       setMessage(isConnecting ? 'Email delivery tracking connected. Future delivery updates will appear here.' : body.action==='retention' ? 'Call content retention saved.' : 'Cleanup queued to resume.')
-    } catch(failure) { setMessage('');setActionError(failure instanceof Error ? failure.message : 'Operation failed.') }
+    } catch(failure) { setMessage('');setActionError({ action:String(body.action),message:failure instanceof Error ? failure.message : 'Operation failed.' }) }
     finally { actionInFlight.current=false;setBusy(false);setConnecting(false) }
   }
-  const visibleActionError=actionError || data?.configuration.deliveryTrackingError
+  const trackingConnected=data?.configuration.deliveryTracking===true
+  const visibleActionError=(trackingConnected && actionError?.action==='connect_email_tracking' ? '' : actionError?.message) || (!trackingConnected ? data?.configuration.deliveryTrackingError : '')
   const rows=[...(data?.jobs ?? []),...(data?.callAlerts ?? []).map(row=>({ ...row,kind:'Owner email' })),...(data?.billingAlerts ?? []).map(row=>({ ...row,kind:'Billing email' }))]
+  const hasIssues=Boolean(error || visibleActionError || rows.length)
   return <section id="operations" className="agentPanel" style={{ margin:'24px 0',padding:24,border:'1px solid #333',borderRadius:16 }}>
-    <span className="adminEyebrow">OPERATIONS &amp; DELIVERY</span><h2>Failures that need attention</h2>
-    <p>Provider cleanup and failed or delayed emails appear here. Email acceptance is separate from confirmed delivery. Each category shows its latest 50 matching records.</p>
+    <span className="adminEyebrow">OPERATIONS &amp; DELIVERY</span><h2>{hasIssues ? 'Failures that need attention' : 'Operations & delivery'}</h2>
+    <p>{hasIssues ? 'Provider cleanup and failed or delayed emails appear here. Email acceptance is separate from confirmed delivery. Each category shows its latest 50 matching records.' : 'Monitor email delivery, provider cleanup, and call content retention here.'}</p>
     {error && <p role="alert">{error}</p>}
     {data && <>
       <p>Email sending: {data.configuration.emailSending ? 'configured':'missing'} · Delivery tracking: {data.configuration.deliveryTracking ? 'connected':'setup required'} · Retell: {data.configuration.retell ? 'configured':'missing'} · Stripe: {data.configuration.stripe ? 'configured':'missing'}</p>
