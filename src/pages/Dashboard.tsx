@@ -273,7 +273,6 @@ export default function Dashboard() {
       }
 
       const isPro =
-        subscriptionData.subscription?.status === 'active' &&
         subscriptionData.subscription?.plan_name === 'Recepta Pro'
 
       if (isPro) {
