@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 
 type AlertRow={ notification_key?:string;job_key?:string;client_id:string;kind?:string;status?:string;delivery_status?:string;last_error:string|null;attempts:number }
 type Client={ id:string;company_name:string|null;call_retention_days:number;deletion_pending:boolean }
-type Operations={ jobs:AlertRow[];callAlerts:AlertRow[];billingAlerts:AlertRow[];clients:Client[];configuration:{ emailSending:boolean;deliveryTracking:boolean;retell:boolean;stripe:boolean } }
+type Operations={ jobs:AlertRow[];callAlerts:AlertRow[];billingAlerts:AlertRow[];clients:Client[];configuration:{ emailSending:boolean;deliveryTracking:boolean;deliveryTrackingError?:string|null;retell:boolean;stripe:boolean } }
 
 export default function AdminOperations() {
   const [data,setData]=useState<Operations|null>(null)
@@ -17,17 +17,35 @@ export default function AdminOperations() {
   const [selected,setSelected]=useState('')
   const [days,setDays]=useState('90')
   const request=useCallback(async (body?:Record<string,unknown>) => {
-    const { data:{ session } }=await supabase.auth.getSession()
-    if (!session) throw new Error('Please sign in again.')
-    let response:Response
+    const controller=new AbortController()
+    let timer:ReturnType<typeof setTimeout>|undefined
     try {
-      response=await fetch('/.netlify/functions/admin-operations',{ method:body ? 'POST':'GET',signal:AbortSignal.timeout(20000),headers:{ Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json' },...(body ? { body:JSON.stringify(body) }: {}) })
-    } catch {
-      throw new Error('Could not reach Recepta. Check your connection and try again. If setup timed out, refresh to check whether it completed before retrying.')
+      return await Promise.race([
+        (async () => {
+          const { data:{ session } }=await supabase.auth.getSession()
+          controller.signal.throwIfAborted()
+          if (!session) throw new Error('Please sign in again.')
+          let response:Response
+          try {
+            response=await fetch('/.netlify/functions/admin-operations',{ method:body ? 'POST':'GET',signal:controller.signal,headers:{ Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json' },...(body ? { body:JSON.stringify(body) }: {}) })
+          } catch {
+            throw new Error('Could not reach Recepta. Check your connection and try again.')
+          }
+          const result=await response.json().catch(()=>{ throw new Error('Recepta returned an unexpected response. Refresh the page and try again.') })
+          if (!response.ok) throw new Error(result.error || 'Could not load operations.')
+          return result as Operations
+        })(),
+        new Promise<never>((_,reject)=>{
+          timer=setTimeout(()=>{
+            reject(new Error('The request timed out. Refresh to check the saved connection status. If this keeps happening, sign out and sign in again.'))
+            controller.abort()
+          },20000)
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+      controller.abort()
     }
-    const result=await response.json().catch(()=>{ throw new Error('Recepta returned an unexpected response. Refresh the page and try again.') })
-    if (!response.ok) throw new Error(result.error || 'Could not load operations.')
-    return result as Operations
   },[])
   useEffect(() => {
     const load=async () => {
@@ -56,6 +74,7 @@ export default function AdminOperations() {
     } catch(failure) { setMessage('');setActionError(failure instanceof Error ? failure.message : 'Operation failed.') }
     finally { actionInFlight.current=false;setBusy(false);setConnecting(false) }
   }
+  const visibleActionError=actionError || data?.configuration.deliveryTrackingError
   const rows=[...(data?.jobs ?? []),...(data?.callAlerts ?? []).map(row=>({ ...row,kind:'Owner email' })),...(data?.billingAlerts ?? []).map(row=>({ ...row,kind:'Billing email' }))]
   return <section id="operations" className="agentPanel" style={{ margin:'24px 0',padding:24,border:'1px solid #333',borderRadius:16 }}>
     <span className="adminEyebrow">OPERATIONS &amp; DELIVERY</span><h2>Failures that need attention</h2>
@@ -68,7 +87,7 @@ export default function AdminOperations() {
         <p>Connect Resend to confirm whether notification emails are delivered or bounced. Connection status appears below.</p>
       </>}
       {message && <p role="status">{message}</p>}
-      {actionError && <p role="alert">{actionError}</p>}
+      {visibleActionError && <p className="adminFormMessage adminFormMessage--error" role="alert">{visibleActionError}</p>}
       {!rows.length && <p>No queued cleanup jobs or recorded delivery failures.</p>}
       {rows.map(row=><article key={row.job_key ?? row.notification_key} style={{ padding:'16px 0',borderTop:'1px solid #333' }}>
         <strong>{data.clients.find(client=>client.id===row.client_id)?.company_name || 'Removed client'} · {row.kind?.replaceAll('_',' ')}</strong>

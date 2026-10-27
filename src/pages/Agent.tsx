@@ -1,3 +1,5 @@
+import BillingAccessNotice from '../components/BillingAccessNotice'
+import { calculateMinuteBalance } from '../lib/minuteBalance'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import {
@@ -34,6 +36,7 @@ export default function Agent() {
   const [phoneNumbers, setPhoneNumbers] = useState<string[]>([])
   const [calls, setCalls] = useState<CallRecord[]>([])
   const [isPro, setIsPro] = useState(false)
+  const [hasPaidService,setHasPaidService]=useState(false)
   const [loading, setLoading] = useState(true)
 
   const [operatingHours, setOperatingHours] = useState<OperatingDay[]>([
@@ -84,7 +87,7 @@ export default function Agent() {
 
         supabase
           .from('subscriptions')
-          .select('plan_name, status')
+          .select('plan_name, status, current_period_start, current_period_end')
           .eq('client_id', user.id)
           .maybeSingle(),
 
@@ -163,10 +166,8 @@ export default function Agent() {
         console.error('Agent call sync failed:', error)
       }
 
-      setIsPro(
-        subscriptionData?.status === 'active' &&
-        subscriptionData?.plan_name === 'Recepta Pro'
-      )
+      setIsPro(subscriptionData?.plan_name === 'Recepta Pro')
+      setHasPaidService(calculateMinuteBalance({ ...subscriptionData,monthly_minutes:0,status:subscriptionData?.status ?? null },0).paid)
 
       setLoading(false)
     }
@@ -313,8 +314,9 @@ export default function Agent() {
         ? 'Choose in Calls'
         : operatingHoursSummary
 
+  const effectiveAgentStatus=hasPaidService ? agent?.status : 'paused'
   const getStatusInfo = () => {
-    switch (agent?.status) {
+    switch (effectiveAgentStatus) {
       case 'live':
         return {
           label: 'Agent Live',
@@ -465,6 +467,8 @@ export default function Agent() {
       </aside>
 
       <section className="dashboardMain">
+        <BillingAccessNotice />
+
 
         {/* HEADER */}
 
@@ -623,21 +627,21 @@ export default function Agent() {
 
             <div>
               <strong>
-                {agent?.status === 'live'
+                {effectiveAgentStatus === 'live'
                   ? 'Ready for customer calls'
-                  : agent?.status === 'paused'
+                  : effectiveAgentStatus === 'paused'
                     ? 'Receptionist paused'
-                    : agent?.status === 'testing'
+                    : effectiveAgentStatus === 'testing'
                       ? 'Receptionist being tested'
                       : 'AI configuration pending'}
               </strong>
 
               <p>
-                {agent?.status === 'live'
+                {effectiveAgentStatus === 'live'
                   ? 'Your AI receptionist is online and ready to answer incoming customer calls.'
-                  : agent?.status === 'paused'
+                  : effectiveAgentStatus === 'paused'
                     ? 'Your receptionist is currently paused and is not handling customer calls.'
-                    : agent?.status === 'testing'
+                    : effectiveAgentStatus === 'testing'
                       ? 'The Recepta team is currently testing your receptionist before activation.'
                       : 'Your dashboard is ready. The remaining step is connecting and configuring your AI receptionist.'}
               </p>

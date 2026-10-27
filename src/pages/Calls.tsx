@@ -1,3 +1,4 @@
+import BillingAccessNotice from '../components/BillingAccessNotice'
 import { formatAppointmentPreference, type AppointmentStatus } from '../lib/appointmentRequests'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
@@ -333,6 +334,8 @@ export default function Calls() {
       {/* MAIN */}
 
       <section className="dashboardMain">
+        <BillingAccessNotice />
+
 
         {/* HEADER */}
 

@@ -22,7 +22,6 @@ import About from './pages/About.tsx'
 
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import AdminRoute from './components/AdminRoute.tsx'
-import ActiveSubscriptionRoute from './components/ActiveSubscriptionRoute.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -52,9 +51,8 @@ createRoot(document.getElementById('root')!).render(
             CLIENT DASHBOARD
            ===================================================== */}
 
-        {/* Pending / Active / Cancelled users can reach Overview.
-            Dashboard.tsx decides whether to show the real
-            dashboard or the locked state. */}
+        {/* Every signed-in customer can view the workspace.
+            Billing controls receptionist service, not page access. */}
         <Route
           path="/dashboard"
           element={
@@ -64,14 +62,12 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
-        {/* ACTIVE STANDARD + ACTIVE PRO */}
+        {/* Dashboard pages remain available after billing ends. */}
         <Route
           path="/dashboard/calls"
           element={
             <ProtectedRoute>
-              <ActiveSubscriptionRoute>
-                <Calls />
-              </ActiveSubscriptionRoute>
+              <Calls />
             </ProtectedRoute>
           }
         />
@@ -114,14 +110,12 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
-        {/* ACTIVE STANDARD + ACTIVE PRO */}
+        {/* Dashboard pages remain available after billing ends. */}
         <Route
           path="/dashboard/agent"
           element={
             <ProtectedRoute>
-              <ActiveSubscriptionRoute>
-                <Agent />
-              </ActiveSubscriptionRoute>
+              <Agent />
             </ProtectedRoute>
           }
         />

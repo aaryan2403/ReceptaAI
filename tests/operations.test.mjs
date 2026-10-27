@@ -277,13 +277,20 @@ test('connecting email tracking reports rejected credentials and only confirms c
   assert.match(error,/Full access/)
   assert.match(error,/redeploy Recepta/)
   const current=await operations(request(undefined,'admin','GET'))
-  assert.equal((await current.json()).configuration.deliveryTracking,false)
+  const currentResult=await current.json()
+  assert.equal(currentResult.configuration.deliveryTracking,false)
+  assert.match(currentResult.configuration.deliveryTrackingError,new RegExp(String(status)))
+  const savedStatus=(await db.query("select value from integration_settings where key='resend_setup_status'")).rows[0].value
+  assert.equal(savedStatus.ready,false)
+  assert.equal(savedStatus.error,error)
  }
  state.webhookFailure=0
  const connected=await operations(request({action:'connect_email_tracking'},'admin'))
  assert.equal(connected.status,200)
  const result=await connected.json()
  assert.equal(result.configuration.deliveryTracking,true)
+ assert.equal(result.configuration.deliveryTrackingError,null)
+ assert.deepEqual((await db.query("select value from integration_settings where key='resend_setup_status'")).rows[0].value,{ready:true})
  assert.ok(!JSON.stringify(result).includes(secret))
 })
 

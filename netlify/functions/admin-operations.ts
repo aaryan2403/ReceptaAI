@@ -30,9 +30,10 @@ export default async (request:Request) => {
       db.from('billing_notifications').select('notification_key,client_id,attempts,last_error,created_at,sent_at,delivery_status').or(`last_error.not.is.null,${bad}`).order('created_at',{ ascending:false }).limit(50),
       db.from('clients').select('id,company_name,call_retention_days,deletion_pending').order('company_name'),
       db.from('integration_settings').select('key').eq('key','resend_webhook').maybeSingle(),
+      db.from('integration_settings').select('value').eq('key','resend_setup_status').maybeSingle(),
     ])
     for (const result of results) if (result.error) throw result.error
     return json(200,{ jobs:results[0].data,callAlerts:results[1].data,billingAlerts:results[2].data,clients:results[3].data,
-      configuration:{ emailSending:Boolean(process.env.RESEND_API_KEY),deliveryTracking:Boolean(process.env.RESEND_WEBHOOK_SECRET || results[4].data),retell:Boolean(process.env.RETELL_API_KEY),stripe:Boolean(process.env.STRIPE_SECRET_KEY) } })
+      configuration:{ emailSending:Boolean(process.env.RESEND_API_KEY),deliveryTracking:Boolean(process.env.RESEND_WEBHOOK_SECRET || results[4].data),deliveryTrackingError:!process.env.RESEND_WEBHOOK_SECRET && !results[4].data && typeof results[5].data?.value?.error==='string' ? results[5].data.value.error : null,retell:Boolean(process.env.RETELL_API_KEY),stripe:Boolean(process.env.STRIPE_SECRET_KEY) } })
   } catch(error) { return json(500,{ error:error instanceof Error ? error.message : 'Could not load operations.' }) }
 }

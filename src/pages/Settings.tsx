@@ -1,3 +1,4 @@
+import BillingAccessNotice from '../components/BillingAccessNotice'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { supabase } from '../lib/supabase'
@@ -372,6 +373,8 @@ export default function Settings() {
       {/* MAIN */}
 
       <section className="dashboardMain">
+        <BillingAccessNotice />
+
 
         {/* HEADER */}
 
