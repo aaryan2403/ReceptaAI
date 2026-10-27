@@ -86,7 +86,7 @@ const fixture=async()=>{
  await db.query("insert into agent_phone_numbers values($1,'+14165550100','retell',true)",[client])
  await db.query("insert into integration_settings values('resend_webhook',$1,now())",[{secret}])
  globalThis.fetch=async(url,options={})=>{
-  if(String(url).startsWith('https://api.resend.com/webhooks')){state.webhookOps??=[];state.webhookOps.push({url,method:options.method??'GET'});return new Response(JSON.stringify(options.method==='POST'?{id:'hook_test',signing_secret:secret}:{data:[]}),{status:state.webhookFailure?403:200})}
+  if(String(url).startsWith('https://api.resend.com/webhooks')){state.webhookOps??=[];state.webhookOps.push({url,method:options.method??'GET'});return new Response(JSON.stringify(options.method==='POST'?{id:'hook_test',signing_secret:secret}:{data:[]}),{status:state.webhookFailure || 200})}
   if(String(url).startsWith('https://api.resend.com/emails')){
    state.mail.push({body:JSON.parse(options.body),key:options.headers['Idempotency-Key']})
    return new Response(JSON.stringify(state.mailFailure?{error:'synthetic'}:{id:'email_test'}),{status:state.mailFailure?503:200})
@@ -261,8 +261,40 @@ test('email delivery setup saves its signing secret only in the private settings
  assert.equal((await db.query("select value from integration_settings where key='resend_webhook'")).rows[0].value.secret,secret)
  await configureEmail(globalThis.__operationsDb);assert.equal(state.webhookOps.length,2)
  assert.equal((await db.query("select has_table_privilege('authenticated','integration_settings','select') ok")).rows[0].ok,false)
- await db.exec('delete from integration_settings');state.webhookFailure=true
+ await db.exec('delete from integration_settings');state.webhookFailure=403
  await assert.rejects(configureEmail(globalThis.__operationsDb),/webhook access/)
+})
+
+test('connecting email tracking reports rejected credentials and only confirms connection after a successful retry',async()=>{
+ await fixture();await db.exec('delete from integration_settings')
+ for(const status of [401,403]){
+  state.webhookFailure=status
+  const response=await operations(request({action:'connect_email_tracking'},'admin'))
+  assert.equal(response.status,500)
+  const {error}=await response.json()
+  assert.match(error,new RegExp(String(status)))
+  assert.match(error,/RESEND_API_KEY in Netlify/)
+  assert.match(error,/Full access/)
+  assert.match(error,/redeploy Recepta/)
+  const current=await operations(request(undefined,'admin','GET'))
+  assert.equal((await current.json()).configuration.deliveryTracking,false)
+ }
+ state.webhookFailure=0
+ const connected=await operations(request({action:'connect_email_tracking'},'admin'))
+ assert.equal(connected.status,200)
+ const result=await connected.json()
+ assert.equal(result.configuration.deliveryTracking,true)
+ assert.ok(!JSON.stringify(result).includes(secret))
+})
+
+test('temporary Resend failures request a retry without claiming that credentials are invalid',async()=>{
+ await fixture();await db.exec('delete from integration_settings');state.webhookFailure=503
+ await assert.rejects(configureEmail(globalThis.__operationsDb),error=>{
+  assert.match(error.message,/503/)
+  assert.match(error.message,/try again later/)
+  assert.doesNotMatch(error.message,/Full access/)
+  return true
+ })
 })
 
 test('billing email records provider acceptance and never changes its frozen retry recipient or body',async()=>{
