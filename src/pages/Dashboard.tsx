@@ -1,3 +1,4 @@
+import BillingAccessNotice from '../components/BillingAccessNotice'
 import { type AppointmentStatus } from '../lib/appointmentRequests'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
@@ -312,10 +313,6 @@ export default function Dashboard() {
   const isSubscriptionCancelled =
     subscription?.status === 'cancelled'
 
-  const isSubscriptionPending =
-    !subscription ||
-    subscription.status === 'pending'
-
   const isPro =
     subscription?.plan_name === 'Recepta Pro'
 
@@ -323,7 +320,7 @@ export default function Dashboard() {
     subscription?.plan_name === 'Recepta Standard'
 
   const effectiveAgentStatus: ClientStatus =
-    isSubscriptionCancelled
+    isSubscriptionCancelled || subscription?.status !== 'active'
       ? 'paused'
       : agent?.status || client?.status || 'setup'
 
@@ -471,7 +468,10 @@ export default function Dashboard() {
   }, [appointments, calls, isPro])
 
   const getStatusInfo = () => {
-    if (subscription?.status === 'past_due' || (subscription?.status === 'active' && !stats.paid)) {
+    if (isSubscriptionCancelled || subscription?.status !== 'active') {
+      return { label: isSubscriptionCancelled ? 'Billing Cancelled' : 'Payment Required', color:'#ffb020',background:'rgba(255, 176, 32, 0.10)',border:'rgba(255, 176, 32, 0.20)',shadow:'rgba(255, 176, 32, 0.35)' }
+    }
+    if (!stats.paid) {
       return { label: 'Payment Required', color: '#ffb020', background: 'rgba(255, 176, 32, 0.10)' }
     }
     if (
@@ -540,82 +540,6 @@ export default function Dashboard() {
     )
   }
 
-  if (isSubscriptionPending) {
-    return (
-      <main className="dashboardPage">
-        <aside className="dashboardSidebar">
-          <a href="/" className="dashboardBrand">
-            <img
-              src="/components/logoR.png"
-              alt="Recepta"
-            />
-          </a>
-
-          <nav className="dashboardNav">
-            <a
-              href="/dashboard"
-              className="dashboardNavItem dashboardNavItemActive"
-            >
-              Overview
-            </a>
-
-            <a
-              href="/dashboard/requests"
-              className="dashboardNavItem"
-            >
-              Customer Requests
-            </a>
-
-            <a
-              href="/dashboard/billing"
-              className="dashboardNavItem"
-            >
-              Billing
-            </a>
-
-            <a
-              href="/dashboard/settings"
-              className="dashboardNavItem"
-            >
-              Settings
-            </a>
-          </nav>
-        </aside>
-
-        <section className="dashboardMain">
-          <div className="dashboardHeader">
-            <div>
-              <p className="dashboardEyebrow">
-                PAYMENT PENDING
-              </p>
-
-              <h1>
-                {client?.company_name ||
-                  'Your Recepta dashboard'}
-              </h1>
-
-              <p>
-                Your account has been created. Review your configured
-                plan, AI model and monthly minutes in Billing.
-              </p>
-            </div>
-          </div>
-
-          <div className="dashboardEmptyState">
-            <h2>
-              Complete payment to activate your receptionist
-            </h2>
-
-            <p>
-              Your receptionist starts handling calls after successful payment.
-              Open Billing to review the full monthly price and complete secure Checkout.
-            </p>
-            <a href="/dashboard/billing" className="btn btnPrimary">Review Billing &amp; Pay</a>
-          </div>
-        </section>
-      </main>
-    )
-  }
 
   return (
     <main className="dashboardPage">
@@ -710,6 +634,8 @@ export default function Dashboard() {
           </div>
         </div>
 
+        <BillingAccessNotice subscription={subscription} />
+
         <section className="dashboardRequestShortcut">
           <div>
             <p className="dashboardEyebrow">SUPPORT</p>
@@ -729,28 +655,6 @@ export default function Dashboard() {
             Ask for Help
           </a>
         </section>
-
-        {isSubscriptionCancelled ? (
-          <div className="dashboardEmptyState">
-            <h2>
-              Your subscription is cancelled
-            </h2>
-
-            <p>
-              Your previous plan information is preserved.
-              Recepta controls plan, AI model and monthly
-              minute changes for your account.
-            </p>
-
-            <a
-              href="/dashboard/billing"
-              className="btn btnPrimary"
-            >
-              Renew Subscription
-            </a>
-          </div>
-        ) : (
-        <>
 
         <a
           href="/dashboard/calls"
@@ -924,7 +828,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {effectiveAgentStatus !== 'live' && (
+        {stats.paid && effectiveAgentStatus !== 'live' && (
           <div className="onboardingProgressCard">
             <div className="onboardingProgressHead">
               <div>
@@ -951,7 +855,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {effectiveAgentStatus === 'live' && (
+        {stats.paid && effectiveAgentStatus === 'live' && (
           <div className="dashboardEmptyState">
             <h2>
               {calls.length === 0
@@ -965,8 +869,6 @@ export default function Dashboard() {
                 : 'Your dashboard is now showing real activity from your Recepta receptionist.'}
             </p>
           </div>
-        )}
-        </>
         )}
       </section>
     </main>

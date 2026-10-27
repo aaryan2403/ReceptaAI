@@ -27,7 +27,7 @@ const resend = async (path:string,init:RequestInit = {}) => {
   return response.json()
 }
 
-export const configureEmailDelivery = async (db:SupabaseClient) => {
+const configureResendWebhook = async (db:SupabaseClient) => {
   const stored=await db.from('integration_settings').select('value').eq('key','resend_webhook').maybeSingle()
   if (stored.error) throw stored.error
   if (stored.data?.value?.secret) return
@@ -44,4 +44,16 @@ export const configureEmailDelivery = async (db:SupabaseClient) => {
   if (typeof secret!=='string' || !secret.startsWith('whsec_')) throw new Error('The email webhook signing secret was not returned.')
   const saved=await db.from('integration_settings').upsert({ key:'resend_webhook',value:{ id:hook.id,secret,endpoint },updated_at:new Date().toISOString() },{ onConflict:'key' })
   if (saved.error) throw saved.error
+}
+
+export const configureEmailDelivery = async (db:SupabaseClient) => {
+  try {
+    await configureResendWebhook(db)
+    const saved=await db.from('integration_settings').upsert({ key:'resend_setup_status',value:{ ready:true },updated_at:new Date().toISOString() },{ onConflict:'key' })
+    if (saved.error) throw saved.error
+  } catch(error) {
+    const saved=await db.from('integration_settings').upsert({ key:'resend_setup_status',value:{ ready:false,error:error instanceof Error ? error.message : 'Email delivery setup failed.' },updated_at:new Date().toISOString() },{ onConflict:'key' })
+    if (saved.error) throw saved.error
+    throw error
+  }
 }

@@ -1,3 +1,4 @@
+import BillingAccessNotice from '../components/BillingAccessNotice'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchBillingStatus } from '../lib/billing'
@@ -171,6 +172,8 @@ export default function Billing() {
       </aside>
 
       <section className="dashboardMain">
+        <BillingAccessNotice subscription={subscription} />
+
         <div className="dashboardHeader">
           <div>
             <p className="dashboardEyebrow">BILLING</p>

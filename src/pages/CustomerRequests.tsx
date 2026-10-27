@@ -1,3 +1,4 @@
+import BillingAccessNotice from '../components/BillingAccessNotice'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
@@ -221,6 +222,8 @@ export default function CustomerRequests() {
       </aside>
 
       <section className="dashboardMain">
+        <BillingAccessNotice />
+
         <div className="dashboardHeader">
           <div>
             <p className="dashboardEyebrow">CUSTOMER REQUESTS</p>
