@@ -5,7 +5,7 @@ type AlertRow={ notification_key?:string;job_key?:string;client_id:string;kind?:
 type Client={ id:string;company_name:string|null;call_retention_days:number;deletion_pending:boolean }
 type Operations={ jobs:AlertRow[];callAlerts:AlertRow[];billingAlerts:AlertRow[];clients:Client[];configuration:{ emailSending:boolean;deliveryTracking:boolean;deliveryTrackingError?:string|null;retell:boolean;stripe:boolean } }
 
-export default function AdminOperations() {
+export default function AdminOperations({ hideWhenClear=false }: { hideWhenClear?:boolean }) {
   const [data,setData]=useState<Operations|null>(null)
   const [error,setError]=useState('')
   const [actionError,setActionError]=useState<{ action:string;message:string }|null>(null)
@@ -78,6 +78,8 @@ export default function AdminOperations() {
   const visibleActionError=(trackingConnected && actionError?.action==='connect_email_tracking' ? '' : actionError?.message) || (!trackingConnected ? data?.configuration.deliveryTrackingError : '')
   const rows=[...(data?.jobs ?? []),...(data?.callAlerts ?? []).map(row=>({ ...row,kind:'Owner email' })),...(data?.billingAlerts ?? []).map(row=>({ ...row,kind:'Billing email' }))]
   const hasIssues=Boolean(error || visibleActionError || rows.length)
+  const needsSetup=Boolean(data && (!data.configuration.emailSending || !trackingConnected || !data.configuration.retell || !data.configuration.stripe))
+  if (hideWhenClear && !hasIssues && !needsSetup) return null
   return <section id="operations" className="agentPanel" style={{ margin:'24px 0',padding:24,border:'1px solid #333',borderRadius:16 }}>
     <span className="adminEyebrow">OPERATIONS &amp; DELIVERY</span><h2>{hasIssues ? 'Failures that need attention' : 'Operations & delivery'}</h2>
     <p>{hasIssues ? 'Provider cleanup and failed or delayed emails appear here. Email acceptance is separate from confirmed delivery. Each category shows its latest 50 matching records.' : 'Monitor email delivery, provider cleanup, and call content retention here.'}</p>

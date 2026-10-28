@@ -12,6 +12,7 @@ import Billing from './pages/Billing.tsx'
 import Settings from './pages/Settings.tsx'
 import ResetPassword from './pages/ResetPassword.tsx'
 import Admin from './pages/Admin.tsx'
+import AdminOperationsPage from './pages/AdminOperationsPage.tsx'
 import CustomerRequests from './pages/CustomerRequests.tsx'
 import AdminRequests from './pages/AdminRequests.tsx'
 import Demo from './pages/Demo.tsx'
@@ -182,6 +183,8 @@ createRoot(document.getElementById('root')!).render(
             </AdminRoute>
           }
         />
+
+        <Route path="/admin/operations" element={<AdminRoute><AdminOperationsPage /></AdminRoute>} />
 
       </Routes>
     </BrowserRouter>
