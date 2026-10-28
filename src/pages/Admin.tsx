@@ -1329,6 +1329,7 @@ export default function Admin() {
 
             <AdminRequestsNavItem />
             <a href="#demo-links" className="adminNavItem">Demo links</a>
+            <a href="/admin/operations" className="adminNavItem">Operations</a>
 
           </nav>
         </div>
@@ -1378,7 +1379,7 @@ export default function Admin() {
         </div>
 
         <AdminDemoLinks />
-        <AdminOperations />
+        <AdminOperations hideWhenClear />
 
         <section className="adminPanel">
           <div className="adminPanelHeading">
