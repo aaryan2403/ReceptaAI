@@ -60,4 +60,4 @@ Automated coverage uses synthetic data and mocked provider APIs. It does not sub
 5. Test simultaneous staff/AI requests, buffers, business timezone, and unavailable Google access.
 6. Test Pro access, Standard rejection, and payment cancellation.
 
-The migration is `supabase/migrations/20261028181051_shared_booking_capacity.sql`. Apply it to the Recepta project before deploying the new API functions.
+The migration is `supabase/migrations/20261028191236_shared_booking_capacity.sql`. Apply it to the Recepta project before deploying the new API functions.

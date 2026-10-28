@@ -69,7 +69,7 @@ before(async()=>{
       created_at timestamptz default now(),updated_at timestamptz default now());
     create unique index appointments_retell_call_id_key on appointments(retell_call_id) where retell_call_id is not null;`)
   await db.exec(await readFile('supabase/migrations/20261014055537_appointment_request_intake.sql','utf8'))
-  await db.exec(await readFile('supabase/migrations/20261028181051_shared_booking_capacity.sql','utf8'))
+  await db.exec(await readFile('supabase/migrations/20261028191236_shared_booking_capacity.sql','utf8'))
   api=(await compile('netlify/functions/bookings.ts')).default
   retell=(await compile('netlify/functions/retell-booking.ts')).default
   google=await compile('netlify/lib/googleCalendar.ts')
