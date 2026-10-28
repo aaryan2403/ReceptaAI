@@ -7,6 +7,7 @@ import App from './App.tsx'
 import Login from './pages/Login.tsx'
 import Dashboard from './pages/Dashboard.tsx'
 import Calls from './pages/Calls.tsx'
+import Bookings from './pages/Bookings.tsx'
 import Agent from './pages/Agent.tsx'
 import Billing from './pages/Billing.tsx'
 import Settings from './pages/Settings.tsx'
@@ -72,6 +73,8 @@ createRoot(document.getElementById('root')!).render(
             </ProtectedRoute>
           }
         />
+
+        <Route path="/dashboard/bookings" element={<ProtectedRoute><Bookings /></ProtectedRoute>} />
 
         {/* Appointment details now live inside the Calls workspace. */}
         <Route

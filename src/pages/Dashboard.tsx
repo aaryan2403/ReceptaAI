@@ -1,3 +1,4 @@
+import ProBookingsNavItem from '../components/ProBookingsNavItem'
 import BillingAccessNotice from '../components/BillingAccessNotice'
 import { type AppointmentStatus } from '../lib/appointmentRequests'
 import { useEffect, useMemo, useState } from 'react'
@@ -571,6 +572,7 @@ export default function Dashboard() {
           >
             Agent
           </a>
+          <ProBookingsNavItem />
 
           <a href="/dashboard/requests" className="dashboardNavItem">
             Customer Requests

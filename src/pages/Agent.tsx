@@ -1,3 +1,4 @@
+import ProBookingsNavItem from '../components/ProBookingsNavItem'
 import BillingAccessNotice from '../components/BillingAccessNotice'
 import { calculateMinuteBalance } from '../lib/minuteBalance'
 import { useEffect, useMemo, useState } from 'react'
@@ -445,6 +446,7 @@ export default function Agent() {
           >
             Agent
           </a>
+          <ProBookingsNavItem />
 
           <a href="/dashboard/requests" className="dashboardNavItem">
             Customer Requests

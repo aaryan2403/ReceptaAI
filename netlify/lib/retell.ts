@@ -527,7 +527,7 @@ const RECEPTA_APPOINTMENT_TOOL_NAMES = new Set([
   'recepta_save_appointment_details',
 ])
 
-const buildReceptaAppointmentTools = (siteUrl: string) => [{
+const buildReceptaAppointmentTools = (siteUrl: string, liveBookings = false) => [{
   type: 'custom',
   name: 'recepta_save_appointment_details',
   description:
@@ -585,7 +585,23 @@ const buildReceptaAppointmentTools = (siteUrl: string) => [{
       },
     },
   },
-}]
+}, ...(liveBookings ? buildLiveBookingTools(siteUrl) : [])]
+
+const buildLiveBookingTools = (siteUrl: string) => {
+  const slot = {
+    start: { type: 'string', description: 'Exact start in ISO 8601 with timezone offset, e.g. 2026-11-02T14:00:00-05:00. Confirm the date/timezone; never guess.' },
+    duration_minutes: { type: 'integer', description: 'Service duration in minutes; omit to use the saved business default.' },
+    employee_id: { type: 'string', description: 'An ID returned by recepta_list_employees, only when a specific employee is requested.' },
+  }
+  return [
+    { type: 'custom', name: 'recepta_list_employees', description: 'List active bookable employee names and IDs. No private contact details.', url: `${siteUrl}/.netlify/functions/retell-booking`, method: 'POST', parameters: { type: 'object', properties: {} } },
+    { type: 'custom', name: 'recepta_check_availability', description: 'Check live availability shared with staff/offline bookings and connected Google calendars. Results are options, not reservations. If booking is disabled, capture a request instead.', url: `${siteUrl}/.netlify/functions/retell-booking`, method: 'POST', parameters: { type: 'object', required: ['start'], properties: slot } },
+    { type: 'custom', name: 'recepta_book_appointment', description: 'Reserve the caller-confirmed time. The server rechecks capacity atomically. Only status booked confirms a reservation. On a conflict check another time. Never claim email/SMS delivery.', url: `${siteUrl}/.netlify/functions/retell-booking`, method: 'POST', parameters: { type: 'object', required: ['start','customer_name'], properties: {
+      ...slot, customer_name: { type: 'string' }, customer_phone: { type: 'string' }, customer_email: { type: 'string' }, service: { type: 'string' },
+      notes: { type: 'string', description: 'Every configured intake field and the caller’s confirmed answers, plus relevant appointment notes.' },
+    } } },
+  ]
+}
 
 const LEGACY_MANAGED_PROMPT_LINES: Record<string, string[][]> = {
   [BUSINESS_HOURS_PROMPT_MARKER]: [
@@ -728,6 +744,7 @@ export const syncRetellSchedule = async ({
   appointmentFields,
   emailNotificationsEnabled = true,
   smsNotificationsEnabled = false,
+  liveBookingTools,
 }: {
   apiKey: string
   agentId: string
@@ -737,6 +754,7 @@ export const syncRetellSchedule = async ({
   appointmentFields?: string[]
   emailNotificationsEnabled?: boolean
   smsNotificationsEnabled?: boolean
+  liveBookingTools?: boolean
 }) => {
   const versions =
     await retellRequest<RetellVersionList>(
@@ -846,13 +864,22 @@ export const syncRetellSchedule = async ({
 
   const siteUrl = process.env.URL?.trim().replace(/\/$/, '')
   const existingTools = currentLlm.general_tools ?? []
+  const useLiveBookings = liveBookingTools ?? existingTools.some(tool => tool.name === 'recepta_check_availability')
   let generalTools = existingTools
 
   if (siteUrl) {
-    generalPrompt = appendManagedPrompt(
+    generalPrompt = replaceManagedPrompt(
       generalPrompt,
       APPOINTMENT_BOOKING_PROMPT_MARKER,
-      [
+      useLiveBookings ? [
+        'For appointment enquiries, collect the service, preferred date/time, timezone, contact details and every configured intake field. Never invent availability.',
+        'Use recepta_check_availability to check live capacity. Staff-entered offline appointments and connected Google calendars count toward the same limit.',
+        'If a specific employee is requested, obtain their ID with recepta_list_employees and pass it to both availability and booking tools.',
+        'If booking is disabled, unavailable, or the caller has no exact time, use recepta_save_appointment_details to record a pending request. Say the business will follow up; do not claim a reservation.',
+        'When live options are available, read back the selected date, time, timezone and service and obtain the caller’s confirmation before calling recepta_book_appointment. Include every configured intake answer in notes.',
+        'Only a successful tool result with status booked confirms a reservation. Availability options alone do not reserve capacity. If the final booking conflicts, check another time.',
+        'Do not claim buyer email/SMS delivery or Google Calendar synchronization unless a tool explicitly confirms it. Never call a pending request booked.',
+      ] : [
         'Recepta does not provide a live calendar or reserve time slots.',
         'For an appointment request, collect the caller’s name, available contact details, reason, preferred date and time, and every field listed in {{recepta_appointment_fields}}. Ask about timezone when needed; do not invent a preference or availability.',
         'Read back the important details and ask the caller to confirm them.',
@@ -865,7 +892,7 @@ export const syncRetellSchedule = async ({
         const name = typeof tool.name === 'string' ? tool.name : ''
         return !RECEPTA_APPOINTMENT_TOOL_NAMES.has(name)
       }),
-      ...buildReceptaAppointmentTools(siteUrl),
+      ...buildReceptaAppointmentTools(siteUrl, useLiveBookings),
     ]
   }
 

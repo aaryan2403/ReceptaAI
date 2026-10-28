@@ -1,3 +1,4 @@
+import ProBookingsNavItem from '../components/ProBookingsNavItem'
 import BillingAccessNotice from '../components/BillingAccessNotice'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
@@ -165,6 +166,7 @@ export default function Billing() {
           <a href="/dashboard" className="dashboardNavItem">Overview</a>
           <a href="/dashboard/calls" className="dashboardNavItem">Calls</a>
           <a href="/dashboard/agent" className="dashboardNavItem">Agent</a>
+          <ProBookingsNavItem />
           <a href="/dashboard/requests" className="dashboardNavItem">Customer Requests</a>
           <a href="/dashboard/billing" className="dashboardNavItem dashboardNavItemActive">Billing</a>
           <a href="/dashboard/settings" className="dashboardNavItem">Settings</a>
