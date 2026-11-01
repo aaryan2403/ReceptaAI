@@ -1,4 +1,3 @@
-import ProBookingsNavItem from '../components/ProBookingsNavItem'
 import BillingAccessNotice from '../components/BillingAccessNotice'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
@@ -338,7 +337,6 @@ export default function Settings() {
           >
             Agent
           </a>
-          <ProBookingsNavItem />
 
           <a href="/dashboard/requests" className="dashboardNavItem">
             Customer Requests
