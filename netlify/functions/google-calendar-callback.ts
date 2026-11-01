@@ -2,8 +2,10 @@
 export default async () => new Response(null, {
   status: 303,
   headers: {
-    Location: '/dashboard/calls',
+    // An explicit harmless query prevents Netlify forwarding old OAuth values.
+    Location: '/dashboard/calls?calendar=removed',
     'Cache-Control': 'no-store',
+    'Referrer-Policy': 'no-referrer',
     'Set-Cookie': 'recepta_google_oauth=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax',
   },
 })

@@ -28,7 +28,9 @@ test('retired calendar APIs cannot connect, reserve, or contact providers, even 
     const callback = (await compile('netlify/functions/google-calendar-callback.ts')).default
     const response = await callback(new Request('https://example.test/?code=stale&state=stale'))
     assert.equal(response.status, 303)
-    assert.equal(response.headers.get('Location'), '/dashboard/calls')
+    assert.equal(response.headers.get('Location'), '/dashboard/calls?calendar=removed')
+    assert.doesNotMatch(response.headers.get('Location'), /code=|state=/)
+    assert.equal(response.headers.get('Referrer-Policy'), 'no-referrer')
     assert.match(response.headers.get('Set-Cookie'), /Max-Age=0/)
   } finally { globalThis.fetch = originalFetch }
 })
