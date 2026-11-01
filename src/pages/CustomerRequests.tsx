@@ -1,4 +1,3 @@
-import ProBookingsNavItem from '../components/ProBookingsNavItem'
 import BillingAccessNotice from '../components/BillingAccessNotice'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
@@ -207,7 +206,6 @@ export default function CustomerRequests() {
           <a href="/dashboard/agent" className="dashboardNavItem">
             Agent
           </a>
-          <ProBookingsNavItem />
           <a
             href="/dashboard/requests"
             className="dashboardNavItem dashboardNavItemActive"

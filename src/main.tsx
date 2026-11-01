@@ -7,7 +7,6 @@ import App from './App.tsx'
 import Login from './pages/Login.tsx'
 import Dashboard from './pages/Dashboard.tsx'
 import Calls from './pages/Calls.tsx'
-import Bookings from './pages/Bookings.tsx'
 import Agent from './pages/Agent.tsx'
 import Billing from './pages/Billing.tsx'
 import Settings from './pages/Settings.tsx'
@@ -74,7 +73,15 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
-        <Route path="/dashboard/bookings" element={<ProtectedRoute><Bookings /></ProtectedRoute>} />
+        {/* Retired booking links open the existing appointment request records. */}
+        <Route
+          path="/dashboard/bookings"
+          element={
+            <ProtectedRoute>
+              <Navigate to="/dashboard/calls" replace />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Appointment details now live inside the Calls workspace. */}
         <Route
