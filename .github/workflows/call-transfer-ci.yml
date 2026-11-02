@@ -1,0 +1,23 @@
+name: Validate Recepta call transfer
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [feature/existing-number-onboarding]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Run call transfer tests
+        run: node --test tests/call-transfer.test.mjs
+      - name: Compile production application
+        run: npm run build
