@@ -1,6 +1,8 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import type {
@@ -27,6 +29,7 @@ type SubscriptionStatus =
   | 'cancelled'
 
 type ClientRecord = {
+  deletion_pending: boolean
   id: string
   company_name: string | null
   contact_email: string | null
@@ -278,6 +281,8 @@ export default function Admin() {
     useState(false)
   const [createError, setCreateError] =
     useState('')
+  const pendingDeletions = useRef(new Map<string, string>())
+  const [refreshError, setRefreshError] = useState('')
   const [createSuccess, setCreateSuccess] =
     useState('')
 
@@ -389,8 +394,8 @@ export default function Admin() {
     ]
   )
 
-  const loadData = async () => {
-    setLoading(true)
+  const loadData = useCallback(async (background = false) => {
+    if (!background) setLoading(true)
 
     try {
       const {
@@ -457,29 +462,32 @@ export default function Admin() {
             ) || null,
         }))
 
+      const removed = [...pendingDeletions.current.entries()].filter(([id]) => !loadedClients.some(client => client.id === id))
+      pendingDeletions.current = new Map(loadedClients.filter(client => client.deletion_pending).map(client => [client.id, client.company_name || 'Client']))
+      if (removed.length) setActionSuccess(`${removed.map(([, name]) => name).join(', ')} removed after provider cleanup completed.`)
       setClients(loadedClients)
       setModels(loadedModels)
-      setActionError('')
+      setRefreshError('')
+      if (!background) setActionError('')
 
       setAiModelId((current) =>
         current ||
         loadedModels[0]?.id ||
         ''
       )
+      return loadedClients
     } catch (error) {
       console.error(
         'Load clients error:',
         error
       )
-      setActionError(
-        error instanceof Error
-          ? error.message
-          : 'Could not load clients.'
-      )
+      const message = error instanceof Error ? error.message : 'Could not load clients.'
+      if (background) setRefreshError(message)
+      else setActionError(message)
     } finally {
-      setLoading(false)
+      if (!background) setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -519,7 +527,22 @@ export default function Admin() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [loadData])
+
+  const hasPendingDeletion = clients.some(client => client.deletion_pending)
+  useEffect(() => {
+    if (!isAdmin || !hasPendingDeletion) return
+    let inFlight = false
+    let stopped = false
+    const refresh = async () => {
+      if (stopped || inFlight || document.visibilityState === 'hidden') return
+      inFlight = true
+      try { await loadData(true) } finally { inFlight = false }
+    }
+    const timer = window.setInterval(() => { void refresh() }, 5000)
+    window.addEventListener('focus', refresh)
+    return () => { stopped = true; window.clearInterval(timer); window.removeEventListener('focus', refresh) }
+  }, [isAdmin, hasPendingDeletion, loadData])
 
   const handleAdminLogin = async (
     event: FormEvent<HTMLFormElement>
@@ -1098,7 +1121,10 @@ export default function Admin() {
         result.pending ? `${clientName} is paused and queued for deletion. Provider cleanup must succeed before the account is removed; track progress in Operations.` : `${clientName} deleted.`
       )
 
-      await loadData()
+      const refreshedClients = await loadData()
+      if (refreshedClients && !refreshedClients.some(row => row.id === client.id)) {
+        setActionSuccess(`${clientName} removed after provider cleanup completed.`)
+      }
     } catch (error) {
       setActionError(
         error instanceof Error
@@ -1547,19 +1573,29 @@ export default function Admin() {
               </span>
               <input
                 value={retellAgentId}
-                onChange={(
-                  event: ChangeEvent<HTMLInputElement>
-                ) =>
-                  setRetellAgentId(
-                    event.target.value
-                  )
-                }
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  setRetellAgentId(event.target.value)
+                  if (/retell|agent id/i.test(createError)) setCreateError('')
+                }}
+                disabled={creating}
+                aria-invalid={Boolean(createError && /retell|agent id/i.test(createError))}
+                aria-describedby="createRetellHelp"
                 placeholder="agent_xxxxxxxxx"
               />
-              <small>
-                Paste the full Agent ID from the Retell workspace connected to Recepta.
+              <small id="createRetellHelp">
+                Optional for a pending client. Leave blank to connect Retell later.
+                A connected agent must belong to the workspace used by Recepta’s server API key.
               </small>
             </label>
+            {createError && /retell|agent id/i.test(createError) && <div className="adminFormMessage adminFormMessage--error" style={{ gridColumn: '1 / -1' }}>
+              <p role="alert" style={{ margin: '0 0 12px' }}><strong>Agent connection needs attention.</strong> {createError}</p>
+              <button type="button" className="btn btnOutline" disabled={creating} onClick={() => {
+                setRetellAgentId(''); setCreateError('')
+                const hadPurchase = Number(purchasePhoneNumbers) > 0
+                if (hadPurchase) setPurchasePhoneNumbers('0')
+                setCreateSuccess(`Retell connection deferred. You can create the pending client now and assign its agent later.${hadPurchase ? ' New-number quantity was reset to 0.' : ''} Calls remain inactive until setup and payment are complete.`)
+              }}>Connect Retell later</button>
+            </div>}
 
             <label style={{ display: 'grid', gridTemplateColumns: '18px 1fr', alignItems: 'center', gap: '8px' }}>
               <input type="checkbox" style={{ width: '18px', minHeight: '18px', padding: 0 }} checked={demoMode} onChange={(event) => setDemoMode(event.target.checked)} />
@@ -1758,7 +1794,7 @@ export default function Admin() {
             </div>
           </form>
 
-          {createError && (
+          {createError && !/retell|agent id/i.test(createError) && (
             <p className="adminFormMessage adminFormMessage--error">
               {createError}
             </p>
@@ -1792,6 +1828,8 @@ export default function Admin() {
               <h2>Current clients</h2>
             </div>
 
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+              <button type="button" className="btn btnOutline" disabled={loading} onClick={() => { void loadData() }}>Refresh clients</button>
             <div className="adminSearch">
               <input
                 type="search"
@@ -1806,7 +1844,9 @@ export default function Admin() {
                 placeholder="Search clients..."
               />
             </div>
+            </div>
           </div>
+          {refreshError && <p role="status" className="adminFormMessage adminFormMessage--error">Automatic refresh failed: {refreshError} Use Refresh clients to check deletion progress.</p>}
 
           {loading ? (
             <div className="adminEmpty">
@@ -1884,6 +1924,7 @@ export default function Admin() {
                         >
                           {client.contact_email ||
                             'No email'}
+                          {client.deletion_pending && <small style={{ display: 'block', color: '#f7c65e' }}>Deletion in progress · refreshes automatically</small>}
                           {client.subscription?.pending_configuration && <small style={{ display: 'block', color: '#7cf0a2' }}>Configuration awaiting payment</small>}
                         </div>
                       </div>
@@ -1898,6 +1939,7 @@ export default function Admin() {
                       <button
                         type="button"
                         className="btn btnOutline"
+                        disabled={client.deletion_pending}
                         onClick={() =>
                           openEditClient(client)
                         }
@@ -1908,6 +1950,7 @@ export default function Admin() {
                       <button
                         type="button"
                         className="btn btnPrimary"
+                        disabled={client.deletion_pending}
                         onClick={() =>
                           openPhoneNumberManager(client)
                         }
@@ -1919,13 +1962,13 @@ export default function Admin() {
                         type="button"
                         className="btn btnOutline employeeDeleteButton"
                         disabled={
-                          deletingId === client.id
+                          deletingId === client.id || client.deletion_pending
                         }
                         onClick={() =>
                           handleDeleteClient(client)
                         }
                       >
-                        {deletingId === client.id
+                        {client.deletion_pending ? 'Deletion in progress' : deletingId === client.id
                           ? 'Deleting...'
                           : 'Delete Client'}
                       </button>
