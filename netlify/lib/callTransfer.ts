@@ -42,7 +42,7 @@ export const updateHumanTransferTools = (
   destination: string | null
 ): Array<Record<string, unknown>> => {
   const existing = tools.filter((tool) => tool.name !== MANAGED_TOOL)
-  if (destination && existing.some((tool) => tool.type === 'transfer_call')) {
+  if (existing.some((tool) => tool.type === 'transfer_call')) {
     throw new Error('This agent already has a different Transfer Call tool. Review it in Retell before enabling Recepta transfer.')
   }
   return destination ? [...existing, buildHumanTransferTool(destination)] : existing
