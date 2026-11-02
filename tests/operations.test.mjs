@@ -127,6 +127,7 @@ test('database grants deny anonymous access, preserve tenant reads, and hide del
  await db.exec(`create policy test_own_client on clients for select to authenticated using(id=auth.uid());create policy test_own_agent on agents for select to authenticated using(client_id=auth.uid());`)
  await db.exec(`select set_config('request.jwt.claim.sub','${client}',false);set role authenticated;`)
  assert.equal((await db.query('select count(*) n from clients')).rows[0].n,1)
+ assert.equal((await db.query("update agents set business_hours='24/7' returning client_id")).rows.length,0)
  await assert.rejects(db.query("update subscriptions set monthly_minutes=999"),/permission denied/)
  await assert.rejects(db.query("update clients set role='admin'"),/permission denied/)
  await db.exec('reset role');await db.query('update clients set deletion_pending=true where id=$1',[client]);await db.exec('set role authenticated')
@@ -315,20 +316,40 @@ test('billing email records provider acceptance and never changes its frozen ret
  await billingMail(globalThis.__operationsDb);assert.equal(state.mail.length,2)
  assert.match((await db.query('select last_error from billing_notifications')).rows[0].last_error,/reviewed/)
 })
-test('saving custom store hours preserves independent AI answering and failed provider sync rolls back the setting',async()=>{
+test('only admins set client store hours; sync uses the selected client and rolls back on failure',async()=>{
  await fixture();globalThis.__operationsPrefSync=[];globalThis.__operationsPrefFail=false
  const hours=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(day=>({day,open:day==='Monday',start:'09:00',end:'17:00'}))
- const body={scheduleMode:'custom',answeringMode:'24/7',operatingHours:hours,timeZone:'America/Toronto'}
- assert.equal((await preferences(request(body))).status,200)
+ const body={clientId:client,scheduleMode:'custom',answeringMode:'24/7',operatingHours:hours,timeZone:'America/Toronto'}
+ assert.equal((await preferences(request(body))).status,403)
+ assert.equal((await preferences(request({...body,clientId:other}))).status,403)
+ assert.equal((await preferences(new Request('https://synthetic.test',{method:'POST',body:JSON.stringify(body)}))).status,401)
+ assert.equal(globalThis.__operationsPrefSync.length,0)
+ assert.equal((await db.query('select business_hours from agents')).rows[0].business_hours,null)
+ assert.equal((await preferences(request(body,'admin'))).status,200)
  let stored=JSON.parse((await db.query('select business_hours from agents')).rows[0].business_hours)
  assert.equal(stored.mode,'custom');assert.equal(stored.answeringMode,'24/7');assert.deepEqual(stored.hours,hours)
- assert.equal((await preferences(request({...body,answeringMode:'business_hours'}))).status,200)
+ assert.equal(globalThis.__operationsPrefSync[0].agentId,'agent_test')
+ assert.equal((await preferences(request({...body,answeringMode:'business_hours'},'admin'))).status,200)
  stored=(await db.query('select business_hours from agents')).rows[0].business_hours
  globalThis.__operationsPrefFail=true
- assert.equal((await preferences(request({...body,scheduleMode:'24/7'}))).status,502)
+ assert.equal((await preferences(request({...body,scheduleMode:'24/7'},'admin'))).status,502)
  assert.equal((await db.query('select business_hours from agents')).rows[0].business_hours,stored)
  globalThis.__operationsPrefFail=false
- assert.equal((await preferences(request({...body,answeringMode:'free-unlimited-calls'}))).status,400)
+ assert.equal((await preferences(request({...body,answeringMode:'free-unlimited-calls'},'admin'))).status,400)
+ assert.equal((await preferences(request({...body,clientId:''},'admin'))).status,400)
+ assert.equal((await preferences(request({...body,operatingHours:[]},'admin'))).status,400)
+ assert.equal((await preferences(request({...body,timeZone:'invalid/timezone'},'admin'))).status,400)
+})
+
+test('admins can save setup hours without an assigned agent and cannot edit a deleting client',async()=>{
+ await fixture();globalThis.__operationsPrefSync=[];globalThis.__operationsPrefFail=false
+ await db.query('update agents set retell_agent_id=null where client_id=$1',[client])
+ const result=await preferences(request({clientId:client,scheduleMode:'24/7',timeZone:'America/Toronto'},'admin'))
+ assert.equal(result.status,200);assert.equal((await result.json()).retellSynced,false)
+ assert.equal(JSON.parse((await db.query('select business_hours from agents')).rows[0].business_hours).mode,'24/7')
+ assert.equal(globalThis.__operationsPrefSync.length,0)
+ await db.query('update clients set deletion_pending=true where id=$1',[client])
+ assert.equal((await preferences(request({clientId:client,scheduleMode:'custom'},'admin'))).status,403)
 })
 
 test('deletion waits for an in-progress call without exhausting retries and blocks new number assignments',async()=>{
