@@ -1,4 +1,5 @@
 import BillingAccessNotice from '../components/BillingAccessNotice'
+import CallTransferSettings from '../components/CallTransferSettings'
 import { calculateMinuteBalance } from '../lib/minuteBalance'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
@@ -516,6 +517,8 @@ export default function Agent() {
             </a>
           </div>
         </section>
+
+        <CallTransferSettings />
 
         {/* PERFORMANCE */}
 
