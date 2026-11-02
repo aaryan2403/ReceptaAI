@@ -65,6 +65,15 @@ export default async (request: Request) => {
   if (!agent?.retell_agent_id) {
     return json(409, { error: 'Assign your Retell agent before configuring call transfers.' })
   }
+  // A shared Retell agent would make one client's transfer destination affect
+  // another client's calls. Require a dedicated agent before publishing.
+  const assignments = await db.from('agents')
+    .select('client_id').eq('retell_agent_id', agent.retell_agent_id).limit(2)
+  if (assignments.error || assignments.data?.length !== 1) {
+    return json(409, {
+      error: 'A dedicated Retell agent is required for each client before enabling transfers.',
+    })
+  }
   const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase()
   if (subscriptionResult.data?.status !== 'active' && (!adminEmail || user.email?.toLowerCase() !== adminEmail)) {
     return json(403, { error: 'An active subscription is required to enable call transfers.' })
