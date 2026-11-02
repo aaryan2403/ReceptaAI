@@ -1,6 +1,6 @@
 # Recepta operations
 
-- Store opening hours and AI answering hours are separate in Agent. AI answering defaults to 24/7; paid admission and remaining minutes still apply. Unconfigured store hours must never be described as a 24/7 business.
+- Recepta Admin manages store opening hours and AI answering hours in Edit Client. Customers view their saved store hours on Agent and send change requests to Recepta. Setup hours can be saved before a Retell agent is assigned; assigning the agent and saving the client syncs the stored hours. AI answering defaults to 24/7; paid admission and remaining minutes still apply. Unconfigured store hours must never be described as a 24/7 business.
 - A declined call creates a callback request on Calls, with its reason and caller ID when available. Staff can mark it contacted, resolved or unreachable. These records are not answered calls and consume no AI minutes.
 - Delete Client pauses the account and queues cleanup. Records and provider identifiers remain until Stripe cancellation/customer deletion and Retell number, call and dedicated-agent cleanup succeed. Imported/manual numbers are detached, not released. Shared agents require separation. An active call postpones cleanup without exhausting retries.
 - Admin → Operations shows queued cleanup, failures, email bounces and delayed delivery. Retry paused provider cleanup only after correcting its reported problem. An ambiguous email is not automatically resent after the provider's idempotency window expires.

@@ -1,0 +1,13 @@
+.adminStoreHours label { display: grid; gap: 8px; }
+.adminStoreHours input:not([type='checkbox']),
+.adminStoreHours select {
+  width: 100%; max-width: 100%; min-width: 0; padding: 11px 12px;
+  border: 1px solid rgba(0, 230, 118, 0.2); border-radius: 10px;
+  background: #0a1b12; color: #f4fff7; font: inherit; color-scheme: dark;
+}
+.adminStoreHours input[type='time'] { width: 145px; }
+.adminStoreHours input[type='checkbox'] { accent-color: #00e676; }
+.adminStoreHours input:focus-visible,
+.adminStoreHours select:focus-visible { outline: 2px solid #00e676; outline-offset: 2px; }
+.adminStoreHours [role='alert'] { color: #ff9a9a; }
+.adminStoreHours [role='status'] { color: #b0f6c9; }

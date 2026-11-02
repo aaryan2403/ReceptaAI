@@ -1,5 +1,5 @@
 import { getAnsweringMode } from '../lib/businessHours'
-import { createClient } from '@supabase/supabase-js'
+import { requestAuth } from '../lib/requestAuth'
 import {
   normalizeEmailNotificationsEnabled,
   normalizeAppointmentFields,
@@ -115,89 +115,42 @@ export default async (request: Request) => {
     return json(405, { error: 'Method not allowed.' })
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL
-  const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY
-  const retellApiKey = process.env.RETELL_API_KEY
-
-  if (!supabaseUrl || !supabaseSecretKey || !retellApiKey) {
-    return json(500, {
-      error:
-        'Schedule sync is unavailable because the server configuration is missing.',
-    })
-  }
-
-  const authHeader = request.headers.get('authorization')
-
-  if (!authHeader?.startsWith('Bearer ')) {
-    return json(401, { error: 'Unauthorized.' })
-  }
+  let auth
+  try { auth = await requestAuth(request, true) }
+  catch { return json(503, { error: 'Store hours administration is not configured.' }) }
+  if (auth.response) return auth.response
+  const { db: supabaseAdmin } = auth
 
   let body: {
+    clientId?: unknown
     scheduleMode?: '24/7' | 'custom'
     operatingHours?: unknown
     timeZone?: unknown
     useSchedule?: boolean
     answeringMode?: unknown
   }
+  try { body = await request.json() }
+  catch { return json(400, { error: 'Invalid request body.' }) }
 
-  try {
-    body = await request.json()
-  } catch {
-    return json(400, { error: 'Invalid request body.' })
+  const clientId = typeof body.clientId === 'string' ? body.clientId.trim() : ''
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId)) {
+    return json(400, { error: 'Choose the client whose store hours you want to update.' })
   }
-
-  const scheduleMode =
-    body.scheduleMode ??
-    (typeof body.useSchedule === 'boolean'
-      ? body.useSchedule
-        ? 'custom'
-        : '24/7'
-      : null)
-
+  const scheduleMode = body.scheduleMode ??
+    (typeof body.useSchedule === 'boolean' ? body.useSchedule ? 'custom' : '24/7' : null)
   if (scheduleMode !== '24/7' && scheduleMode !== 'custom') {
-    return json(400, {
-      error: 'Choose either 24/7 or Custom hours.',
-    })
+    return json(400, { error: 'Choose either 24/7 or Custom hours.' })
   }
-
-  const supabaseAdmin = createClient(supabaseUrl, supabaseSecretKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  })
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabaseAdmin.auth.getUser(
-    authHeader.slice('Bearer '.length)
-  )
-
-  if (userError || !user) {
-    return json(401, { error: 'Unauthorized.' })
-  }
+  const client = await supabaseAdmin.from('clients').select('deletion_pending').eq('id', clientId).maybeSingle()
+  if (client.error) return json(500, { error: 'Could not verify this client.' })
+  if (!client.data || client.data.deletion_pending) return json(403, { error: 'This client is unavailable or awaiting deletion.' })
 
   const { data: agent, error: agentError } = await supabaseAdmin
-    .from('agents')
-    .select('business_hours, retell_agent_id')
-    .eq('client_id', user.id)
-    .maybeSingle()
-
-  if (agentError || !agent) {
-    return json(404, {
-      error: 'No receptionist is assigned to this customer.',
-    })
-  }
-
+    .from('agents').select('business_hours, retell_agent_id').eq('client_id', clientId).maybeSingle()
+  if (agentError || !agent) return json(404, { error: 'Save the client setup before configuring store hours.' })
   const retellAgentId = agent.retell_agent_id?.trim()
-
-  if (!retellAgentId) {
-    return json(409, {
-      error:
-        'Your Retell Agent ID must be assigned before availability can be synchronized.',
-    })
-  }
+  const retellApiKey = process.env.RETELL_API_KEY
+  if (retellAgentId && !retellApiKey) return json(503, { error: 'AI synchronization is not configured.' })
 
   const answeringMode = body.answeringMode ?? getAnsweringMode(agent.business_hours)
   if (answeringMode !== '24/7' && answeringMode !== 'business_hours') return json(400, { error: 'Choose valid AI answering hours.' })
@@ -233,10 +186,18 @@ export default async (request: Request) => {
 
   const businessHours = JSON.stringify(schedule)
 
+  // Admins can prepare store hours before a provider agent has been assigned.
+  if (!retellAgentId) {
+    const saved = await supabaseAdmin.from('agents').update({ business_hours: businessHours }).eq('client_id', clientId)
+    if (saved.error) return json(500, { error: 'Could not save store hours.' })
+    return json(200, { scheduleMode, answeringMode, scheduleEnabled: scheduleMode === 'custom', businessHours,
+      timeZone: schedule.timeZone, retellSynced: false, employeeScheduleSynced: false })
+  }
+
   const { data: employees, error: employeesError } = await supabaseAdmin
     .from('employees')
     .select('id, name, role, is_active')
-    .eq('client_id', user.id)
+    .eq('client_id', clientId)
     .order('created_at', { ascending: true })
 
   if (employeesError) {
@@ -278,20 +239,22 @@ export default async (request: Request) => {
     schedules: employeeSchedules,
     timeZone: schedule.timeZone,
   })
+  const { data: targetUser, error: targetUserError } = await supabaseAdmin.auth.admin.getUserById(clientId)
+  if (targetUserError || !targetUser.user) return json(500, { error: 'Could not load this client’s agent preferences.' })
   const appointmentFields = normalizeAppointmentFields(
-    user.user_metadata?.appointment_custom_fields
+    targetUser.user.user_metadata?.appointment_custom_fields
   )
   const emailNotificationsEnabled = normalizeEmailNotificationsEnabled(
-    user.user_metadata?.appointment_email_notifications_enabled
+    targetUser.user.user_metadata?.appointment_email_notifications_enabled
   )
   const smsNotificationsEnabled = normalizeSmsNotificationsEnabled(
-    user.user_metadata?.appointment_sms_notifications_enabled
+    targetUser.user.user_metadata?.appointment_sms_notifications_enabled
   )
 
   const { error: updateError } = await supabaseAdmin
     .from('agents')
     .update({ business_hours: businessHours })
-    .eq('client_id', user.id)
+    .eq('client_id', clientId)
 
   if (updateError) {
     return json(500, {
@@ -301,7 +264,7 @@ export default async (request: Request) => {
 
   try {
     const retellSync = await syncRetellSchedule({
-      apiKey: retellApiKey,
+      apiKey: retellApiKey!,
       agentId: retellAgentId,
       schedule,
       employeeSchedule,
@@ -324,7 +287,7 @@ export default async (request: Request) => {
     const { error: rollbackError } = await supabaseAdmin
       .from('agents')
       .update({ business_hours: agent.business_hours })
-      .eq('client_id', user.id)
+      .eq('client_id', clientId)
 
     if (rollbackError) {
       console.error('Schedule rollback failed:', rollbackError)

@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase'
 import AdminRequestsNavItem from '../components/AdminRequestsNavItem'
 import AdminDemoLinks from '../components/AdminDemoLinks'
 import AdminOperations from '../components/AdminOperations'
+import AdminStoreHours from '../components/AdminStoreHours'
 
 const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
 const MAX_MONTHLY_MINUTES = 100_000_000
@@ -62,6 +63,7 @@ type AIModel = {
 
 type AgentRecord = {
   client_id: string
+  business_hours?: string | null
   retell_agent_id: string | null
   demo_mode?: boolean
   phone_number: string | null
@@ -2336,6 +2338,18 @@ export default function Admin() {
                     Recepta bill.
                   </small>
                 </div>
+
+                <AdminStoreHours
+                  key={editingClient.id}
+                  clientId={editingClient.id}
+                  businessHours={editingClient.agent?.business_hours}
+                  onSaved={hours => {
+                    const update = (client: ClientWithSubscription) => client.id === editingClient.id && client.agent
+                      ? { ...client, agent: { ...client.agent, business_hours: hours } } : client
+                    setClients(current => current.map(update))
+                    setEditingClient(current => current ? update(current) : current)
+                  }}
+                />
 
                 <NotificationSettingsPanel
                   planName={editPlanName}

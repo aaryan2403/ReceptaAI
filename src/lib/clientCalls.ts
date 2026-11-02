@@ -93,7 +93,8 @@ export const fetchClientCalls = async (): Promise<ClientCallsResult> => {
   }
 }
 
-export const saveSchedulePreference = async (
+export const saveAdminSchedulePreference = async (
+  clientId: string,
   scheduleMode: '24/7' | 'custom',
   options?: {
     operatingHours?: Array<{
@@ -123,6 +124,7 @@ export const saveSchedulePreference = async (
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        clientId,
         scheduleMode,
         operatingHours: options?.operatingHours,
         timeZone: options?.timeZone,
