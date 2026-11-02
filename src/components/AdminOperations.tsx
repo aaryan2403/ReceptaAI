@@ -47,6 +47,7 @@ export default function AdminOperations({ hideWhenClear=false }: { hideWhenClear
       controller.abort()
     }
   },[])
+  const hasPendingCleanup=Boolean(data?.jobs.some(row=>['queued','running'].includes(row.status ?? '')))
   useEffect(() => {
     const load=async () => {
       if (actionInFlight.current) return
@@ -57,9 +58,9 @@ export default function AdminOperations({ hideWhenClear=false }: { hideWhenClear
       } catch(failure) { if (version===refreshVersion.current) setError(failure instanceof Error ? failure.message : 'Could not load operations.') }
     }
     void load()
-    const timer=window.setInterval(load,30000)
+    const timer=window.setInterval(load,hasPendingCleanup ? 5000 : 30000)
     return ()=>window.clearInterval(timer)
-  },[request])
+  },[request,hasPendingCleanup])
   const action=async (body:Record<string,unknown>) => {
     if (actionInFlight.current) return
     actionInFlight.current=true
@@ -77,12 +78,13 @@ export default function AdminOperations({ hideWhenClear=false }: { hideWhenClear
   const trackingConnected=data?.configuration.deliveryTracking===true
   const visibleActionError=(trackingConnected && actionError?.action==='connect_email_tracking' ? '' : actionError?.message) || (!trackingConnected ? data?.configuration.deliveryTrackingError : '')
   const rows=[...(data?.jobs ?? []),...(data?.callAlerts ?? []).map(row=>({ ...row,kind:'Owner email' })),...(data?.billingAlerts ?? []).map(row=>({ ...row,kind:'Billing email' }))]
-  const hasIssues=Boolean(error || visibleActionError || rows.length)
+  const hasFailures=Boolean(error || visibleActionError || data?.callAlerts.length || data?.billingAlerts.length || data?.jobs.some(row=>row.status==='needs_attention' || (row.last_error && row.attempts>0) || ['bounced','complained','failed','suppressed','delivery_delayed'].includes(row.delivery_status ?? '')))
+  const hasIssues=Boolean(hasFailures || rows.length)
   const needsSetup=Boolean(data && (!data.configuration.emailSending || !trackingConnected || !data.configuration.retell || !data.configuration.stripe))
   if (hideWhenClear && !hasIssues && !needsSetup) return null
   return <section id="operations" className="agentPanel" style={{ margin:'24px 0',padding:24,border:'1px solid #333',borderRadius:16 }}>
-    <span className="adminEyebrow">OPERATIONS &amp; DELIVERY</span><h2>{hasIssues ? 'Failures that need attention' : 'Operations & delivery'}</h2>
-    <p>{hasIssues ? 'Provider cleanup and failed or delayed emails appear here. Email acceptance is separate from confirmed delivery. Each category shows its latest 50 matching records.' : 'Monitor email delivery, provider cleanup, and call content retention here.'}</p>
+    <span className="adminEyebrow">OPERATIONS &amp; DELIVERY</span><h2>{hasFailures ? 'Failures that need attention' : rows.length ? 'Cleanup in progress' : 'Operations & delivery'}</h2>
+    <p>{hasFailures ? 'Provider cleanup and failed or delayed emails appear here. Email acceptance is separate from confirmed delivery. Each category shows its latest 50 matching records.' : 'Monitor email delivery, provider cleanup, and call content retention here.'}</p>
     {error && <p role="alert">{error}</p>}
     {data && <>
       <p>Email sending: {data.configuration.emailSending ? 'configured':'missing'} · Delivery tracking: {data.configuration.deliveryTracking ? 'connected':'setup required'} · Retell: {data.configuration.retell ? 'configured':'missing'} · Stripe: {data.configuration.stripe ? 'configured':'missing'}</p>
@@ -95,7 +97,7 @@ export default function AdminOperations({ hideWhenClear=false }: { hideWhenClear
       {!rows.length && <p>No queued cleanup jobs or recorded delivery failures.</p>}
       {rows.map(row=><article key={row.job_key ?? row.notification_key} style={{ padding:'16px 0',borderTop:'1px solid #333' }}>
         <strong>{data.clients.find(client=>client.id===row.client_id)?.company_name || 'Removed client'} · {row.kind?.replaceAll('_',' ')}</strong>
-        <p>{row.delivery_status || row.status || 'Delivery pending'} · {row.attempts} attempts</p>
+        <p>{row.kind==='delete_client' && row.status==='queued' && row.attempts===0 ? 'Scheduled for secure cleanup. The worker checks every five minutes.' : row.status==='running' && row.kind==='delete_client' ? 'Secure cleanup is running. This account stays paused until it finishes.' : `${row.delivery_status || row.status || 'Delivery pending'} · ${row.attempts} attempts`}</p>
         {row.last_error && <p role="status">{row.last_error}</p>}
         {row.status==='needs_attention' && ['delete_client','retention_call'].includes(row.kind ?? '') && <button type="button" className="btn btnOutline" disabled={busy} onClick={()=>void action({ action:'retry_cleanup',jobKey:row.job_key })}>Resume Cleanup</button>}
       </article>)}

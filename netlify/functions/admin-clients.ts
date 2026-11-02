@@ -144,7 +144,7 @@ export default async (request: Request) => {
       supabaseAdmin
         .from('clients')
         .select(
-          'id, company_name, contact_email, created_at'
+          'id, company_name, contact_email, created_at, deletion_pending'
         )
         .order('created_at', {
           ascending: false,
@@ -270,6 +270,7 @@ export default async (request: Request) => {
       {
         status: 200,
         headers: {
+          'Cache-Control': 'no-store',
           'Content-Type':
             'application/json',
         },
