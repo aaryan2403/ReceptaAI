@@ -1,0 +1,272 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { createHmac } from 'node:crypto'
+import { PGlite } from '@electric-sql/pglite'
+import { build } from 'esbuild'
+const one='00000000-0000-0000-0000-000000000001',two='00000000-0000-0000-0000-000000000002'
+const admin='00000000-0000-0000-0000-000000000003',worker='+14165550123',business='+16475550189',ai='+14165550100'
+let db, state
+const quote = v => '"'+v.replaceAll('"','""')+'"'
+const table = name => {
+ let action='read',values,single=false,conflict,ignore=false,max=Infinity
+ const filters=[]
+ const execute=async()=>{
+  try {
+   if (state.failFinish && name==='phone_setups' && action==='update' && values.sync_state==='synced') throw new Error('Synthetic final storage failure')
+   let rows=[]
+   if(action==='insert'){
+    for (const row of Array.isArray(values)?values:[values]) {
+     const keys=Object.keys(row),parts=(conflict??'').split(',')
+     const on=conflict?` on conflict(${parts.map(quote).join(',')}) ${ignore?'do nothing':'do update set '+keys.map(k=>quote(k)+'=excluded.'+quote(k)).join(',')}`:''
+     rows.push(...(await db.query(`insert into ${quote(name)} (${keys.map(quote).join(',')}) values (${keys.map((_,i)=>'$'+(i+1)).join(',')})${on} returning *`,Object.values(row))).rows)
+    }
+   }else{
+    const params=action==='update'?Object.values(values):[]
+    const where=filters.map(([c,op,v])=>{params.push(v);return quote(c)+op+'$'+params.length}).join(' and ')
+    const sql=action==='update'?`update ${quote(name)} set ${Object.keys(values).map((k,i)=>quote(k)+'=$'+(i+1)).join(',')}`:action==='delete'?`delete from ${quote(name)}`:`select * from ${quote(name)}`
+    rows=(await db.query(sql+(where?' where '+where:'')+(action==='read'?'':' returning *'),params)).rows.slice(0,max)
+   }
+   return{data:single?rows[0]??null:rows,error:null}
+  }catch(error){return{data:null,error:{message:error.message}}}
+ }
+ const api={select:()=>api,order:()=>api,limit:v=>{max=v;return api},eq:(c,v)=>{filters.push([c,'=',v]);return api},
+ insert:v=>{action='insert';values=v;return api},upsert:(v,o)=>{action='insert';values=v;conflict=o?.onConflict;ignore=o?.ignoreDuplicates;return api},
+ update:v=>{action='update';values=v;return api},delete:()=>{action='delete';return api},
+ maybeSingle:()=>{single=true;return execute()},single:()=>{single=true;return execute()},then:(a,b)=>execute().then(a,b)}
+ return api
+}
+globalThis.__phoneDb={from:table,auth:{getUser:async token=>({data:{user:token==='invalid'?null:{id:token==='admin'?admin:token==='other'?two:one,email:token==='admin'?'admin@example.test':'owner@example.test',user_metadata:{recepta_transfer_enabled:true}}},error:null}),
+ admin:{getUserById:async id=>({data:{user:{id,email:'owner@example.test',email_confirmed_at:new Date().toISOString()}},error:null})}},
+ rpc:async(name,args={})=>{try{
+ const rows=(await db.query(`select ${name}(${Object.keys(args).map((k,i)=>`${k}=>$${i+1}`).join(',')}) as result`,Object.values(args))).rows
+ return{data:rows[0]?.result,error:null}
+ }catch(error){return{data:null,error:{message:error.message}}}}}
+const compile=async(path)=>{
+ const result=await build({entryPoints:[path],bundle:true,platform:'node',format:'esm',write:false,plugins:[{name:'db',setup(b){
+ b.onResolve({filter:/^@supabase\/supabase-js$/},()=>({path:'db',namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:'export const createClient=()=>globalThis.__phoneDb',loader:'js'}))
+ }}]})
+ return await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'))
+}
+const handler=(await compile('netlify/functions/phone-setup.ts')).default
+const legacy=(await compile('netlify/functions/configure-call-transfer.ts')).default
+const link=(await compile('netlify/functions/admin-link-phone.ts')).default
+const webhook=(await compile('netlify/functions/retell-webhook.ts')).default
+const runtime=await compile('netlify/lib/phoneSetup.ts')
+const transfer=await compile('netlify/lib/callTransfer.ts')
+const retell=await compile('netlify/lib/retell.ts')
+const guide=await compile('src/lib/forwardingGuides.ts')
+const rawRequest=(body,token='customer',method='POST')=>new Request('https://test.example/phone-setup',{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),'Content-Type':'application/json'},...(method==='POST'?{body:JSON.stringify(body)}:{})})
+const call=async(body,token,method)=>{const res=await handler(rawRequest(body,token,method));return {status:res.status,body:await res.json()}}
+const originalFetch=globalThis.fetch
+process.env.SUPABASE_URL='https://synthetic.test';process.env.SUPABASE_SECRET_KEY='synthetic';process.env.RETELL_API_KEY='synthetic';process.env.ADMIN_EMAIL='admin@example.test'
+process.env.RECEPTA_PHONE_SETUP_ENABLED='true';process.env.RECEPTA_APP_URL='https://recepta.test';process.env.URL='https://recepta.test'
+process.env.TWILIO_ACCOUNT_SID='AC'+'a'.repeat(32);process.env.TWILIO_AUTH_TOKEN='synthetic';process.env.TWILIO_VERIFY_SERVICE_SID='VA'+'b'.repeat(32)
+const setup=async()=>{
+ if(db) await db.close()
+ db=new PGlite()
+ await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;
+ create table clients(id uuid primary key,contact_email text,deletion_pending boolean default false);
+ create table agents(client_id uuid primary key references clients(id),retell_agent_id text,phone_number text,status text,business_hours text);
+ create table subscriptions(client_id uuid,status text,stripe_subscription_id text,current_period_start timestamptz,current_period_end timestamptz);
+ create table agent_phone_numbers(id uuid default gen_random_uuid(),client_id uuid references clients(id),phone_number text unique,source text default 'manual',is_primary boolean default false);
+ create table calls(retell_call_id text unique,client_id uuid,call_status text,lifecycle_rank integer);
+ `)
+ await db.exec(await readFile('supabase/migrations/20261102183345_phone_setup_verified_transfers.sql','utf8'))
+ await db.query(`insert into clients(id,contact_email) values($1,'owner@example.test'),($2,'other@example.test'),($3,'admin@example.test')`,[one,two,admin])
+ await db.query("insert into agents(client_id,retell_agent_id,phone_number,status) values($1,'agent_test',$2,'live')",[one,ai])
+ await db.query("insert into agent_phone_numbers(client_id,phone_number,is_primary) values($1,$2,true)",[one,ai])
+ await db.query("insert into subscriptions values($1,'active','sub_synthetic',now()-interval '1 day',now()+interval '1 day')",[one])
+ state={provider:[],validCode:true,failRetell:false,llm:{general_prompt:'Business policy\n\n[RECEPTA MANAGED APPOINTMENT BOOKING]\nOld instructions.',general_tools:[{type:'end_call',name:'end_call'},{type:'custom',name:'keep_custom_tool'}],default_dynamic_variables:{custom:'keep'}}}
+ globalThis.fetch=async(url,options={})=>{
+  const path=new URL(url).pathname;const body=options.body?String(options.body):null
+  state.provider.push({path,method:options.method??'GET',body})
+  if(String(url).includes('verify.twilio.com')) return new Response(JSON.stringify(path.endsWith('/VerificationCheck')?{status:state.validCode?'approved':'pending',valid:state.validCode}:{sid:'VE'+'c'.repeat(32),status:'pending'}))
+  if(state.failRetell)return new Response('{}',{status:503})
+  let result={}
+  if(path.startsWith('/update-agent/'))result={agent_id:'agent_test',version:5}
+  if(path.startsWith('/get-agent/')) result={agent_id:decodeURIComponent(path.split('/').at(-1))}
+  if(path.startsWith('/get-phone-number/'))result={phone_number:decodeURIComponent(path.split('/').at(-1)),inbound_agents:state.conflictBinding?[{agent_id:'agent_other'}]:null,inbound_webhook_url:'https://recepta.test/.netlify/functions/retell-inbound'}
+  if(path.startsWith('/list-agent-versions/'))result={items:[{version:4,is_published:true}]}
+  if(path.startsWith('/create-agent-version/'))result={version:5,response_engine:{type:'retell-llm',llm_id:'llm_test',version:5},webhook_events:['call_started','call_ended','call_analyzed','transcript_updated']}
+  if(path.startsWith('/get-retell-llm/'))result=state.llm
+  if(path.startsWith('/update-retell-llm/')){state.llm={...state.llm,...JSON.parse(body)};result={llm_id:'llm_test'}}
+  if(path.startsWith('/v2/get-call/'))result={call_id:path.split('/').at(-1),agent_id:'agent_test'}
+  return new Response(JSON.stringify(result),{status:200})
+ }
+}
+const verify=async(purpose,phone)=>{await db.query('insert into phone_verified_numbers(client_id,purpose,phone_number,verified_at) values($1,$2,$3,now()) on conflict(client_id,purpose,phone_number) do update set verified_at=now()',[one,purpose,phone])}
+const save=(overrides={})=>({action:'save',mode:'new',businessNumber:null,carrier:'rogers',lineType:'mobile',workerNumber:worker,transferEnabled:true,directLineAuthorized:true,expectedRevision:0,...overrides})
+
+test('auth, feature flag, account-scoped GET and legacy route cannot bypass verification',async()=>{
+ await setup()
+ assert.equal((await call(null,null,'GET')).status,401)
+ assert.equal((await call(null,'invalid','GET')).status,401)
+ process.env.RECEPTA_PHONE_SETUP_ENABLED='false';assert.equal((await call(null,'customer','GET')).status,503);process.env.RECEPTA_PHONE_SETUP_ENABLED='true'
+ const own=await call(null,'customer','GET'),other=await call(null,'other','GET')
+ assert.deepEqual(own.body.numbers,[ai]);assert.deepEqual(other.body.numbers,[])
+ assert.equal((await call({...save(),clientId:two})).status,400)
+ assert.equal((await legacy(rawRequest(save()))).status,400)
+ assert.equal(state.provider.length,0)
+})
+test('expired/unpaid subscriptions cannot enable service or send verification',async()=>{
+ await setup();await verify('worker',worker)
+ await db.exec("update subscriptions set current_period_end=now()-interval '1 minute'")
+ assert.equal((await call(save())).status,403)
+ assert.equal((await call({action:'send-code',purpose:'worker',phoneNumber:worker,channel:'sms',authorized:true})).status,403)
+ assert.equal(state.provider.length,0)
+})
+test('verification requires consent, a valid code and the current user/target challenge',async()=>{
+ await setup()
+ assert.equal((await call({action:'send-code',purpose:'worker',phoneNumber:worker,channel:'sms'})).status,400)
+ assert.equal((await call({action:'send-code',purpose:'worker',phoneNumber:worker,channel:'sms',authorized:true})).status,200)
+ state.validCode=false
+ assert.equal((await call({action:'verify-code',purpose:'worker',phoneNumber:worker,code:'123456'})).status,400)
+ assert.equal((await db.query('select verified_at from phone_verified_numbers')).rows[0].verified_at,null)
+ assert.equal((await call({action:'verify-code',purpose:'worker',phoneNumber:business,code:'123456'})).status,400)
+ state.validCode=true
+ assert.equal((await call({action:'verify-code',purpose:'worker',phoneNumber:worker,code:'123456'})).status,200)
+ assert.ok((await db.query('select verified_at from phone_verified_numbers')).rows[0].verified_at)
+ assert.equal((await call({action:'verify-code',purpose:'worker',phoneNumber:worker,code:'123456'})).status,400)
+})
+test('send and code-check limits persist across requests',async()=>{
+ await setup()
+ const start={action:'send-code',purpose:'worker',phoneNumber:worker,channel:'call',authorized:true}
+ assert.equal((await call(start)).status,200);assert.equal((await call(start)).status,429)
+ state.validCode=false
+ for(let i=0;i<5;i++)assert.equal((await call({action:'verify-code',purpose:'worker',phoneNumber:worker,code:'111111'})).status,400)
+ assert.equal((await call({action:'verify-code',purpose:'worker',phoneNumber:worker,code:'111111'})).status,429)
+ assert.equal(state.provider.filter(r=>r.path.endsWith('/VerificationCheck')).length,5)
+})
+test('verified settings persist, sync the dedicated agent and inject only the authorized destination',async()=>{
+ await setup();await verify('worker',worker)
+ const result=await call(save());assert.equal(result.status,200,JSON.stringify(result.body))
+ const stored=(await db.query('select * from phone_setups')).rows[0]
+ assert.equal(stored.sync_state,'synced');assert.equal(stored.revision,1)
+ const allowed=await runtime.resolveInboundTransfer(globalThis.__phoneDb,one,'agent_test')
+ assert.equal(allowed.recepta_transfer_destination,worker)
+ assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,two,'agent_test')).recepta_transfer_allowed,'disabled')
+ const tool=state.llm.general_tools.find(t=>t.name==='recepta_transfer_to_human')
+ assert.equal(tool.transfer_destination.number,'{{recepta_transfer_destination}}')
+ assert.equal(state.llm.default_dynamic_variables.recepta_transfer_allowed,'disabled')
+ assert.equal(state.llm.default_dynamic_variables.custom,'keep')
+ const updated=state.provider.find(r=>r.path.startsWith('/update-agent/'))
+ assert.ok(JSON.parse(updated.body).webhook_events.includes('transfer_bridged'))
+ assert.ok(JSON.parse(updated.body).webhook_events.includes('transcript_updated'))
+ assert.equal((await call(save())).status,409)
+ assert.equal((await call(null,'customer','GET')).body.destination.phone_number,worker)
+ assert.equal(state.provider.some(r=>/create-phone-number|create-agent$/.test(r.path)),false)
+})
+test('business number verification and known forwarding-loop checks cover normalized and historical numbers',async()=>{
+ await setup();await verify('worker',worker)
+ assert.equal((await call(save({mode:'existing',businessNumber:business}))).status,400)
+ await verify('business',business)
+ assert.equal((await call(save({mode:'existing',businessNumber:business}))).status,200)
+ await verify('worker',business)
+ assert.equal((await call(save({workerNumber:'(647) 555-0189',expectedRevision:1}))).status,400)
+ await verify('worker',ai)
+ assert.equal((await call(save({workerNumber:ai,expectedRevision:1}))).status,400)
+ assert.equal(await runtime.isReceptaLoopCaller(globalThis.__phoneDb,ai),true)
+ assert.equal(await runtime.isReceptaLoopCaller(globalThis.__phoneDb,worker),false)
+})
+test('shared agent, premium and non-US/Canada destinations are rejected before mutation',async()=>{
+ await setup();await verify('worker',worker)
+ await db.query("insert into agents(client_id,retell_agent_id) values($1,'agent_test')",[two])
+ assert.equal((await call(save())).status,409);assert.equal(state.provider.length,0)
+ for(const number of ['+19005551234','+18765551234','+18005551234','+442071234567','4165550123 ext 3','sip:foo@bar'])assert.throws(()=>transfer.normalizeTransferNumber(number))
+})
+test('provider publication failure and final storage failure leave new transfers disabled',async()=>{
+ await setup();await verify('worker',worker);state.failRetell=true
+ assert.equal((await call(save())).status,502)
+ assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,one,'agent_test')).recepta_transfer_allowed,'disabled')
+ state.failRetell=false;state.failFinish=true
+ assert.equal((await call(save({expectedRevision:1}))).status,502)
+ assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,one,'agent_test')).recepta_transfer_allowed,'disabled')
+})
+test('disable succeeds after billing expires, verification expires and agent is removed',async()=>{
+ await setup();await verify('worker',worker);assert.equal((await call(save())).status,200)
+ await db.exec("update subscriptions set status='cancelled';update phone_verified_numbers set verified_at=now()-interval '100 days';update agents set retell_agent_id=null")
+ assert.equal((await call({action:'disable'})).status,200)
+ assert.equal((await db.query('select enabled from phone_transfer_destinations')).rows[0].enabled,false)
+})
+test('concurrent settings updates are serialized and stale revisions are rejected',async()=>{
+ await setup();await verify('worker',worker)
+ const results=await Promise.all([call(save()),call(save())])
+ assert.deepEqual(results.map(r=>r.status).sort(),[200,409])
+})
+test('test confirmations require a saved active revision and remain customer-reported',async()=>{
+ await setup();assert.equal((await call({action:'confirm-test',kind:'reception',confirmed:true,expectedRevision:0})).status,409)
+ await verify('worker',worker);await call(save())
+ assert.equal((await call({action:'confirm-test',kind:'reception',confirmed:true,expectedRevision:1})).status,200)
+ assert.ok((await db.query('select reception_tested_at from phone_setups')).rows[0].reception_tested_at)
+ assert.equal((await call({action:'confirm-test',kind:'transfer',confirmed:true,expectedRevision:0})).status,409)
+})
+test('subsequent schedule sync preserves managed transfer, custom tools and business instructions',async()=>{
+ await setup();await transfer.syncHumanCallTransfer({apiKey:'synthetic',agentId:'agent_test',destination:worker})
+ await retell.syncRetellSchedule({apiKey:'synthetic',agentId:'agent_test',schedule:{mode:'24/7',timeZone:'America/Toronto',hours:[]}})
+ await retell.syncRetellEmployeeSchedule({apiKey:'synthetic',agentId:'agent_test',employeeSchedule:'Keep staff hours',timeZone:'America/Toronto'})
+ await retell.syncRetellSubscription({apiKey:'synthetic',agentId:'agent_test',active:true,phoneNumbers:[ai],demoMode:false})
+ assert.ok(state.llm.general_tools.some(t=>t.name==='recepta_transfer_to_human'))
+ assert.ok(state.llm.general_tools.some(t=>t.name==='keep_custom_tool'))
+ assert.match(state.llm.general_prompt,/Business policy/)
+ assert.match(state.llm.general_prompt,/RECEPTA MANAGED HUMAN TRANSFER/)
+ assert.match(state.llm.general_prompt,/does not provide a live calendar/)
+})
+test('agent publication lock blocks overlapping hours and transfer updates before draft creation',async()=>{
+ await setup()
+ const lock=await globalThis.__phoneDb.rpc('acquire_retell_agent_sync',{p_agent_id:'agent_test',p_token:'00000000-0000-0000-0000-000000000099'})
+ assert.equal(lock.data,true)
+ await assert.rejects(transfer.syncHumanCallTransfer({apiKey:'synthetic',agentId:'agent_test',destination:worker}),/being updated/)
+ await assert.rejects(retell.syncRetellSchedule({apiKey:'synthetic',agentId:'agent_test',schedule:{mode:'24/7',timeZone:'America/Toronto',hours:[]}}),/being updated/)
+ assert.equal(state.provider.length,0)
+})
+test('managed transfer updates preserve custom content appended after their block',()=>{
+ const added=transfer.updateHumanTransferPrompt('Keep original policy.',true)+'\n\nCustom policy after transfer.'
+ assert.match(transfer.updateHumanTransferPrompt(added,true),/Custom policy after transfer/)
+ assert.match(transfer.updateHumanTransferPrompt(added,false),/Custom policy after transfer/)
+})
+test('signed sparse transfer events persist idempotently without changing call completion or usage',async()=>{
+ await setup();await db.query("insert into calls values('call_test',$1,'ended',3)",[one])
+ const send=async(event,signature=true)=>{
+  const body=JSON.stringify({event,call:{call_id:'call_test'},start_timestamp:123})
+  const timestamp=Date.now();const digest=createHmac('sha256','synthetic').update(body+timestamp).digest('hex')
+  return webhook(new Request('https://recepta.test/webhook',{method:'POST',headers:{'x-retell-signature':signature?`v=${timestamp},d=${digest}`:'invalid'},body}))
+ }
+ assert.equal((await send('transfer_started',false)).status,401)
+ for(const e of ['transfer_bridged','transfer_started','transfer_bridged','transfer_cancelled','transfer_ended'])assert.equal((await send(e)).status,204)
+ assert.equal((await db.query('select * from call_transfer_events')).rows.length,4)
+ assert.deepEqual((await db.query('select call_status,lifecycle_rank from calls')).rows[0],{call_status:'ended',lifecycle_rank:3})
+})
+test('phone records and privileged operations are inaccessible to browser roles',async()=>{
+ await setup()
+ for (const role of ['anon','authenticated']) {
+  await db.exec('set role '+role)
+  await assert.rejects(db.query('select * from phone_verified_numbers'),/permission denied/)
+  await assert.rejects(db.query("select consume_phone_limit('forged',10,60)"),/permission denied/)
+  await assert.rejects(db.query('select disable_recepta_phone_transfer($1)',[two]),/permission denied/)
+  await db.exec('reset role')
+ }
+ assert.equal((await db.query("select count(*)::int n from pg_class where relname in ('phone_setups','phone_verified_numbers','phone_transfer_destinations','phone_forwarding_sources','call_transfer_events') and relrowsecurity")).rows[0].n,5)
+})
+test('admin linking verifies account email, provider ownership and conflicting assignments before writes',async()=>{
+ await setup();await db.exec('delete from agent_phone_numbers;delete from agents')
+ const body={clientId:one,ownerEmail:'wrong@example.test',agentId:'agent_test',phoneNumber:ai,ownershipConfirmed:true}
+ assert.equal((await link(rawRequest(body,'customer'))).status,403)
+ assert.equal((await link(rawRequest(body,'admin'))).status,409)
+ assert.equal(state.provider.length,0)
+ body.ownerEmail='owner@example.test';state.conflictBinding=true
+ assert.equal((await link(rawRequest(body,'admin'))).status,502)
+ assert.equal((await db.query('select * from agents')).rows.length,0)
+ state.conflictBinding=false
+ assert.equal((await link(rawRequest(body,'admin'))).status,200)
+ assert.equal((await db.query('select * from agents')).rows[0].client_id,one)
+ assert.equal((await db.query('select * from agents')).rows[0].status,'setup')
+ assert.equal((await link(rawRequest({...body,clientId:two},'admin'))).status,409)
+})
+test('carrier guides distinguish mobile, landline and VoIP and always include deactivation',()=>{
+ assert.match(guide.forwardingGuide('rogers','mobile',ai).steps[0],/\*21\*4165550100#/)
+ assert.match(guide.forwardingGuide('rogers','landline',ai).cancel,/\*73/)
+ assert.match(guide.forwardingGuide('bell','mobile',ai).cancel,/Deactivate All/)
+ assert.doesNotMatch(guide.forwardingGuide('other','voip',ai).steps.join(' '),/\*21\*/)
+})
+test.after(async()=>{globalThis.fetch=originalFetch;await db?.close()})

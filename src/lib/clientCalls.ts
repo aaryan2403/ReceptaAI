@@ -13,6 +13,8 @@ export type ClientCallRecord = {
   call_status: string | null
   transcript: string | null
   recording_url: string | null
+  transfer_events?: Array<{ event: string; received_at: string }>
+  transfer_tracking_available?: boolean
   notification_status?: string | null
   notification_attempts?: number
   notification_last_error?: string | null

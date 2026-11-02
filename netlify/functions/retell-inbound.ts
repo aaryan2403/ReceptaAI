@@ -1,3 +1,4 @@
+import { resolveInboundTransfer, isReceptaLoopCaller } from '../lib/phoneSetup'
 import { createClient } from '@supabase/supabase-js'
 import {
   formatAppointmentFields,
@@ -115,6 +116,10 @@ export default async (request: Request) => {
       },
     }
   )
+
+  if (await isReceptaLoopCaller(supabaseAdmin, normalizeE164(payload.call_inbound.from_number))) {
+    return json(200, { call_inbound: { reject: true } })
+  }
 
   let agent: {
     client_id: string
@@ -329,6 +334,7 @@ export default async (request: Request) => {
         },
       },
       dynamic_variables: {
+        ...await resolveInboundTransfer(supabaseAdmin, agent.client_id, agent.retell_agent_id),
         recepta_answering_mode: answeringMode,
         recepta_business_open: businessSchedule.mode === 'unconfigured' ? 'unknown' : businessOpen ? 'open' : 'closed',
         recepta_schedule_mode: businessSchedule.mode,

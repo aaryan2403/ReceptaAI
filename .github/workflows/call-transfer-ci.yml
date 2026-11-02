@@ -17,7 +17,11 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Run call transfer tests
-        run: node --test tests/call-transfer.test.mjs
+      - name: Run phone setup and existing regression tests
+        run: node --test --test-concurrency=1 tests/*.test.mjs
+      - name: Lint with zero warnings
+        run: npm run lint
+      - name: Check telephony backend types
+        run: npx tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --types node --skipLibCheck netlify/functions/phone-setup.ts netlify/functions/admin-link-phone.ts netlify/functions/retell-inbound.ts netlify/functions/retell-webhook.ts netlify/functions/client-calls.ts
       - name: Compile production application
         run: npm run build

@@ -1,3 +1,4 @@
+import { withRetellAgentSync } from './retellSyncLock'
 import { getCallMaxSeconds } from './callMinutes'
 import {
   createHmac,
@@ -719,7 +720,7 @@ export const formatAppointmentFields = (fields: string[]) =>
     ? fields.map((field) => `- ${field}`).join('\n')
     : 'No additional appointment fields are configured.'
 
-export const syncRetellSchedule = async ({
+const syncRetellScheduleImpl = async ({
   apiKey,
   agentId,
   schedule,
@@ -931,7 +932,7 @@ export const syncRetellSchedule = async ({
   }
 }
 
-export const syncRetellEmployeeSchedule = async ({
+const syncRetellEmployeeScheduleImpl = async ({
   apiKey,
   agentId,
   employeeSchedule,
@@ -1153,7 +1154,7 @@ export const releaseRetellPhoneNumber = async ({
   return true
 }
 
-export const syncRetellSubscription = async (
+const syncRetellSubscriptionImpl = async (
   options: RetellSyncOptions
 ) => {
   if (options.active) {
@@ -1190,3 +1191,12 @@ export const syncRetellSubscription = async (
     phoneBindingResults,
   }
 }
+
+export const syncRetellSchedule = (options: Parameters<typeof syncRetellScheduleImpl>[0]) =>
+  withRetellAgentSync(options.agentId, () => syncRetellScheduleImpl(options))
+
+export const syncRetellEmployeeSchedule = (options: Parameters<typeof syncRetellEmployeeScheduleImpl>[0]) =>
+  withRetellAgentSync(options.agentId, () => syncRetellEmployeeScheduleImpl(options))
+
+export const syncRetellSubscription = (options: Parameters<typeof syncRetellSubscriptionImpl>[0]) =>
+  withRetellAgentSync(options.agentId, () => syncRetellSubscriptionImpl(options))

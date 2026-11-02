@@ -1,3 +1,4 @@
+import { TRANSFER_EVENTS, storeTransferEvent } from '../lib/transferEvents'
 import { isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 import { createClient } from '@supabase/supabase-js'
 import {
@@ -144,6 +145,8 @@ export default async (
   let payload: {
     event?: RetellEvent | string
     call?: RetellCall
+    start_timestamp?: number
+    transfer_destination?: unknown
   }
 
   try {
@@ -152,6 +155,12 @@ export default async (
     return json(400, {
       error: 'Invalid JSON payload.',
     })
+  }
+
+  if (TRANSFER_EVENTS.has(payload.event ?? '')) {
+    const db = createClient(supabaseUrl, supabaseSecretKey, { auth: { autoRefreshToken: false, persistSession: false } })
+    try { return await storeTransferEvent(db, payload) }
+    catch { return new Response(null, { status: 503 }) }
   }
 
   if (

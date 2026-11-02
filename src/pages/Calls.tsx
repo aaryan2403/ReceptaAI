@@ -583,6 +583,15 @@ export default function Calls() {
                   </span>
                 </div>
 
+                <div className="callsIntegrationWarning" role="status">
+                  <strong>Human handoff: </strong>
+                  {selectedCall.transfer_tracking_available === false ? 'Tracking unavailable'
+                    : selectedCall.transfer_events?.some(event => event.event === 'transfer_bridged') ? 'Connection to a worker confirmed by Retell'
+                    : selectedCall.transfer_events?.some(event => event.event === 'transfer_cancelled') ? 'Transfer did not connect — callback follow-up may be needed'
+                    : selectedCall.transfer_events?.length ? 'Transfer activity recorded; connection not confirmed'
+                    : 'No confirmed transfer recorded'}
+                </div>
+
                 <div className="callsDetailGrid">
                   <div>
                     <span>

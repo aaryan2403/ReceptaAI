@@ -1,3 +1,4 @@
+import AdminPhoneLink from '../components/AdminPhoneLink'
 import {
   useEffect,
   useMemo,
@@ -2246,6 +2247,8 @@ export default function Admin() {
                     One E.164 number per line. The first number is primary.
                   </small>
                 </label>
+
+                <AdminPhoneLink key={editingClient.id} clientId={editingClient.id} ownerEmail={editingClient.contact_email} />
 
                 <div
                   id="adminPhonePurchasePanel"

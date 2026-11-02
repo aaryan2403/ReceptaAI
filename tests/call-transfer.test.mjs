@@ -20,12 +20,12 @@ test('normalizes US/Canadian worker phone numbers', () => {
   assert.throws(() => transfer.normalizeTransferNumber('+19005551234'))
 })
 
-test('builds a warm Retell transfer tool with an authorized static number', () => {
+test('builds a warm Retell transfer tool with an admission-controlled destination', () => {
   const tool = transfer.buildHumanTransferTool('+14165550123')
   assert.equal(tool.type, 'transfer_call')
   assert.deepEqual(tool.transfer_destination, {
     type: 'predefined',
-    number: '+14165550123',
+    number: '{{recepta_transfer_destination}}',
   })
   assert.equal(tool.transfer_option.type, 'warm_transfer')
   assert.equal(tool.transfer_option.show_transferee_as_caller, false)
@@ -59,9 +59,10 @@ test('Retell sync updates a draft version and publishes it', async () => {
   const originalFetch = globalThis.fetch
   const responses = [
     { items: [{ version: 4, is_published: true }] },
-    { version: 5, response_engine: { type: 'retell-llm', llm_id: 'llm_test', version: 5 } },
+    { version: 5, webhook_events: [], response_engine: { type: 'retell-llm', llm_id: 'llm_test', version: 5 } },
     { general_prompt: 'Business receptionist', general_tools: [{ type: 'end_call', name: 'end_call' }] },
     { llm_id: 'llm_test' },
+    { agent_id: 'agent_test' },
     { agent_id: 'agent_test' },
   ]
   globalThis.fetch = async (url, options) => {
@@ -74,12 +75,16 @@ test('Retell sync updates a draft version and publishes it', async () => {
       agentId: 'agent_test',
       destination: '+14165550123',
     })
-    assert.equal(calls.length, 5)
+    assert.equal(calls.length, 6)
     assert.ok(calls[3].url.includes('/update-retell-llm/'))
     const patch = JSON.parse(calls[3].options.body)
     assert.equal(patch.general_tools.find((x) => x.name === 'recepta_transfer_to_human')
-      .transfer_destination.number, '+14165550123')
-    assert.ok(calls[4].url.includes('/publish-agent-version/'))
+      .transfer_destination.number, '{{recepta_transfer_destination}}')
+    const agentPatch = JSON.parse(calls[4].options.body)
+    assert.ok(agentPatch.webhook_url.endsWith('/.netlify/functions/retell-webhook'))
+    assert.ok(agentPatch.webhook_events.includes('call_analyzed'))
+    assert.ok(agentPatch.webhook_events.includes('transfer_bridged'))
+    assert.ok(calls[5].url.includes('/publish-agent-version/'))
   } finally {
     globalThis.fetch = originalFetch
   }

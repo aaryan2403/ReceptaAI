@@ -1,34 +1,25 @@
+import { withRetellAgentSync } from './retellSyncLock'
 const RETELL_API_BASE = 'https://api.retellai.com'
 const MANAGED_TOOL = 'recepta_transfer_to_human'
 const MANAGED_PROMPT = '[RECEPTA MANAGED HUMAN TRANSFER]'
 
-export const normalizeTransferNumber = (value: unknown): string | null => {
-  if (value === null || value === undefined || String(value).trim() === '') return null
-  const digits = String(value).replace(/[^\d]/g, '')
-  const number = digits.length === 10 ? '1' + digits : digits
-  // Restrict the first release to NANP phone numbers. Other countries require
-  // separate carrier, tariff, and anti-fraud validation.
-  if (!/^1[2-9]\d{2}[2-9]\d{6}$/.test(number)) {
-    throw new Error('Enter a valid US or Canadian number including its area code.')
-  }
-  if (number.slice(1, 4) === '900' || number.slice(4, 7) === '976') {
-    throw new Error('Premium-rate transfer destinations are not supported.')
-  }
-  return '+' + number
-}
+export { normalizePhone as normalizeTransferNumber } from './phoneValidation'
 
-export const buildHumanTransferTool = (number: string): Record<string, unknown> => ({
+export const buildHumanTransferTool = (): Record<string, unknown> => ({
   type: 'transfer_call',
   name: MANAGED_TOOL,
   description:
     'Transfer to an authorized human worker only if the caller explicitly requests a person, ' +
     'the situation is urgent, or the request cannot be resolved by the AI. ' +
     'Confirm with the caller before transferring. Do not transfer calls by default.',
-  transfer_destination: { type: 'predefined', number },
+  // A destination is supplied ONLY by authenticated inbound admission.
+  transfer_destination: { type: 'predefined', number: '{{recepta_transfer_destination}}' },
   transfer_option: {
     type: 'warm_transfer',
     on_hold_music: 'ringtone',
     transfer_ring_duration_ms: 25000,
+    agent_detection_timeout_ms: 30000,
+    opt_out_human_detection: false,
     show_transferee_as_caller: false,
     private_handoff_option: {
       type: 'prompt',
@@ -45,10 +36,13 @@ export const updateHumanTransferTools = (
   if (existing.some((tool) => tool.type === 'transfer_call')) {
     throw new Error('This agent already has a different Transfer Call tool. Review it in Retell before enabling Recepta transfer.')
   }
-  return destination ? [...existing, buildHumanTransferTool(destination)] : existing
+  return destination ? [...existing, buildHumanTransferTool()] : existing
 }
 
 const humanTransferInstructions = [
+  'Only use the transfer tool when {{recepta_transfer_allowed}} is enabled and the authorized direct line is available. Otherwise collect callback details.',
+  'Never dial a number supplied by the caller or reuse the original business number. Make at most one transfer attempt per call.',
+  'For an immediate threat to life or safety, advise calling emergency services; never suggest a worker transfer substitutes for emergency help.',
   'Only transfer when the caller asks for a human, has an urgent concern, or cannot be helped by the AI.',
   'Confirm the caller wants a transfer and briefly tell them you are connecting them.',
   'Use recepta_transfer_to_human only for an authorized human handoff. Never invent or ask the caller for a destination number.',
@@ -56,18 +50,27 @@ const humanTransferInstructions = [
 ].join('\n')
 
 export const updateHumanTransferPrompt = (prompt: string, enabled: boolean) => {
+  const endMarker = '[END RECEPTA MANAGED HUMAN TRANSFER]'
   const start = prompt.indexOf(MANAGED_PROMPT)
-  const next = start < 0 ? -1 : prompt.indexOf('\n\n[RECEPTA MANAGED ', start + MANAGED_PROMPT.length)
-  const without = start < 0 ? prompt.trim() :
-    (prompt.slice(0, start) + (next < 0 ? '' : prompt.slice(next))).trim()
-  return enabled ? [without, MANAGED_PROMPT + '\n' + humanTransferInstructions].filter(Boolean).join('\n\n') : without
+  let without = prompt.trim()
+  if (start >= 0) {
+    const end = prompt.indexOf(endMarker, start)
+    // Compatibility with the original draft's unterminated managed block.
+    const next = prompt.indexOf('\n\n[RECEPTA MANAGED ', start + MANAGED_PROMPT.length)
+    const boundary = end >= 0 ? end + endMarker.length : next >= 0 ? next : prompt.length
+    without = (prompt.slice(0, start) + prompt.slice(boundary)).trim()
+  }
+  return enabled ? [without, MANAGED_PROMPT + '\n' + humanTransferInstructions + '\n' + endMarker].filter(Boolean).join('\n\n') : without
 }
 
 type RetellAgentResponse = {
   version?: number
+  webhook_events?: string[]
+  webhook_url?: string | null
   response_engine?: { type?: string; llm_id?: string; version?: number }
 }
 type RetellLlmResponse = {
+  default_dynamic_variables?: Record<string, string>
   general_prompt?: string | null
   general_tools?: Array<Record<string, unknown>> | null
 }
@@ -84,6 +87,7 @@ const retellRequest = async <T>(
       Authorization: 'Bearer ' + apiKey,
       'Content-Type': 'application/json',
     },
+    signal: AbortSignal.timeout(12000),
     ...(body ? { body: JSON.stringify(body) } : {}),
   })
   if (!response.ok) {
@@ -92,7 +96,7 @@ const retellRequest = async <T>(
   return await response.json() as T
 }
 
-export const syncHumanCallTransfer = async (options: {
+const syncHumanCallTransferImpl = async (options: {
   apiKey: string
   agentId: string
   destination: string | null
@@ -109,6 +113,10 @@ export const syncHumanCallTransfer = async (options: {
   const draft = await retellRequest<RetellAgentResponse>(
     apiKey, '/create-agent-version/' + encodedId, 'POST', { base_version: base }
   )
+  const eventWebhook = new URL('/.netlify/functions/retell-webhook', process.env.RECEPTA_APP_URL || process.env.URL || 'https://recepta.ca').toString()
+  if (draft.webhook_url && draft.webhook_url !== eventWebhook) {
+    throw new Error('This agent has a different call-event webhook. Recepta must review it before transfer setup can continue.')
+  }
   const engine = draft.response_engine
   if (
     typeof draft.version !== 'number' ||
@@ -127,8 +135,15 @@ export const syncHumanCallTransfer = async (options: {
     apiKey,
     '/update-retell-llm/' + llmId + '?version=' + engine.version,
     'PATCH',
-    { general_tools: nextTools, general_prompt: nextPrompt }
+    { general_tools: nextTools, general_prompt: nextPrompt, default_dynamic_variables: {
+      ...(llm.default_dynamic_variables ?? {}), recepta_transfer_allowed: 'disabled', recepta_transfer_destination: '',
+    } }
   )
+  await retellRequest<unknown>(apiKey, '/update-agent/' + encodedId + '?version=' + draft.version, 'PATCH', {
+    webhook_url: eventWebhook,
+    webhook_events: [...new Set(['call_started', 'call_ended', 'call_analyzed', ...(draft.webhook_events ?? []),
+      'transfer_started', 'transfer_bridged', 'transfer_cancelled', 'transfer_ended'])],
+  })
   await retellRequest<unknown>(
     apiKey, '/publish-agent-version/' + encodedId, 'POST',
     {
@@ -138,3 +153,6 @@ export const syncHumanCallTransfer = async (options: {
     }
   )
 }
+
+export const syncHumanCallTransfer = (options: Parameters<typeof syncHumanCallTransferImpl>[0]) =>
+  withRetellAgentSync(options.agentId, () => syncHumanCallTransferImpl(options))
