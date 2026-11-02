@@ -1,0 +1,73 @@
+.billingAccessNotice {
+  --notice-accent: #f7c65e;
+  --notice-border: rgba(247, 198, 94, 0.32);
+  --notice-tint: rgba(247, 198, 94, 0.09);
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 24px;
+  padding: 20px 22px;
+  border: 1px solid var(--notice-border);
+  border-left: 4px solid var(--notice-accent);
+  border-radius: 16px;
+  background: linear-gradient(110deg, #211c10, #15150f);
+  color: #e3d7bd;
+  text-align: left;
+}
+.billingAccessNotice--error {
+  --notice-accent: #ff9a90;
+  --notice-border: rgba(255, 154, 144, 0.32);
+  --notice-tint: rgba(255, 154, 144, 0.09);
+  background: linear-gradient(110deg, #251716, #191211);
+  color: #efd1cc;
+}
+.billingAccessNoticeIcon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--notice-border);
+  border-radius: 12px;
+  background: var(--notice-tint);
+  color: var(--notice-accent);
+}
+.billingAccessNoticeContent { min-width: 0; }
+.billingAccessNoticeContent > strong {
+  display: block;
+  color: var(--notice-accent);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.billingAccessNoticeContent > p {
+  margin: 5px 0 0;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.billingAccessNotice .billingAccessNoticeAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--notice-border);
+  border-radius: 10px;
+  background: var(--notice-tint);
+  color: var(--notice-accent);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: none;
+}
+.billingAccessNotice .billingAccessNoticeAction:hover { background: rgba(247, 198, 94, 0.16); }
+.billingAccessNotice--error .billingAccessNoticeAction:hover { background: rgba(255, 154, 144, 0.16); }
+.billingAccessNotice .billingAccessNoticeAction:focus-visible { outline: 2px solid var(--notice-accent); outline-offset: 3px; }
+@media (max-width: 680px) {
+  .billingAccessNotice { grid-template-columns: 36px minmax(0, 1fr); gap: 12px; padding: 16px; }
+  .billingAccessNoticeIcon { width: 36px; height: 36px; border-radius: 10px; }
+  .billingAccessNotice .billingAccessNoticeAction { grid-column: 1 / -1; width: 100%; margin-top: 2px; }
+}

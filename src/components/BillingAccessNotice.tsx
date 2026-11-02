@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchBillingStatus } from '../lib/billing'
 import { billingAccessNotice, type NoticeSubscription } from '../lib/billingAccessNotice'
+import './BillingAccessNotice.css'
 
 export default function BillingAccessNotice({ subscription }: { subscription?:NoticeSubscription|null }) {
   const [loaded,setLoaded]=useState<NoticeSubscription|null|undefined>(undefined)
@@ -19,13 +20,21 @@ export default function BillingAccessNotice({ subscription }: { subscription?:No
     return ()=>{active=false;window.clearInterval(timer)}
   },[subscription])
   const current=subscription===undefined ? loaded : subscription
-  if (error) return <p className="calendarAlert" role="status">{error} <a href="/dashboard/billing">Open Billing</a></p>
-  if (current===undefined) return null
-  const notice=billingAccessNotice(current)
+  const notice=error
+    ? { title:'Billing status unavailable',message:error,action:'Open Billing' }
+    : current===undefined ? null : billingAccessNotice(current)
   if (!notice) return null
-  return <section className="calendarAlert" role="status" aria-label="Billing status" style={{ marginBottom:24 }}>
-    <strong>{notice.title}</strong>
-    <p>{notice.message}</p>
-    <a className="btn btnOutline" href="/dashboard/billing" style={{ marginTop:12 }}>{notice.action}</a>
+  return <section className={`billingAccessNotice${error ? ' billingAccessNotice--error' : ''}`} role="status" aria-label="Billing status">
+    <span className="billingAccessNoticeIcon" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10.3 3.9 2.5 17.5a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+        <path d="M12 9v4M12 17h.01" />
+      </svg>
+    </span>
+    <div className="billingAccessNoticeContent">
+      <strong>{notice.title}</strong>
+      <p>{notice.message}</p>
+    </div>
+    <a className="btn billingAccessNoticeAction" href="/dashboard/billing">{notice.action}<span aria-hidden="true">→</span></a>
   </section>
 }
