@@ -142,6 +142,28 @@ export const getRetellModel = (
   return retellModel
 }
 
+class RetellRequestError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message)
+  }
+}
+
+export const retellAccessMessage = (error: unknown) => {
+  const status = error instanceof RetellRequestError ? error.status : null
+  const detail = error instanceof Error ? error.message : ''
+  if (status === 401 || /api key is missing or invalid|unauthorized/i.test(detail)) {
+    return 'Retell rejected Recepta’s server API key. Update RETELL_API_KEY in Netlify for Production with Functions access, then redeploy.'
+  }
+  if (status === 403) {
+    return 'Retell denied agent access. Enable Build → Agent access on the server key in the workspace that owns your agent. Agent synchronization requires Edit access.'
+  }
+  if (status === 429) return 'Retell is rate limiting connection checks. Wait a minute, then try again.'
+  if (status === 404 || /not found|does not exist|cannot find requested asset/i.test(detail)) {
+    return 'This Retell Agent ID is not accessible with Recepta’s server key. Use Check Retell connection to see available agents. If the agent still exists in Retell, check that RETELL_API_KEY in Netlify belongs to the same workspace, then redeploy.'
+  }
+  return 'Retell could not complete the connection check. Try again shortly. No agent settings were changed.'
+}
+
 const retellRequest = async <T>(
   apiKey: string,
   path: string,
@@ -184,7 +206,7 @@ const retellRequest = async <T>(
         ? body.message
         : `Retell request failed with status ${response.status}.`
 
-    throw new Error(message)
+    throw new RetellRequestError(response.status, message)
   }
 
   return body as T
@@ -200,40 +222,48 @@ export const assertRetellAgentAvailable = async ({
   try {
     const agent = await retellRequest<RetellAgent>(
       apiKey,
-      `/get-agent/${encodeURIComponent(agentId)}`
+      `/get-agent/${encodeURIComponent(agentId)}`,
+      { signal: AbortSignal.timeout(8000) }
     )
 
     if (
-      agent.agent_id &&
-      agent.agent_id !== agentId
+      !agent || agent.agent_id !== agentId
     ) {
       throw new Error(
         'Retell returned a different agent than the one requested.'
       )
     }
   } catch (error) {
-    const detail =
-      error instanceof Error
-        ? error.message
-        : 'Retell agent verification failed.'
+    throw new Error(retellAccessMessage(error))
+  }
+}
 
-    if (/api key is missing or invalid|unauthorized/i.test(detail)) {
-      throw new Error(
-        'RETELL_API_KEY is invalid. Replace it with an API key from the Retell workspace that owns this agent.'
-      )
-    }
-
-    if (
-      /not found|status 404|does not exist|cannot find requested asset/i.test(detail)
-    ) {
-      throw new Error(
-        'Retell could not find this Agent ID in the workspace connected to Recepta. Copy the full Agent ID from Retell and make sure RETELL_API_KEY belongs to the same Retell workspace.'
-      )
-    }
-
-    throw new Error(
-      `Could not verify the Retell agent: ${detail}`
-    )
+export const listAvailableRetellAgents = async (apiKey: string, cursor?: string) => {
+  const query = new URLSearchParams({ limit: '100' })
+  if (cursor) query.set('pagination_key', cursor)
+  // Retell v2 lists unique voice agents; it does not change or publish agents.
+  const page = await retellRequest<{
+    items: Array<{ agent_id: string; agent_name?: string; is_suspended?: boolean; is_transfer_agent?: boolean }>
+    has_more: boolean
+    pagination_key?: string
+  }>(apiKey, `/v2/list-agents?${query}`, {
+    method: 'POST',
+    body: JSON.stringify({ filter_criteria: { channel: { op: 'eq', value: 'voice' } } }),
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!page || !Array.isArray(page.items) || typeof page.has_more !== 'boolean' ||
+    page.items.some(agent => !agent || typeof agent.agent_id !== 'string' || !/^[\w-]{1,200}$/.test(agent.agent_id)) ||
+    (page.has_more && (typeof page.pagination_key !== 'string' || !page.pagination_key || page.pagination_key === cursor))) {
+    throw new Error('Unexpected Retell agent list response.')
+  }
+  return {
+    agents: page.items.map(agent => ({
+      id: agent.agent_id,
+      name: typeof agent.agent_name === 'string' ? agent.agent_name.slice(0, 120) : 'Unnamed agent',
+      suspended: agent.is_suspended === true,
+      transferOnly: agent.is_transfer_agent === true,
+    })),
+    nextCursor: page.has_more ? page.pagination_key! : null,
   }
 }
 
