@@ -1,0 +1,23 @@
+.adminRetellPicker {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid rgba(0, 230, 118, .2);
+  border-radius: 16px;
+  background: rgba(0, 230, 118, .025);
+  color: #ebf4ee;
+}
+.adminRetellPickerHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.adminRetellPickerHeader strong { font-size: 15px; }
+.adminRetellPickerHeader p, .adminRetellPickerFootnote { margin: 6px 0 0; color: #a8b8ae; font-size: 13px; line-height: 1.5; }
+.adminRetellPicker .btn { white-space: normal; flex-shrink: 0; font-size: 13px; }
+.adminRetellNotice { margin: 16px 0; padding: 12px 14px; border: 1px solid; border-radius: 10px; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.adminRetellNotice--success { color: #93eab5; border-color: #256440; background: #0d2417; }
+.adminRetellNotice--warning { color: #ffe1a0; border-color: #75602b; background: #282313; }
+.adminRetellNotice--error { color: #ffb0b0; border-color: #743a3a; background: #2a1717; }
+.adminRetellPicker select { max-width: 100%; text-overflow: ellipsis; }
+.adminRetellPickerFootnote { margin-top: 12px; }
+@media (max-width: 600px) {
+  .adminRetellPickerHeader { flex-direction: column; align-items: stretch; }
+  .adminRetellPicker .btn { width: 100%; }
+}

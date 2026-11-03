@@ -14,6 +14,7 @@ import AdminRequestsNavItem from '../components/AdminRequestsNavItem'
 import AdminDemoLinks from '../components/AdminDemoLinks'
 import AdminOperations from '../components/AdminOperations'
 import AdminStoreHours from '../components/AdminStoreHours'
+import AdminRetellAgentPicker from '../components/AdminRetellAgentPicker'
 
 const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
 const MAX_MONTHLY_MINUTES = 100_000_000
@@ -1587,6 +1588,10 @@ export default function Admin() {
                 A connected agent must belong to the workspace used by Recepta’s server API key.
               </small>
             </label>
+            <AdminRetellAgentPicker agentId={retellAgentId} disabled={creating} onSelect={id => {
+              setRetellAgentId(id)
+              if (/retell|agent id/i.test(createError)) setCreateError('')
+            }} />
             {createError && /retell|agent id/i.test(createError) && <div className="adminFormMessage adminFormMessage--error" style={{ gridColumn: '1 / -1' }}>
               <p role="alert" style={{ margin: '0 0 12px' }}><strong>Agent connection needs attention.</strong> {createError}</p>
               <button type="button" className="btn btnOutline" disabled={creating} onClick={() => {
@@ -2268,6 +2273,10 @@ export default function Admin() {
                   </small>
                 </label>
 
+                <AdminRetellAgentPicker agentId={editRetellAgentId} disabled={savingEdit} onSelect={id => {
+                  setEditRetellAgentId(id)
+                  if (/retell|agent id/i.test(editError)) setEditError('')
+                }} />
                 <label style={{ display: 'grid', gridTemplateColumns: '18px 1fr', alignItems: 'center', gap: '8px' }}>
                   <input type="checkbox" style={{ width: '18px', minHeight: '18px', padding: 0 }} checked={editDemoMode} onChange={(event) => setEditDemoMode(event.target.checked)} />
                   <span>Demo agent — 3-minute calls</span>
