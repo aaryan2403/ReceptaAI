@@ -60,7 +60,9 @@ test('uses documented paginated voice-only listing, returns only safe metadata a
     assert.equal(url, 'https://api.retellai.com/v2/list-agents?limit=100')
     assert.equal(options.method, 'POST')
     assert.equal(options.headers.Authorization, 'Bearer synthetic-retell-key')
-    assert.deepEqual(JSON.parse(options.body), { filter_criteria: { channel: { op: 'eq', value: 'voice' } } })
+    // Retell's official SDK AgentListParams.FilterCriteria.Channel requires the
+    // type discriminator; the prose docs' shorter example omits it and gets 400.
+    assert.deepEqual(JSON.parse(options.body), { filter_criteria: { channel: { type: 'string', op: 'eq', value: 'voice' } } })
     assert.ok(options.signal)
     return Response.json({ items: [{ agent_id: 'agent_real', agent_name: 'Receptionist', general_prompt: 'private', api_key: 'private', is_suspended: false, is_transfer_agent: true }], has_more: true, pagination_key: 'page/+2' })
   }

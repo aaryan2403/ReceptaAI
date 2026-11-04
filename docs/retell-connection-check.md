@@ -35,7 +35,10 @@ webhook signing key must match. Check signed webhook delivery after rotation.
 
 The direct check uses `GET /get-agent/{agent_id}` and requires an exact ID match.
 Browsing uses Retell's documented `POST /v2/list-agents` with a voice-channel
-filter, limit 100 and cursor pagination. Only IDs, names and suspended/transfer
+filter (`{ type: 'string', op: 'eq', value: 'voice' }`), limit 100 and cursor pagination.
+The `type` discriminator is required by Retell's current official SDK schema;
+omitting it causes the production agent-list request to return HTTP 400.
+Only IDs, names and suspended/transfer
 flags are returned to an authenticated admin. Prompts and provider response
 bodies are never returned. Error codes and HTTP status are safe fixed metadata;
 raw provider errors are never sent to the browser. Responses are not cached. Each provider check has an
@@ -45,6 +48,7 @@ number routing, billing eligibility, or real call reception.
 References:
 - https://docs.retellai.com/api-references/list-agents
 - https://docs.retellai.com/api-references/get-agent
+- https://github.com/RetellAI/retell-typescript-sdk/blob/main/src/resources/agent.ts
 - https://docs.retellai.com/accounts/workspace
 - https://docs.retellai.com/accounts/manage-api-keys
 - https://docs.netlify.com/build/functions/environment-variables/

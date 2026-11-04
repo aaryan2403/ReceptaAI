@@ -283,7 +283,7 @@ export const listAvailableRetellAgents = async (apiKey: string, cursor?: string)
     pagination_key?: string
   }>(apiKey, `/v2/list-agents?${query}`, {
     method: 'POST',
-    body: JSON.stringify({ filter_criteria: { channel: { op: 'eq', value: 'voice' } } }),
+    body: JSON.stringify({ filter_criteria: { channel: { type: 'string', op: 'eq', value: 'voice' } } }),
     signal: AbortSignal.timeout(8000),
   })
   if (!page || !Array.isArray(page.items) || typeof page.has_more !== 'boolean' ||
