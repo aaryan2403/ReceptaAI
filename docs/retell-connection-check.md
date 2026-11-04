@@ -2,7 +2,10 @@
 
 In Recepta Admin, under the Retell Agent ID field in Create Client or Edit Client,
 click **Check Retell connection**. This uses the current deployment's server key.
-It lists accessible voice agents by name and ID; selecting one fills the form.
+With an ID entered it checks that exact agent directly, independently of the
+agent-list endpoint. **Browse available agents** lists accessible voice agents
+by name and ID; selecting one fills the form. With no ID entered, the connection
+check also lists agents.
 It does not purchase numbers, activate subscriptions, publish agents, or change
 client assignments. Creation/save still performs its normal provider validation.
 
@@ -17,7 +20,11 @@ Results:
   workspace. Retell isolates resources between workspaces. An empty list does
   not prove that a particular agent was deleted.
 - **More results:** load more pages before concluding an ID is unavailable.
-- **Timeout or provider error:** retry later. An unsuccessful refresh clears old
+- **HTTP 400 / 422 request rejected, endpoint unavailable, or unexpected response:**
+  investigate the server integration. A list failure does not mean that the
+  entered agent is missing; check the exact ID directly.
+- **Timeout, network error or provider error:** the check identifies the category
+  and provider HTTP status when available. An unsuccessful refresh clears old
   success results rather than presenting them as a fresh successful check.
 
 Retell keys must remain server-side. Do not put them in `VITE_*` variables,
@@ -26,10 +33,12 @@ the production key, retain Recepta's existing webhook authentication arrangement
 its Retell webhook verifier uses `RETELL_API_KEY`, so the workspace's designated
 webhook signing key must match. Check signed webhook delivery after rotation.
 
-The check uses Retell's documented `POST /v2/list-agents` with a voice-channel
+The direct check uses `GET /get-agent/{agent_id}` and requires an exact ID match.
+Browsing uses Retell's documented `POST /v2/list-agents` with a voice-channel
 filter, limit 100 and cursor pagination. Only IDs, names and suspended/transfer
 flags are returned to an authenticated admin. Prompts and provider response
-bodies are never returned. Responses are not cached. Each provider check has an
+bodies are never returned. Error codes and HTTP status are safe fixed metadata;
+raw provider errors are never sent to the browser. Responses are not cached. Each provider check has an
 eight-second timeout. Access checks cannot establish successful publication,
 number routing, billing eligibility, or real call reception.
 

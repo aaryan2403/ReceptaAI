@@ -7892,6 +7892,24 @@
   font-weight: 700;
 }
 
+.adminNewClientForm .adminAddonOption {
+  flex-direction: row;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.adminNewClientForm .adminAddonOption > span {
+  color: rgba(235, 244, 238, 0.85);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.adminAddonOption input[type='checkbox'] {
+  margin: 0;
+  accent-color: #00e676;
+}
+
 .adminNewClientForm input,
 .adminNewClientForm select,
 .adminSearch input {

@@ -12,20 +12,25 @@ export default function AdminRetellAgentPicker({ agentId, onSelect, disabled = f
   const [agents, setAgents] = useState<AvailableAgent[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [checkedAt, setCheckedAt] = useState('')
+  const [checkedFor, setCheckedFor] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const busy = useRef(false)
 
-  const check = async (loadMore = false) => {
+  const check = async (loadMore = false, browse = false) => {
     if (busy.current) return
     busy.current = true
     setLoading(true)
     setError('')
+    const checkId = !loadMore && !browse ? agentId.trim() : ''
+    setCheckedFor(checkId || null)
     if (!loadMore) { setAgents([]); setCheckedAt(''); setNextCursor(null) }
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) throw new Error('Admin session expired. Sign in again.')
-      const query = loadMore && nextCursor ? `?cursor=${encodeURIComponent(nextCursor)}` : ''
+      const query = loadMore && nextCursor
+        ? `?cursor=${encodeURIComponent(nextCursor)}`
+        : checkId ? `?agentId=${encodeURIComponent(checkId)}` : ''
       const response = await fetch(`/.netlify/functions/admin-retell-agents${query}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
         cache: 'no-store', signal: AbortSignal.timeout(15000),
@@ -47,16 +52,18 @@ export default function AdminRetellAgentPicker({ agentId, onSelect, disabled = f
 
   const match = agents.find(agent => agent.id === agentId.trim())
   const unavailable = Boolean(checkedAt && agentId.trim() && !match && !nextCursor)
+  const current = checkedFor === null || checkedFor === agentId.trim()
 
   return <div className="adminRetellPicker">
     <div className="adminRetellPickerHeader">
-      <div><strong>Find your Retell agent</strong><p>Check which agents Recepta can access, then select yours.</p></div>
+      <div><strong>Find your Retell agent</strong><p>{agentId.trim() ? 'Check the entered Agent ID directly with Recepta’s server key, or browse accessible agents.' : 'Check which agents Recepta can access, then select yours.'}</p></div>
       <button type="button" className="btn btnOutline" disabled={disabled || loading} onClick={() => void check()}>
         {loading ? 'Checking Retell…' : checkedAt ? 'Refresh Retell connection' : 'Check Retell connection'}
       </button>
     </div>
-    {error && <p role="alert" className="adminRetellNotice adminRetellNotice--error">{error}</p>}
-    {checkedAt && <>
+    {agentId.trim() && <button type="button" className="btn btnOutline" disabled={disabled || loading} onClick={() => void check(false, true)}>Browse available agents</button>}
+    {error && current && <p role="alert" className="adminRetellNotice adminRetellNotice--error">{error}</p>}
+    {checkedAt && current && <>
       <p role="status" className={`adminRetellNotice ${unavailable || !agents.length ? 'adminRetellNotice--warning' : 'adminRetellNotice--success'}`}>
         {!agents.length
           ? 'Retell accepted the server key, but returned no voice agents. Check the workspace that owns your receptionist. A deleted agent will not appear.'
