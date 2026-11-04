@@ -54,7 +54,7 @@ test('managed transfer prompt can be safely toggled', () => {
   assert.equal(transfer.updateHumanTransferPrompt(updated, false), base)
 })
 
-test('Retell sync updates a draft version and publishes it', async () => {
+test('Retell sync updates a draft and accepts an empty successful publish response', async () => {
   const calls = []
   const originalFetch = globalThis.fetch
   const responses = [
@@ -67,6 +67,7 @@ test('Retell sync updates a draft version and publishes it', async () => {
   ]
   globalThis.fetch = async (url, options) => {
     calls.push({ url, options })
+    if (String(url).includes('/publish-agent-version/')) return new Response(null, { status: 204 })
     return new Response(JSON.stringify(responses.shift()), { status: 200 })
   }
   try {

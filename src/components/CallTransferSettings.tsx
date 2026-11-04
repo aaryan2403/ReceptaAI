@@ -31,7 +31,7 @@ function VerifyNumber({ purpose, number, verified, disabled, available, run }: {
     </div>}
   </div>
 }
-export default function CallTransferSettings() {
+export default function CallTransferSettings({ request = phoneSetupRequest }: { request?: typeof phoneSetupRequest } = {}) {
   const [account, setAccount] = useState<PhoneAccount | null>(null)
   const [mode, setMode] = useState<'new' | 'existing'>('new')
   const [business, setBusiness] = useState('')
@@ -46,7 +46,7 @@ export default function CallTransferSettings() {
   const [error, setError] = useState('')
   const [dirty, setDirty] = useState(false)
   const load = useCallback(async (reset = true) => {
-    const data = await phoneSetupRequest<PhoneAccount>()
+    const data = await request<PhoneAccount>()
     setAccount(data)
     if (reset) {
       setMode(data.settings?.mode ?? 'new'); setBusiness(data.settings?.business_number ?? '')
@@ -54,7 +54,7 @@ export default function CallTransferSettings() {
       setCarrier(data.settings?.carrier ?? 'rogers'); setLineType(data.settings?.line_type ?? 'mobile')
       setAuthorized(false); setDirty(false)
     }
-  }, [])
+  }, [request])
   useEffect(() => { let mounted = true
     load().catch(e => { if (mounted) setError(e instanceof Error ? e.message : 'Could not load phone setup.') }).finally(() => { if (mounted) setLoading(false) })
     return () => { mounted = false }
@@ -62,7 +62,7 @@ export default function CallTransferSettings() {
   const run = async (body: Record<string, unknown>) => {
     setBusy(true); setError(''); setMessage('')
     try {
-      const result = await phoneSetupRequest<{ message: string }>(body)
+      const result = await request<{ message: string }>(body)
       await load(body.action === 'save' || body.action === 'disable')
       setMessage(result.message)
     } catch (e) {
@@ -89,6 +89,10 @@ export default function CallTransferSettings() {
         {account.numbers.slice(1).map(number => <p key={number}>{number}</p>)}</div>
         <span className={`phoneStatus ${tested && account.paid ? 'phoneStatusGood' : ''}`}>{!account.paid ? 'Billing required' : !assigned ? 'Setup pending' : tested ? 'Call tested by you' : 'Assigned · call test needed'}</span>
       </div>
+      {!assigned && <div className="phoneGuide"><strong>{account.paid ? 'Your number is being prepared.' : 'Start with the number included in your plan.'}</strong>
+        <p>{account.paid ? 'Your assigned number will appear here when setup finishes. Check Billing for your payment status.' : 'After your receptionist is assigned, complete secure Checkout in Billing. Your first Recepta number is provisioned after confirmed payment. No number is purchased just by choosing an option here.'}</p>
+        <a href="/dashboard/billing">{account.paid ? 'View Billing' : 'Continue to Billing'} <ArrowRight size={14} aria-hidden="true" /></a>
+      </div>}
       <fieldset disabled={!editable}><legend><span className="phoneStep">01</span> Choose how customers reach you</legend>
         <div className="phoneOptions">
           <label className={mode === 'existing' ? 'phoneOption selected' : 'phoneOption'}><input type="radio" name="phoneMode" checked={mode === 'existing'} onChange={() => { setMode('existing'); setDirty(true) }} />
@@ -98,7 +102,7 @@ export default function CallTransferSettings() {
         </div>
         {mode === 'existing' ? <>
           <label className="phoneLabel">Existing business phone number<input type="tel" autoComplete="tel" placeholder="+1 416 555 0123" value={business} onChange={e => { setBusiness(e.target.value); setDirty(true) }} /></label>
-          <p className="phoneMuted">Verify this line before activating forwarding. For a landline or VoIP phone, choose a voice verification call.</p>
+          <p className="phoneMuted">Verify this line before activating forwarding. For a landline or VoIP phone, choose a voice verification call. When renewing verification, temporarily turn off forwarding so the code reaches your original phone.</p>
           <VerifyNumber purpose="business" number={business} verified={verified('business', business)} disabled={!editable} available={account.verificationAvailable} run={run} />
           <div className="phoneGrid"><label className="phoneLabel">Carrier<select value={carrier} onChange={e => { setCarrier(e.target.value); setDirty(true) }}><option value="rogers">Rogers</option><option value="bell">Bell</option><option value="telus">TELUS</option><option value="other">Other / hosted provider</option></select></label>
             <label className="phoneLabel">Line type<select value={lineType} onChange={e => { setLineType(e.target.value as typeof lineType); setDirty(true) }}><option value="mobile">Cellphone</option><option value="landline">Landline</option><option value="voip">VoIP / PBX</option></select></label></div>

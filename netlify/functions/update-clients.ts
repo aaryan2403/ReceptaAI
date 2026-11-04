@@ -1,6 +1,7 @@
 import { hasPaidSubscription, saveSubscriptionConfiguration } from '../lib/subscriptionConfiguration'
 
 import { createClient } from '@supabase/supabase-js'
+import { assertAgentAssignable } from '../lib/agentOwnership'
 import {
   assertRetellAgentAvailable,
   normalizeEmailNotificationsEnabled,
@@ -208,6 +209,7 @@ export default async (request: Request) => {
     }
 
     try {
+      await assertAgentAssignable(supabaseAdmin, retellAgentId, clientId)
       await assertRetellAgentAvailable({
         apiKey: retellApiKey,
         agentId: retellAgentId,

@@ -59,6 +59,22 @@ export const assertDirectDestination = async (db: SupabaseClient, number: string
 export const isVerifiedNumber = (rows: Array<{ purpose: string; phone_number: string }>, purpose: string, phone: string) =>
   rows.some(row => row.purpose === purpose && row.phone_number === phone)
 
+export const assertBusinessVerificationTarget = async (db: SupabaseClient, clientId: string, number: string) => {
+  const [agents, numbers, forwarding] = await Promise.all([
+    db.from('agents').select('client_id').eq('phone_number', number).limit(1),
+    db.from('agent_phone_numbers').select('client_id').eq('phone_number', number).limit(1),
+    db.from('phone_forwarding_sources').select('client_id').eq('phone_number', number).limit(1),
+  ])
+  if (checked(agents).length || checked(numbers).length) {
+    throw new PhoneError(400, 'Enter your original business number, not a Recepta AI number.')
+  }
+  if (checked(forwarding).some(row => row.client_id !== clientId)) {
+    throw new PhoneError(400, 'This business number is already linked to another account.')
+  }
+  // Owners may renew verification of their own forwarding source. It remains
+  // forbidden as a worker destination, including after renewal.
+}
+
 export const verificationConfigured = () => Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_VERIFY_SERVICE_SID)
 export const verifyRequest = async (resource: 'Verifications' | 'VerificationCheck', fields: Record<string, string>) => {
   if (!verificationConfigured()) throw new PhoneError(503, 'Phone verification is not connected yet. Recepta must configure the verification service before transfers can be enabled.')

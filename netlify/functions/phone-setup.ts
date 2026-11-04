@@ -1,10 +1,10 @@
 import { verifyReceptionResources } from '../lib/phoneReception'
 import { syncRetellPhoneBindings } from '../lib/retell'
 import { requestAuth, json } from '../lib/requestAuth'
-import { normalizePhone } from '../lib/phoneValidation'
+import { normalizePhone, PhoneValidationError } from '../lib/phoneValidation'
 import { syncHumanCallTransfer } from '../lib/callTransfer'
 import { PhoneError, checked, requirePhoneFeature, rateLimit, withPhoneLock, loadPhoneAccount, requireDedicatedAgent,
-  assertDirectDestination, isVerifiedNumber, verifyRequest, verificationConfigured } from '../lib/phoneSetup'
+  assertDirectDestination, assertBusinessVerificationTarget, isVerifiedNumber, verifyRequest, verificationConfigured } from '../lib/phoneSetup'
 
 const carriers = new Set(['rogers', 'bell', 'telus', 'other'])
 export default async (request: Request) => {
@@ -47,7 +47,8 @@ export default async (request: Request) => {
         if (!['business', 'worker'].includes(String(purpose))) throw new PhoneError(400, 'Choose a business or worker number.')
         const phone = normalizePhone(raw.phoneNumber)
         if (!phone) throw new PhoneError(400, 'Enter the phone number to verify.')
-        await assertDirectDestination(db, phone)
+        if (purpose === 'business') await assertBusinessVerificationTarget(db, user.id, phone)
+        else await assertDirectDestination(db, phone)
         if (action === 'send-code') {
           if (raw.authorized !== true) throw new PhoneError(400, 'Confirm you are authorized to verify this number.')
           if (raw.channel !== 'sms' && raw.channel !== 'call') throw new PhoneError(400, 'Choose text message or voice call.')
@@ -124,6 +125,8 @@ export default async (request: Request) => {
       return json(200, { success: true, message: enabled ? 'Warm transfer synced. Complete the real call tests below before relying on it.' : 'Phone setup synced. Human transfers are disabled.' })
     })
   } catch (error) {
-    return json(error instanceof PhoneError ? error.status : 503, { error: error instanceof PhoneError ? error.message : 'Phone setup is temporarily unavailable. Try again shortly.' })
+    return json(error instanceof PhoneError ? error.status : error instanceof PhoneValidationError ? 400 : 503, {
+      error: error instanceof PhoneError || error instanceof PhoneValidationError ? error.message : 'Phone setup is temporarily unavailable. Try again shortly.',
+    })
   }
 }

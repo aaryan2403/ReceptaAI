@@ -2,11 +2,21 @@
 
 This extends draft PR #23 on `feature/existing-number-onboarding`. It is **not approved for production**. No live number was purchased, no agent was created, no customer resource was reassigned, and no real verification text/call or transfer test was made during implementation.
 
+## Platform-wide customer onboarding
+
+This is one shared product feature for **every current and future Recepta customer**. It does not contain a special route or fallback for the founder's agent. Each authenticated customer loads only their own account, assigned numbers, verified business/worker lines, settings and call outcomes. New accounts start with transfers disabled and acquire their own settings on first save; no per-customer code or deployment is required.
+
+Each customer must have a dedicated agent in Recepta's managed Retell workspace. Admin creation, reassignment and editing reject an agent owned by a different customer before changing accounts or contacting Retell. The staged migration enforces unique provider-agent and primary-number assignments, including concurrent requests. Existing duplicate assignments must be resolved before the migration can pass; it never moves them silently.
+
+Number provisioning reuses the existing authorized Checkout/payment-webhook workflow. A newly configured customer can continue from Phone Setup to Billing and receive the included first AI number after confirmed payment. Choosing either dashboard option alone never buys a number. A previously assigned number is reused, and verified payment replays cannot purchase it again. Initial account/plan/agent preparation remains the existing Recepta admin workflow; customer forwarding and worker-number changes are self-service thereafter.
+
 ## Customer experience
 
 The Agent page has one Phone Setup / Manage Numbers section. Customers can use their assigned Recepta number publicly or retain a carrier number and activate forwarding themselves. Mobile, landline and compatible hosted VoIP services are supported when the carrier supports forwarding. Saving a number does not activate carrier forwarding.
 
 Owners verify existing business and worker numbers using a provider-issued code. Worker changes are self-service, with an authorization/no-forwarding declaration each time transfers are enabled. The first release allows standard US/Canadian direct destinations; it rejects other NANP countries, toll-free, premium, extensions and SIP destinations. The destination table allows additional labeled destinations later; only the primary destination is exposed now.
+
+Owners can renew verification of their own original business line after it expires. A historical forwarding source still cannot become a transfer destination or be claimed by another account. Forwarding must be temporarily deactivated when receiving a renewal code on that original line. Invalid number input returns an actionable 400 response and never contacts a provider.
 
 A dedicated worker line is required. The same phone cannot forward every call to AI and receive the AI's transfer without a separate direct line. Actual carrier rules, forwarding charges and voicemail behavior must be checked by the owner.
 
@@ -49,7 +59,7 @@ No account association is inferred from an agent ID, phone number, business name
 4. The server verifies the selected client is available, its contact email matches a confirmed Auth login, the provider resources exist in Recepta's Retell workspace, the number is not bound to a different agent, and conflicting database assignments do not exist.
 5. The atomic link preserves existing agent prompts/settings and never activates a subscription. It cannot replace a different assigned agent or add unpaid additional numbers. Number routing is switched to Recepta's admission webhook with no static inbound agent fallback.
 
-The supplied production pair was checked read-only during implementation and had no matching `agents` or `agent_phone_numbers` association. The correct customer's login email/account must be identified before using this linking action. Provider workspace ownership still needs a credentialed runtime check.
+The supplied production pair was checked again read-only on 2026-11-03. It now has a matching `agents` association to an available Recepta customer whose contact email matches a confirmed Auth login. The subscription is pending. The Retell workspace/agent access was also verified in the preceding connection repair. No assignment write or billing activation is needed or performed by this PR; a real paid reception test remains open.
 
 If a provider routing update fails after assignment, the endpoint reports the partial result and can be retried. Do not mark service live based on the assignment alone. Normal billing/activation and real reception tests remain required. New numbers continue through the existing quote, authorized Checkout, verified payment webhook and provisioning workflow; this PR does not add an unapproved purchase path or new pricing.
 
@@ -86,14 +96,20 @@ Cancellation does not deactivate carrier forwarding. The owner must undo it with
 
 `npm run test:phone` runs real authenticated handlers against synthetic PostgreSQL tables/functions and mocked Retell/Twilio APIs. Coverage includes tenant ownership, billing expiry, verification/consent, target/attempt limits, persistence, stale revisions, overlapping publication, provider/storage failure, disabling without an agent, known loops, destination country/tariff restrictions, resource linking, signed sparse/out-of-order transfer events, and preservation of other tools/hours/appointment instructions. No production calls, messages, payments or database writes are used.
 
-Also run all existing tests, frontend production build, backend TypeScript and lint. The browser fixture uses the real React component with synthetic services to test verification, errors, save/disable controls and phone layout. It is not a live telephony test.
+Additional regressions exercise two independently onboarded paid customers, different provider agents/LLMs/destinations, disabling one customer without affecting the other, unique assignment races, all three admin assignment routes, renewal of business verification, an empty successful Retell publish response, and first-number fulfillment only after verified payment.
+
+Validation on 2026-11-03: **139 automated tests passed**, along with ESLint, the production build and backend TypeScript checks for the phone, call-record and admin assignment handlers. The build retains existing dependency/chunk-size warnings.
+
+For repeatable browser QA, start the Vite development preview and open `/tests/ui/phone-setup.html`. This development-only fixture uses the real React component with synthetic North Plumbing, South Heating and a new unpaid account; code `123456` verifies a fixture number. It has no Auth session, provider requests, messages, calls, payments or live database connection, and is excluded from Vite's production input. `/tests/ui/phone-setup.mobile.html` embeds it in a real 360px viewport. Browser checks passed for verification failure/success, switching customers with separate settings, sync failure/retry, unpaid restrictions and the 360px layout with no overflowing controls. These are not live telephony tests.
+
+![Phone setup dashboard reviewed with a synthetic customer](images/phone-setup-dashboard.jpg)
 
 ## Release gates — all real-call rows remain open
 
 | Gate | Evidence needed |
 | --- | --- |
 | Isolated test migration/configuration | Apply staged SQL in the test database, set test environment values and verify grants/advisors there. |
-| Exact account association | Select the actual owner account and verify provider ownership before linking the existing pair. |
+| Exact account association | Supplied pair now verified read-only against the assigned customer's confirmed login; billing remains pending. Review any future customer's ownership before assignment. |
 | Paid reception | Call the assigned number; correct AI answers; no default provider binding bypasses admission. |
 | Carrier forwarding | Activate with the actual business carrier; call original number from another phone. |
 | Successful handoff | Worker hears private brief; both parties can speak; bridge event appears in Calls. |

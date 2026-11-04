@@ -54,6 +54,7 @@ const link=(await compile('netlify/functions/admin-link-phone.ts')).default
 const webhook=(await compile('netlify/functions/retell-webhook.ts')).default
 const runtime=await compile('netlify/lib/phoneSetup.ts')
 const transfer=await compile('netlify/lib/callTransfer.ts')
+const ownership=await compile('netlify/lib/agentOwnership.ts')
 const retell=await compile('netlify/lib/retell.ts')
 const guide=await compile('src/lib/forwardingGuides.ts')
 const rawRequest=(body,token='customer',method='POST')=>new Request('https://test.example/phone-setup',{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),'Content-Type':'application/json'},...(method==='POST'?{body:JSON.stringify(body)}:{})})
@@ -78,24 +79,26 @@ const setup=async()=>{
  await db.query("insert into agent_phone_numbers(client_id,phone_number,is_primary) values($1,$2,true)",[one,ai])
  await db.query("insert into subscriptions values($1,'active','sub_synthetic',now()-interval '1 day',now()+interval '1 day')",[one])
  state={provider:[],validCode:true,failRetell:false,llm:{general_prompt:'Business policy\n\n[RECEPTA MANAGED APPOINTMENT BOOKING]\nOld instructions.',general_tools:[{type:'end_call',name:'end_call'},{type:'custom',name:'keep_custom_tool'}],default_dynamic_variables:{custom:'keep'}}}
+ state.llms={llm_test:state.llm,llm_other:{general_prompt:'Other customer business policy.',general_tools:[{type:'end_call',name:'end_call'}],default_dynamic_variables:{other_customer:'keep'}}}
  globalThis.fetch=async(url,options={})=>{
   const path=new URL(url).pathname;const body=options.body?String(options.body):null
   state.provider.push({path,method:options.method??'GET',body})
   if(String(url).includes('verify.twilio.com')) return new Response(JSON.stringify(path.endsWith('/VerificationCheck')?{status:state.validCode?'approved':'pending',valid:state.validCode}:{sid:'VE'+'c'.repeat(32),status:'pending'}))
   if(state.failRetell)return new Response('{}',{status:503})
   let result={}
-  if(path.startsWith('/update-agent/'))result={agent_id:'agent_test',version:5}
+  if(path.startsWith('/publish-agent-version/'))return new Response(null,{status:204})
+  if(path.startsWith('/update-agent/'))result={agent_id:decodeURIComponent(path.split('/').at(-1)),version:5}
   if(path.startsWith('/get-agent/')) result={agent_id:decodeURIComponent(path.split('/').at(-1))}
   if(path.startsWith('/get-phone-number/'))result={phone_number:decodeURIComponent(path.split('/').at(-1)),inbound_agents:state.conflictBinding?[{agent_id:'agent_other'}]:null,inbound_webhook_url:'https://recepta.test/.netlify/functions/retell-inbound'}
   if(path.startsWith('/list-agent-versions/'))result={items:[{version:4,is_published:true}]}
-  if(path.startsWith('/create-agent-version/'))result={version:5,response_engine:{type:'retell-llm',llm_id:'llm_test',version:5},webhook_events:['call_started','call_ended','call_analyzed','transcript_updated']}
-  if(path.startsWith('/get-retell-llm/'))result=state.llm
-  if(path.startsWith('/update-retell-llm/')){state.llm={...state.llm,...JSON.parse(body)};result={llm_id:'llm_test'}}
+  if(path.startsWith('/create-agent-version/'))result={version:5,response_engine:{type:'retell-llm',llm_id:path.endsWith('/agent_other')?'llm_other':'llm_test',version:5},webhook_events:['call_started','call_ended','call_analyzed','transcript_updated']}
+  if(path.startsWith('/get-retell-llm/'))result=state.llms[path.split('/').at(-1)]
+  if(path.startsWith('/update-retell-llm/')){const id=path.split('/').at(-1);state.llms[id]={...state.llms[id],...JSON.parse(body)};if(id==='llm_test')state.llm=state.llms[id];result={llm_id:id}}
   if(path.startsWith('/v2/get-call/'))result={call_id:path.split('/').at(-1),agent_id:'agent_test'}
   return new Response(JSON.stringify(result),{status:200})
  }
 }
-const verify=async(purpose,phone)=>{await db.query('insert into phone_verified_numbers(client_id,purpose,phone_number,verified_at) values($1,$2,$3,now()) on conflict(client_id,purpose,phone_number) do update set verified_at=now()',[one,purpose,phone])}
+const verify=async(purpose,phone,owner=one)=>{await db.query('insert into phone_verified_numbers(client_id,purpose,phone_number,verified_at) values($1,$2,$3,now()) on conflict(client_id,purpose,phone_number) do update set verified_at=now()',[owner,purpose,phone])}
 const save=(overrides={})=>({action:'save',mode:'new',businessNumber:null,carrier:'rogers',lineType:'mobile',workerNumber:worker,transferEnabled:true,directLineAuthorized:true,expectedRevision:0,...overrides})
 
 test('auth, feature flag, account-scoped GET and legacy route cannot bypass verification',async()=>{
@@ -171,6 +174,9 @@ test('business number verification and known forwarding-loop checks cover normal
 })
 test('shared agent, premium and non-US/Canada destinations are rejected before mutation',async()=>{
  await setup();await verify('worker',worker)
+ await assert.rejects(db.query("insert into agents(client_id,retell_agent_id) values($1,'agent_test')",[two]),/unique/)
+ // A legacy database with a conflicting assignment must also fail closed.
+ await db.exec('drop index recepta_dedicated_retell_agent')
  await db.query("insert into agents(client_id,retell_agent_id) values($1,'agent_test')",[two])
  assert.equal((await call(save())).status,409);assert.equal(state.provider.length,0)
  for(const number of ['+19005551234','+18765551234','+18005551234','+442071234567','4165550123 ext 3','sip:foo@bar'])assert.throws(()=>transfer.normalizeTransferNumber(number))
@@ -269,4 +275,67 @@ test('carrier guides distinguish mobile, landline and VoIP and always include de
  assert.match(guide.forwardingGuide('bell','mobile',ai).cancel,/Deactivate All/)
  assert.doesNotMatch(guide.forwardingGuide('other','voip',ai).steps.join(' '),/\*21\*/)
 })
+test('current and newly onboarded customers retain independent settings, agents and runtime destinations',async()=>{
+ await setup()
+ const otherAi='+16475550101',otherWorker='+16475550102'
+ await db.query("insert into agents(client_id,retell_agent_id,phone_number,status) values($1,'agent_other',$2,'live')",[two,otherAi])
+ await db.query("insert into agent_phone_numbers(client_id,phone_number,is_primary) values($1,$2,true)",[two,otherAi])
+ await db.query("insert into subscriptions values($1,'active','sub_other',now()-interval '1 day',now()+interval '1 day')",[two])
+ assert.equal((await call(null,'other','GET')).body.settings,null)
+ await verify('worker',worker);await verify('worker',otherWorker,two)
+ assert.equal((await call(save())).status,200)
+ assert.equal((await call(save({workerNumber:otherWorker}),'other')).status,200)
+ assert.deepEqual((await db.query('select client_id,revision,sync_state from phone_setups order by client_id')).rows,[
+  {client_id:one,revision:1,sync_state:'synced'},{client_id:two,revision:1,sync_state:'synced'},
+ ])
+ assert.equal((await call(null,'customer','GET')).body.destination.phone_number,worker)
+ assert.equal((await call(null,'other','GET')).body.destination.phone_number,otherWorker)
+ assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,one,'agent_test')).recepta_transfer_destination,worker)
+ assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,two,'agent_other')).recepta_transfer_destination,otherWorker)
+ assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,one,'agent_other')).recepta_transfer_allowed,'disabled')
+ assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,two,'agent_test')).recepta_transfer_allowed,'disabled')
+ assert.match(state.llms.llm_test.general_prompt,/Business policy/)
+ assert.match(state.llms.llm_other.general_prompt,/Other customer business policy/)
+ assert.doesNotMatch(state.llms.llm_other.general_prompt,/Old instructions/)
+ assert.equal(state.llms.llm_other.default_dynamic_variables.other_customer,'keep')
+ assert.equal((await call({action:'disable'})).status,200)
+ assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,one,'agent_test')).recepta_transfer_allowed,'disabled')
+ assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,two,'agent_other')).recepta_transfer_destination,otherWorker)
+ assert.equal(state.provider.filter(p=>p.path.startsWith('/publish-agent-version/agent_other')).length,1)
+ assert.equal(state.provider.some(p=>/create-phone-number|create-agent$/.test(p.path)),false)
+})
+
+test('a customer can renew their own business verification while forwarding sources stay forbidden as worker lines',async()=>{
+ await setup();await verify('business',business)
+ assert.equal((await call(save({mode:'existing',businessNumber:business,transferEnabled:false,workerNumber:null}))).status,200)
+ await db.exec("update phone_verified_numbers set verified_at=now()-interval '91 days'")
+ assert.equal((await call({action:'send-code',purpose:'business',phoneNumber:business,channel:'call',authorized:true})).status,200)
+ assert.equal((await call({action:'verify-code',purpose:'business',phoneNumber:business,code:'123456'})).status,200)
+ assert.equal((await call({action:'send-code',purpose:'worker',phoneNumber:business,channel:'call',authorized:true})).status,400)
+ await db.query("insert into subscriptions values($1,'active','sub_other',now()-interval '1 day',now()+interval '1 day')",[two])
+ const count=state.provider.length
+ assert.equal((await call({action:'send-code',purpose:'business',phoneNumber:business,channel:'call',authorized:true},'other')).status,400)
+ assert.equal(state.provider.length,count)
+ assert.equal((await db.query('select client_id from phone_forwarding_sources where phone_number=$1',[business])).rows[0].client_id,one)
+})
+
+test('invalid phone input is an actionable client error and never contacts a provider',async()=>{
+ await setup()
+ for(const number of ['sip:worker@example.test','+19005551234','4165550123 ext 8']) {
+  const result=await call({action:'send-code',purpose:'worker',phoneNumber:number,channel:'sms',authorized:true})
+  assert.equal(result.status,400);assert.match(result.body.error,/number|destination/)
+ }
+ assert.equal(state.provider.length,0)
+})
+
+test('agent assignment guards allow the owner and reject a second customer before provider work',async()=>{
+ await setup()
+ await ownership.assertAgentAssignable(globalThis.__phoneDb,'agent_test',one)
+ await ownership.assertAgentAssignable(globalThis.__phoneDb,'agent_future')
+ await assert.rejects(ownership.assertAgentAssignable(globalThis.__phoneDb,'agent_test',two),/already assigned.*another Recepta customer/)
+ await assert.rejects(ownership.assertAgentAssignable(globalThis.__phoneDb,'agent_test'),/already assigned/)
+ await assert.rejects(db.query('insert into agents(client_id,phone_number) values($1,$2)',[two,ai]),/unique/)
+ assert.equal(state.provider.length,0)
+})
+
 test.after(async()=>{globalThis.fetch=originalFetch;await db?.close()})

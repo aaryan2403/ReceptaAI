@@ -1,5 +1,12 @@
 -- Staged only: apply to an isolated test database before enabling the feature.
 -- Authorization and verification records are never stored in editable user_metadata.
+-- Existing conflicting assignments must be reviewed before release, never
+-- silently moved. The application also checks ownership before provider writes.
+create unique index recepta_dedicated_retell_agent on public.agents(retell_agent_id)
+  where retell_agent_id is not null and retell_agent_id<>'';
+create unique index recepta_dedicated_primary_number on public.agents(phone_number)
+  where phone_number is not null and phone_number<>'';
+
 create table public.phone_setups (
   client_id uuid primary key references public.clients(id) on delete cascade,
   mode text not null default 'new' check (mode in ('new','existing')),

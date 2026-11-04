@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { assertAgentAssignable } from '../lib/agentOwnership'
 import { assertRetellAgentAvailable, syncRetellSubscription } from '../lib/retell'
 import { hasPaidSubscription } from '../lib/subscriptionConfiguration'
 
@@ -153,6 +154,7 @@ export default async (request: Request) => {
       }
 
       try {
+        await assertAgentAssignable(supabaseAdmin, normalizedRetellId, clientId)
         await assertRetellAgentAvailable({
           apiKey: retellApiKey,
           agentId: normalizedRetellId,

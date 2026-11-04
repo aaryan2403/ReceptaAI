@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { assertAgentAssignable } from '../lib/agentOwnership'
 import Stripe from 'stripe'
 import {
   assertRetellAgentAvailable,
@@ -389,6 +390,7 @@ export default async (request: Request) => {
       retellApiKey
     ) {
       try {
+        await assertAgentAssignable(supabaseAdmin, normalizedRetellId)
         await assertRetellAgentAvailable({
           apiKey: retellApiKey,
           agentId: normalizedRetellId,

@@ -177,6 +177,23 @@ test('admin upgrades are quotes: paid allowance, period, subscription and live A
   assert.equal((await db.query("select * from reserve_recepta_agent_call($1,'before_upgrade','agent_test')",[client])).rows[0].reserved_seconds, 3600)
 })
 
+test('all admin assignment routes reject an agent already assigned to another customer before side effects',async()=>{
+ await fixture()
+ const before=await sub()
+ const createResponse=await create(request({companyName:'Second customer',email:'second@example.test',password:'synthetic-only-password',planName:'Recepta Standard',monthlyMinutes:300,aiModelId:'essential',retellAgentId:'agent_test'}))
+ assert.equal(createResponse.status,400)
+ assert.match((await createResponse.json()).error,/already assigned/)
+ assert.equal((await db.query('select count(*)::int n from clients')).rows[0].n,1)
+ assert.equal(stripeCalls.length,0)
+ await db.query("insert into agents(client_id,retell_agent_id,status) values($1,'agent_other','setup')",[newClient])
+ for(const response of [await edit(request({...editBody,retellAgentId:'agent_other'})),await assignAgent(request({clientId:client,retellAgentId:'agent_other'}))]) {
+  assert.equal(response.status,400);assert.match((await response.json()).error,/already assigned/)
+ }
+ assert.deepEqual(await sub(),before)
+ assert.equal((await db.query('select retell_agent_id from agents where client_id=$1',[client])).rows[0].retell_agent_id,'agent_test')
+ assert.equal(globalThis.__paymentRetell.length,0)
+})
+
 test('reactivation and legacy plan updates cannot grant unpaid access', async () => {
   await fixture()
   await db.exec("update subscriptions set status='cancelled'")
@@ -245,6 +262,24 @@ test('a newer quote survives an older paid Checkout and payment replay cannot er
   assert.equal((await sub()).pending_configuration.monthly_minutes, 300)
   await activate()
   assert.equal((await sub()).pending_configuration.monthly_minutes, 300)
+})
+
+test('a future customer receives the included first number only after verified payment, without creating an agent',async()=>{
+ await fixture(false)
+ await db.exec('delete from agent_phone_numbers;update agents set phone_number=null')
+ await configure(configuration)
+ assert.equal((await checkout(request({monthlyMinutes:60},false))).status,200)
+ assert.equal(checkoutBody.metadata.extra_phone_numbers,'0')
+ event={type:'checkout.session.completed',data:{object:{mode:'subscription',payment_status:'unpaid',subscription:'sub_after_payment',customer:'cus_original',invoice:'in_synthetic',metadata:checkoutBody.metadata}}}
+ assert.equal((await webhook(request({}))).status,200)
+ assert.equal(globalThis.__paymentRetell.filter(op=>op.kind==='purchase').length,0)
+ event.data.object.payment_status='paid'
+ assert.equal((await webhook(request({}))).status,200)
+ assert.equal((await webhook(request({}))).status,200)
+ assert.equal(globalThis.__paymentRetell.filter(op=>op.kind==='purchase').length,1)
+ assert.equal((await db.query('select phone_number from agent_phone_numbers where client_id=$1',[client])).rows[0].phone_number,'+14165550999')
+ assert.equal((await db.query('select retell_agent_id from agents where client_id=$1',[client])).rows[0].retell_agent_id,'agent_test')
+ assert.equal((await sub()).status,'active')
 })
 
 test('a regular paid renewal preserves the pending quote and renews only the paid configuration', async () => {

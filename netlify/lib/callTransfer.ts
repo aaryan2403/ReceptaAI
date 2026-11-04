@@ -84,7 +84,7 @@ const retellRequest = async <T>(
   const response = await fetch(RETELL_API_BASE + path, {
     method,
     headers: {
-      Authorization: 'Bearer ' + apiKey,
+      Authorization: 'Bearer ' + apiKey.trim(),
       'Content-Type': 'application/json',
     },
     signal: AbortSignal.timeout(12000),
@@ -93,7 +93,10 @@ const retellRequest = async <T>(
   if (!response.ok) {
     throw new Error('Retell rejected the transfer configuration (HTTP ' + response.status + ').')
   }
-  return await response.json() as T
+  // Publishing returns no JSON body. A successful 204 must not leave a
+  // customer's durable setup stuck in the error/disabled state.
+  const text = await response.text()
+  return (text ? JSON.parse(text) : null) as T
 }
 
 const syncHumanCallTransferImpl = async (options: {

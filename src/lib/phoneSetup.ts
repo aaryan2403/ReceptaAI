@@ -1,4 +1,3 @@
-import { supabase } from './supabase'
 export type PhoneAccount = {
   paid: boolean
   agent: { retell_agent_id: string | null; status: string | null } | null
@@ -10,6 +9,7 @@ export type PhoneAccount = {
   verificationAvailable: boolean
 }
 export const phoneSetupRequest = async <T>(body?: Record<string, unknown>, endpoint = 'phone-setup'): Promise<T> => {
+  const { supabase } = await import('./supabase')
   const { data: { session } } = await supabase.auth.getSession()
   if (!session?.access_token) throw new Error('Please sign in again.')
   const response = await fetch('/.netlify/functions/' + endpoint, {
