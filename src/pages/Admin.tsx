@@ -1712,7 +1712,7 @@ export default function Admin() {
             >
               <strong>Paid add-ons</strong>
 
-              <label
+              <label className="adminAddonOption"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1742,7 +1742,7 @@ export default function Admin() {
                 </span>
               </label>
 
-              <label
+              <label className="adminAddonOption"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -2443,7 +2443,7 @@ export default function Admin() {
                 >
                   <strong>Paid add-ons</strong>
 
-                  <label
+                  <label className="adminAddonOption"
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -2471,7 +2471,7 @@ export default function Admin() {
                     </span>
                   </label>
 
-                  <label
+                  <label className="adminAddonOption"
                     style={{
                       display: 'flex',
                       alignItems: 'center',

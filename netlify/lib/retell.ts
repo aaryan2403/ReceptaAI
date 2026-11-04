@@ -78,6 +78,9 @@ type RetellVersionList = {
 
 type RetellAgent = {
   agent_id?: string
+  agent_name?: string
+  is_suspended?: boolean
+  is_transfer_agent?: boolean
   version?: number
   response_engine?: {
     type?: string
@@ -148,21 +151,45 @@ class RetellRequestError extends Error {
   }
 }
 
-export const retellAccessMessage = (error: unknown) => {
+class RetellResponseError extends Error {}
+
+// Return only fixed diagnostic text and HTTP status, never a provider body.
+export const retellAccessDetails = (error: unknown, operation: 'agent' | 'list' = 'agent') => {
   const status = error instanceof RetellRequestError ? error.status : null
   const detail = error instanceof Error ? error.message : ''
+  const result = (code: string, message: string) => ({ code, providerStatus: status, error: message })
   if (status === 401 || /api key is missing or invalid|unauthorized/i.test(detail)) {
-    return 'Retell rejected Recepta’s server API key. Update RETELL_API_KEY in Netlify for Production with Functions access, then redeploy.'
+    return result('invalid_key', 'Retell rejected Recepta’s server API key (HTTP 401). Update RETELL_API_KEY in Netlify for Production with Functions access, then redeploy.')
   }
   if (status === 403) {
-    return 'Retell denied agent access. Enable Build → Agent access on the server key in the workspace that owns your agent. Agent synchronization requires Edit access.'
+    return result('access_denied', 'Retell denied agent access (HTTP 403). Enable Build → Agent access on the server key in the workspace that owns your agent. Agent synchronization requires Edit access.')
   }
-  if (status === 429) return 'Retell is rate limiting connection checks. Wait a minute, then try again.'
-  if (status === 404 || /not found|does not exist|cannot find requested asset/i.test(detail)) {
-    return 'This Retell Agent ID is not accessible with Recepta’s server key. Use Check Retell connection to see available agents. If the agent still exists in Retell, check that RETELL_API_KEY in Netlify belongs to the same workspace, then redeploy.'
+  if (status === 429) return result('rate_limited', 'Retell is rate limiting connection checks (HTTP 429). Wait a minute, then try again.')
+  if (operation === 'list' && (status === 404 || status === 405)) {
+    return result('list_unavailable', `Retell’s agent-list endpoint is unavailable to this deployment (HTTP ${status}). Enter your Agent ID and check it directly. This listing failure does not establish whether that agent is accessible.`)
   }
-  return 'Retell could not complete the connection check. Try again shortly. No agent settings were changed.'
+  if ((operation === 'agent' && status === 404) || /cannot find requested asset/i.test(detail)) {
+    return result('agent_unavailable', `This Retell Agent ID is not accessible with Recepta’s server key${status ? ` (HTTP ${status})` : ''}. Use Browse available agents to see which workspace agents the key can access. If the agent still exists in Retell, check that RETELL_API_KEY in Netlify belongs to the same workspace, then redeploy.`)
+  }
+  if (status === 400 || status === 422) {
+    return result('request_rejected', `Retell rejected Recepta’s ${operation === 'list' ? 'agent-list' : 'agent-check'} request (HTTP ${status}). This needs a server integration check; retrying the same Agent ID will not fix the rejected request.`)
+  }
+  if (status !== null) {
+    return result('provider_error', `Retell could not complete the ${operation === 'list' ? 'agent listing' : 'agent check'} (HTTP ${status}). No agent settings were changed.`)
+  }
+  if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+    return result('timeout', 'The Recepta server timed out waiting for Retell. No agent settings were changed. Try the connection check again.')
+  }
+  if (error instanceof RetellResponseError) {
+    return result('unexpected_response', 'Retell responded, but its agent data did not match the expected format. This needs a server integration check. No agent settings were changed.')
+  }
+  if (error instanceof TypeError) {
+    return result('network_error', 'The Recepta server could not reach Retell. Check the deployment’s outbound connection and RETELL_API_KEY format. No agent settings were changed.')
+  }
+  return result('check_failed', 'Retell could not complete the connection check. No agent settings were changed.')
 }
+
+export const retellAccessMessage = (error: unknown) => retellAccessDetails(error).error
 
 const retellRequest = async <T>(
   apiKey: string,
@@ -174,7 +201,7 @@ const retellRequest = async <T>(
     {
       ...init,
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey.trim()}`,
         ...(init.body
           ? {
               'Content-Type':
@@ -212,27 +239,35 @@ const retellRequest = async <T>(
   return body as T
 }
 
-export const assertRetellAgentAvailable = async ({
+const safeAgentSummary = (agent: RetellAgent & { agent_id: string }) => ({
+  id: agent.agent_id,
+  name: typeof agent.agent_name === 'string' ? agent.agent_name.slice(0, 120) : 'Unnamed agent',
+  suspended: agent.is_suspended === true,
+  transferOnly: agent.is_transfer_agent === true,
+})
+
+export const getAvailableRetellAgent = async ({
   apiKey,
   agentId,
 }: {
   apiKey: string
   agentId: string
 }) => {
-  try {
-    const agent = await retellRequest<RetellAgent>(
-      apiKey,
-      `/get-agent/${encodeURIComponent(agentId)}`,
-      { signal: AbortSignal.timeout(8000) }
-    )
+  const agent = await retellRequest<RetellAgent>(
+    apiKey,
+    `/get-agent/${encodeURIComponent(agentId)}`,
+    { signal: AbortSignal.timeout(8000) }
+  )
 
-    if (
-      !agent || agent.agent_id !== agentId
-    ) {
-      throw new Error(
-        'Retell returned a different agent than the one requested.'
-      )
-    }
+  if (!agent || agent.agent_id !== agentId) {
+    throw new RetellResponseError('Retell returned a different agent than the one requested.')
+  }
+  return safeAgentSummary({ ...agent, agent_id: agentId })
+}
+
+export const assertRetellAgentAvailable = async (options: { apiKey: string; agentId: string }) => {
+  try {
+    await getAvailableRetellAgent(options)
   } catch (error) {
     throw new Error(retellAccessMessage(error))
   }
@@ -254,15 +289,10 @@ export const listAvailableRetellAgents = async (apiKey: string, cursor?: string)
   if (!page || !Array.isArray(page.items) || typeof page.has_more !== 'boolean' ||
     page.items.some(agent => !agent || typeof agent.agent_id !== 'string' || !/^[\w-]{1,200}$/.test(agent.agent_id)) ||
     (page.has_more && (typeof page.pagination_key !== 'string' || !page.pagination_key || page.pagination_key === cursor))) {
-    throw new Error('Unexpected Retell agent list response.')
+    throw new RetellResponseError('Unexpected Retell agent list response.')
   }
   return {
-    agents: page.items.map(agent => ({
-      id: agent.agent_id,
-      name: typeof agent.agent_name === 'string' ? agent.agent_name.slice(0, 120) : 'Unnamed agent',
-      suspended: agent.is_suspended === true,
-      transferOnly: agent.is_transfer_agent === true,
-    })),
+    agents: page.items.map(safeAgentSummary),
     nextCursor: page.has_more ? page.pagination_key! : null,
   }
 }
