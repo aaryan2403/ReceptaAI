@@ -91,7 +91,7 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
       {account.provisioning && (['creating_llm', 'creating_agent'].includes(account.provisioning.state) || ['purchasing', 'review'].includes(account.provisioning.number_state)) && <div className="phoneWarning">Provider setup is awaiting confirmation. Your purchase and resource records are preserved, and duplicate creation is blocked. Refresh after setup finishes; an uncertain provider result requires Recepta operations to reconcile it.</div>}
       <div className="phoneNumberCard"><div><span>YOUR RECEPTA AI NUMBER</span><strong>{assigned || 'Awaiting number assignment'}</strong>
         {account.numbers.slice(1).map(number => <p key={number}>{number}</p>)}</div>
-        <span className={`phoneStatus ${tested && account.paid ? 'phoneStatusGood' : ''}`}>{!account.paid ? 'Billing required' : !assigned ? 'Setup pending' : tested ? 'AI reception confirmed' : 'Assigned · incoming test needed'}</span>
+        <span className={`phoneStatus ${tested && account.paid ? 'phoneStatusGood' : ''}`}>{!account.paid ? 'Billing required' : !assigned ? 'Setup pending' : tested ? 'Phone setup complete' : 'Assigned · incoming test needed'}</span>
       </div>
       {!assigned && <div className="phoneGuide"><strong>{account.paid ? 'Your number is being prepared.' : 'Start with the number included in your plan.'}</strong>
         <p>{account.paid ? 'Your assigned number will appear here when setup finishes. Check Billing for your payment status.' : 'After your receptionist is assigned, complete secure Checkout in Billing. Your first Recepta number is provisioned after confirmed payment. No number is purchased just by choosing an option here.'}</p>
