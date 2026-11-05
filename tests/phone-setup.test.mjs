@@ -48,6 +48,8 @@ const compile=async(path)=>{
  }}]})
  return await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'))
 }
+const phoneTool=(await compile('netlify/functions/retell-phone-tools.ts')).default
+const provisioning=await compile('netlify/lib/phoneProvisioning.ts')
 const handler=(await compile('netlify/functions/phone-setup.ts')).default
 const legacy=(await compile('netlify/functions/configure-call-transfer.ts')).default
 const link=(await compile('netlify/functions/admin-link-phone.ts')).default
@@ -67,13 +69,17 @@ const setup=async()=>{
  if(db) await db.close()
  db=new PGlite()
  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;
- create table clients(id uuid primary key,contact_email text,deletion_pending boolean default false);
- create table agents(client_id uuid primary key references clients(id),retell_agent_id text,phone_number text,status text,business_hours text);
+ create table clients(id uuid primary key,contact_email text,company_name text,deletion_pending boolean default false);
+ create table agents(client_id uuid primary key references clients(id),retell_agent_id text,phone_number text,status text,business_hours text,demo_mode boolean default false);
  create table subscriptions(client_id uuid,status text,stripe_subscription_id text,current_period_start timestamptz,current_period_end timestamptz);
  create table agent_phone_numbers(id uuid default gen_random_uuid(),client_id uuid references clients(id),phone_number text unique,source text default 'manual',is_primary boolean default false);
+ create table callback_requests(id uuid primary key default gen_random_uuid(),client_id uuid,retell_call_id text unique,caller_number text,called_number text,reason text constraint callback_requests_reason_check check(reason is not null),status text default 'pending',created_at timestamptz default now());
+ create table service_jobs(job_key text unique,client_id uuid,kind text,payload jsonb);
  create table calls(retell_call_id text unique,client_id uuid,call_status text,lifecycle_rank integer);
  `)
  await db.exec(await readFile('supabase/migrations/20261102183345_phone_setup_verified_transfers.sql','utf8'))
+ await db.exec(await readFile('supabase/migrations/20261105025833_phone_transfer_schedules_and_call_tests.sql','utf8'))
+ await db.exec(await readFile('supabase/migrations/20261105030353_paid_reception_provisioning.sql','utf8'))
  await db.query(`insert into clients(id,contact_email) values($1,'owner@example.test'),($2,'other@example.test'),($3,'admin@example.test')`,[one,two,admin])
  await db.query("insert into agents(client_id,retell_agent_id,phone_number,status) values($1,'agent_test',$2,'live')",[one,ai])
  await db.query("insert into agent_phone_numbers(client_id,phone_number,is_primary) values($1,$2,true)",[one,ai])
@@ -88,13 +94,15 @@ const setup=async()=>{
   let result={}
   if(path.startsWith('/publish-agent-version/'))return new Response(null,{status:204})
   if(path.startsWith('/update-agent/'))result={agent_id:decodeURIComponent(path.split('/').at(-1)),version:5}
-  if(path.startsWith('/get-agent/')) result={agent_id:decodeURIComponent(path.split('/').at(-1))}
+  if(path.startsWith('/get-agent/')) result={agent_id:decodeURIComponent(path.split('/').at(-1)),voice_id:'voice_fixture',response_engine:{type:'retell-llm',llm_id:path.endsWith('/agent_other')&&!state.sharedLlm?'llm_other':'llm_test',version:4}}
+  if(path==='/create-retell-llm')result={llm_id:'llm_provisioned'}
+  if(path==='/create-agent'){if(state.unknownCreation)throw new Error('Synthetic lost response');result={agent_id:'agent_provisioned'}}
   if(path.startsWith('/get-phone-number/'))result={phone_number:decodeURIComponent(path.split('/').at(-1)),inbound_agents:state.conflictBinding?[{agent_id:'agent_other'}]:null,inbound_webhook_url:'https://recepta.test/.netlify/functions/retell-inbound'}
   if(path.startsWith('/list-agent-versions/'))result={items:[{version:4,is_published:true}]}
   if(path.startsWith('/create-agent-version/'))result={version:5,response_engine:{type:'retell-llm',llm_id:path.endsWith('/agent_other')?'llm_other':'llm_test',version:5},webhook_events:['call_started','call_ended','call_analyzed','transcript_updated']}
   if(path.startsWith('/get-retell-llm/'))result=state.llms[path.split('/').at(-1)]
   if(path.startsWith('/update-retell-llm/')){const id=path.split('/').at(-1);state.llms[id]={...state.llms[id],...JSON.parse(body)};if(id==='llm_test')state.llm=state.llms[id];result={llm_id:id}}
-  if(path.startsWith('/v2/get-call/'))result={call_id:path.split('/').at(-1),agent_id:'agent_test'}
+  if(path.startsWith('/v2/get-call/'))result=state.canonicalCall??{call_id:path.split('/').at(-1),agent_id:'agent_test'}
   return new Response(JSON.stringify(result),{status:200})
  }
 }
@@ -200,11 +208,11 @@ test('concurrent settings updates are serialized and stale revisions are rejecte
  const results=await Promise.all([call(save()),call(save())])
  assert.deepEqual(results.map(r=>r.status).sort(),[200,409])
 })
-test('test confirmations require a saved active revision and remain customer-reported',async()=>{
+test('reception cannot be marked connected by customer assertion',async()=>{
  await setup();assert.equal((await call({action:'confirm-test',kind:'reception',confirmed:true,expectedRevision:0})).status,409)
  await verify('worker',worker);await call(save())
- assert.equal((await call({action:'confirm-test',kind:'reception',confirmed:true,expectedRevision:1})).status,200)
- assert.ok((await db.query('select reception_tested_at from phone_setups')).rows[0].reception_tested_at)
+ assert.equal((await call({action:'confirm-test',kind:'reception',confirmed:true,expectedRevision:1})).status,400)
+ assert.equal((await db.query('select reception_observed_at from phone_setups')).rows[0].reception_observed_at,null)
  assert.equal((await call({action:'confirm-test',kind:'transfer',confirmed:true,expectedRevision:0})).status,409)
 })
 test('subsequent schedule sync preserves managed transfer, custom tools and business instructions',async()=>{
@@ -339,3 +347,86 @@ test('agent assignment guards allow the owner and reject a second customer befor
 })
 
 test.after(async()=>{globalThis.fetch=originalFetch;await db?.close()})
+
+const sendTool=async(name,args,signature=true)=>{
+ const body=JSON.stringify({name,args,call:{call_id:'call_reception',agent_id:'agent_forged',metadata:{recepta_client_id:two}}})
+ const timestamp=Date.now(),digest=createHmac('sha256','synthetic').update(body+timestamp).digest('hex')
+ return phoneTool(new Request('https://recepta.test/tools',{method:'POST',headers:{'x-retell-signature':signature?`v=${timestamp},d=${digest}`:'invalid'},body}))
+}
+const canonicalCall=()=>({call_id:'call_reception',agent_id:'agent_test',call_type:'phone_call',direction:'inbound',call_status:'ongoing',to_number:ai,from_number:business,start_timestamp:Date.now()+100,metadata:{recepta_reservation_id:'fixture_reservation'}})
+test('only a signed real inbound AI call with the current test code confirms reception',async()=>{
+ await setup();await verify('worker',worker);await call(save())
+ const started=await call({action:'start-reception-test',expectedRevision:1})
+ assert.equal(started.status,200)
+ const code=started.body.message.match(/code (\d{6})/)[1]
+ state.canonicalCall=canonicalCall()
+ assert.equal((await sendTool('recepta_confirm_reception',{code},false)).status,401)
+ assert.equal((await sendTool('recepta_confirm_reception',{code:'000000'})).status,409)
+ state.canonicalCall.direction='outbound'
+ assert.equal((await sendTool('recepta_confirm_reception',{code})).status,409)
+ state.canonicalCall=canonicalCall()
+ assert.equal((await sendTool('recepta_confirm_reception',{code})).status,200)
+ assert.ok((await db.query('select reception_observed_at from phone_setups')).rows[0].reception_observed_at)
+ assert.equal((await db.query('select count(*)::int n from phone_reception_tests where client_id=$1',[two])).rows[0].n,0)
+ await call(save({expectedRevision:1}))
+ assert.equal((await sendTool('recepta_confirm_reception',{code})).status,409)
+ assert.equal((await db.query('select reception_observed_at from phone_setups')).rows[0].reception_observed_at,null)
+})
+test('after-hours callbacks store all details and enqueue one existing notification job',async()=>{
+ await setup();state.canonicalCall=canonicalCall()
+ const args={caller_name:'Fixture caller',callback_number:business,reason:'Needs a worker',preferred_callback_time:'Tomorrow after 10am Toronto'}
+ assert.equal((await sendTool('recepta_save_callback',args)).status,200)
+ assert.equal((await sendTool('recepta_save_callback',args)).status,200)
+ const rows=(await db.query('select client_id,caller_name,request_details,preferred_callback_time,answered_call from callback_requests')).rows
+ assert.deepEqual(rows,[{client_id:one,caller_name:args.caller_name,request_details:args.reason,preferred_callback_time:args.preferred_callback_time,answered_call:true}])
+ assert.equal((await db.query('select count(*)::int n from service_jobs')).rows[0].n,1)
+ state.canonicalCall.agent_id='agent_unassigned'
+ assert.equal((await sendTool('recepta_save_callback',args)).status,409)
+})
+test('schedule persistence and normalized legacy destinations cannot bypass new-call admission',async()=>{
+ await setup();await verify('worker',worker)
+ const transferSchedule={mode:'custom',timeZone:'America/Toronto',hours:['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map(day=>({day,open:true,start:'09:00',end:'21:00'}))}
+ assert.equal((await call(save({transferSchedule}))).status,200)
+ assert.deepEqual((await db.query('select transfer_schedule from phone_setups')).rows[0].transfer_schedule,transferSchedule)
+ assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,one,'agent_test',60,new Date('2026-11-05T02:30:00Z'))).recepta_transfer_allowed,'disabled')
+ assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,one,'agent_test',60,new Date('2026-11-04T16:00:00Z'))).recepta_transfer_allowed,'enabled')
+ await db.query("insert into phone_forwarding_sources values('(416) 555-0123',$1)",[two])
+ assert.equal((await call(save({expectedRevision:1,transferEnabled:false}))).status,400)
+ assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,one,'agent_test',60,new Date('2026-11-04T16:00:00Z'))).recepta_transfer_allowed,'disabled')
+})
+test('paid automatic setup reuses owned agents and journals separate new resources without duplicate creation',async()=>{
+ await setup();process.env.RECEPTA_AUTO_PROVISION_ENABLED='true';process.env.RETELL_ONBOARDING_TEMPLATE_AGENT_ID='agent_template'
+ try{
+  assert.equal(await provisioning.ensurePaidReceptionAgent(globalThis.__phoneDb,one),'agent_test')
+  assert.equal(state.provider.length,0)
+  await db.query("insert into subscriptions values($1,'active','sub_other',now()-interval '1 day',now()+interval '1 day')",[two])
+  assert.equal(await provisioning.ensurePaidReceptionAgent(globalThis.__phoneDb,two),'agent_provisioned')
+  assert.equal(await provisioning.ensurePaidReceptionAgent(globalThis.__phoneDb,two),'agent_provisioned')
+  assert.equal(state.provider.filter(row=>row.path==='/create-agent').length,1)
+  assert.equal(state.provider.filter(row=>row.path==='/create-retell-llm').length,1)
+  assert.deepEqual((await db.query('select client_id from agents where retell_agent_id=\'agent_provisioned\'')).rows,[{client_id:two}])
+ }finally{delete process.env.RECEPTA_AUTO_PROVISION_ENABLED;delete process.env.RETELL_ONBOARDING_TEMPLATE_AGENT_ID}
+})
+test('unpaid and uncertain provider creation never create duplicate agents on retry',async()=>{
+ await setup();process.env.RECEPTA_AUTO_PROVISION_ENABLED='true';process.env.RETELL_ONBOARDING_TEMPLATE_AGENT_ID='agent_template'
+ try{
+  await assert.rejects(provisioning.ensurePaidReceptionAgent(globalThis.__phoneDb,two),/payment/)
+  assert.equal(state.provider.length,0)
+  await db.query("insert into subscriptions values($1,'active','sub_other',now()-interval '1 day',now()+interval '1 day')",[two])
+  state.unknownCreation=true
+  await assert.rejects(provisioning.ensurePaidReceptionAgent(globalThis.__phoneDb,two),/lost response/)
+  await assert.rejects(provisioning.ensurePaidReceptionAgent(globalThis.__phoneDb,two),/uncertain outcome/)
+  assert.equal(state.provider.filter(row=>row.path==='/create-agent').length,1)
+  assert.equal((await db.query('select count(*)::int n from agents where client_id=$1',[two])).rows[0].n,0)
+ }finally{delete process.env.RECEPTA_AUTO_PROVISION_ENABLED;delete process.env.RETELL_ONBOARDING_TEMPLATE_AGENT_ID}
+})
+
+test('different customer agents cannot share a provider LLM when syncing transfer settings',async()=>{
+ await setup();await verify('worker',worker)
+ await db.query("insert into agents(client_id,retell_agent_id,status) values($1,'agent_other','setup')",[two])
+ state.sharedLlm=true
+ const result=await call(save())
+ assert.equal(result.status,502)
+ assert.equal(state.provider.some(row=>row.path.startsWith('/update-retell-llm/')||row.path.startsWith('/update-agent/')||row.path.startsWith('/publish-agent-version/')),false)
+ assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,one,'agent_test')).recepta_transfer_allowed,'disabled')
+})

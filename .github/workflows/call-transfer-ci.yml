@@ -22,6 +22,6 @@ jobs:
       - name: Lint with zero warnings
         run: npm run lint
       - name: Check telephony backend types
-        run: npx tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --types node --skipLibCheck netlify/functions/phone-setup.ts netlify/functions/admin-link-phone.ts netlify/functions/retell-inbound.ts netlify/functions/retell-webhook.ts netlify/functions/client-calls.ts netlify/functions/create-client.ts netlify/functions/update-client-agent.ts netlify/functions/update-clients.ts
+        run: npx tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --types node --skipLibCheck netlify/functions/phone-setup.ts netlify/functions/retell-phone-tools.ts netlify/functions/create-checkout-session.ts netlify/functions/stripe-webhook.ts netlify/functions/callback-requests.ts netlify/functions/admin-link-phone.ts netlify/functions/retell-inbound.ts netlify/functions/retell-webhook.ts netlify/functions/client-calls.ts netlify/functions/create-client.ts netlify/functions/update-client-agent.ts netlify/functions/update-clients.ts
       - name: Compile production application
         run: npm run build

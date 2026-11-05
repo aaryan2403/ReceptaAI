@@ -31,7 +31,7 @@ const callbackEmail = async (db:SupabaseClient, job:ServiceJob) => {
   let mail=job.mail_payload
   if (!mail) {
     const [callback,client] = await Promise.all([
-      db.from('callback_requests').select('caller_number,reason,created_at').eq('id',job.payload.callback_id).eq('client_id',job.client_id).maybeSingle(),
+      db.from('callback_requests').select('caller_number,reason,created_at,caller_name,request_details,preferred_callback_time,answered_call').eq('id',job.payload.callback_id).eq('client_id',job.client_id).maybeSingle(),
       db.from('clients').select('contact_email,company_name,deletion_pending').eq('id',job.client_id).maybeSingle(),
     ])
     check(callback.error);check(client.error)
@@ -39,8 +39,8 @@ const callbackEmail = async (db:SupabaseClient, job:ServiceJob) => {
     const email=client.data.contact_email?.trim()
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Business callback email is missing or invalid.')
     mail={ from:process.env.CALL_NOTIFICATION_FROM_EMAIL?.trim() || process.env.APPOINTMENT_FROM_EMAIL?.trim() || 'Recepta <notifications@mail.recepta.ca>', to:[email],
-      subject:`Missed call — ${client.data.company_name || 'your business'} needs a callback`,
-      text:`Your AI could not accept a call at ${callback.data.created_at}.\nCaller: ${callback.data.caller_number || 'Caller ID unavailable'}\nReason: ${callback.data.reason.replaceAll('_',' ')}\nNo AI minutes were used.\nReview and track the follow-up: ${billingOrigin()}/dashboard/calls`,
+      subject:`Callback requested — ${client.data.company_name || 'your business'} needs a callback`,
+      text:`${callback.data.answered_call ? 'A caller asked for human follow-up' : 'Your AI could not accept a call'} at ${callback.data.created_at}.\nCaller: ${callback.data.caller_number || 'Caller ID unavailable'}\nReason: ${callback.data.answered_call ? 'Human callback requested' : callback.data.reason.replaceAll('_',' ')}\n${callback.data.answered_call ? 'Name: '+(callback.data.caller_name || 'Not provided')+'\nRequest: '+(callback.data.request_details || 'Not provided')+'\nPreferred callback: '+(callback.data.preferred_callback_time || 'No preference') : 'No AI minutes were used.'}\nReview and track the follow-up: ${billingOrigin()}/dashboard/calls`,
     }
     await checkpoint(db,job,{ mail_payload:mail,first_send_at:new Date().toISOString() })
   }

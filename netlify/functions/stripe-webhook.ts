@@ -1,4 +1,7 @@
 
+import { automaticReceptionConfigured, ensurePaidReceptionAgent } from '../lib/phoneProvisioning'
+import { checked, loadPhoneAccount, withPhoneLock } from '../lib/phoneSetup'
+import { verifyReceptionResources } from '../lib/phoneReception'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import {
@@ -269,6 +272,10 @@ export default async (request: Request) => {
             }
           }
 
+          const automatic = automaticReceptionConfigured()
+          if (automatic) await ensurePaidReceptionAgent(supabaseAdmin, clientId)
+          const fulfillReception = async () => {
+          if (automatic && !(await loadPhoneAccount(supabaseAdmin, clientId)).paid) return
           const { data: assignedAgent } =
             await supabaseAdmin
               .from('agents')
@@ -299,6 +306,11 @@ export default async (request: Request) => {
             const phoneNumbers = phoneRows.map(
               (row) => row.phone_number
             )
+            if (automatic) await verifyReceptionResources(retellApiKey, assignedAgent.retell_agent_id, phoneNumbers)
+            if (automatic) {
+              const pending = checked(await supabaseAdmin.from('phone_provisioning').select('pending_number').eq('client_id', clientId).maybeSingle())
+              if (pending?.pending_number && phoneNumbers.includes(pending.pending_number)) checked(await supabaseAdmin.from('phone_provisioning').update({ number_state: 'idle', pending_number: null }).eq('client_id', clientId))
+            }
             const numbersToPurchase = Math.max(
               0,
               phonePurchase.purchaseCount - phoneNumbers.length
@@ -306,7 +318,15 @@ export default async (request: Request) => {
 
             for (let index = 0; index < numbersToPurchase; index += 1) {
               if (await isDeletingClient(supabaseAdmin,clientId)) return new Response(null,{ status:200 })
-              const purchasedPhoneNumber =
+              let purchaseJournal
+              if (automatic) {
+                purchaseJournal = checked(await supabaseAdmin.from('phone_provisioning').select('*').eq('client_id', clientId).maybeSingle())
+                if (purchaseJournal?.number_state === 'purchasing' || purchaseJournal?.number_state === 'review') throw new Error('Number purchase needs reconciliation; duplicate purchase blocked.')
+                if (!purchaseJournal?.pending_number) checked(await supabaseAdmin.from('phone_provisioning').upsert({
+                  client_id: clientId, state: purchaseJournal?.state ?? 'assigned', agent_id: assignedAgent.retell_agent_id, number_state: 'purchasing',
+                }, { onConflict: 'client_id' }))
+              }
+              const purchasedPhoneNumber = purchaseJournal?.pending_number ??
                 await purchaseRetellPhoneNumber({
                   apiKey: retellApiKey,
                   agentId: assignedAgent.retell_agent_id,
@@ -316,6 +336,8 @@ export default async (request: Request) => {
                     phoneNumbers.length + 1
                   }`,
                 })
+
+              if (automatic) checked(await supabaseAdmin.from('phone_provisioning').update({ number_state: 'received', pending_number: purchasedPhoneNumber }).eq('client_id', clientId))
 
               const { error: saveNumberError } = await supabaseAdmin
                 .from('agent_phone_numbers')
@@ -327,6 +349,7 @@ export default async (request: Request) => {
                 })
 
               if (saveNumberError) {
+                if (automatic) checked(await supabaseAdmin.from('phone_provisioning').update({ number_state: 'review' }).eq('client_id', clientId))
                 try {
                   await releaseRetellPhoneNumber({
                     apiKey: retellApiKey,
@@ -349,6 +372,7 @@ export default async (request: Request) => {
                 throw saveNumberError
               }
 
+              if (automatic) checked(await supabaseAdmin.from('phone_provisioning').update({ number_state: 'idle', pending_number: null }).eq('client_id', clientId))
               phoneNumbers.push(purchasedPhoneNumber)
             }
 
@@ -406,6 +430,9 @@ export default async (request: Request) => {
           if (agentRestore.error) {
             throw agentRestore.error
           }
+          }
+          if (automatic) await withPhoneLock(supabaseAdmin, clientId, fulfillReception)
+          else await fulfillReception()
         }
       }
     }

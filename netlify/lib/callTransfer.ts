@@ -5,6 +5,21 @@ const MANAGED_PROMPT = '[RECEPTA MANAGED HUMAN TRANSFER]'
 
 export { normalizePhone as normalizeTransferNumber } from './phoneValidation'
 
+export const buildPhoneIntakeTools = (): Array<Record<string, unknown>> => {
+  const url = new URL('/.netlify/functions/retell-phone-tools', process.env.RECEPTA_APP_URL || process.env.URL || 'https://recepta.ca').toString()
+  return [{ type: 'custom', name: 'recepta_confirm_reception', url, method: 'POST',
+    description: 'Confirm an incoming reception test only when the caller gives their six-digit dashboard reception test code.',
+    parameters: { type: 'object', required: ['code'], properties: { code: { type: 'string', description: 'Six-digit dashboard test code spoken by the caller.' } } },
+    speak_after_execution: true, speak_during_execution: false,
+  }, { type: 'custom', name: 'recepta_save_callback', url, method: 'POST',
+    description: 'Save a human callback request after collecting and confirming the caller name, number, reason, and preferred callback time. Use when transfers are unavailable or unsuccessful.',
+    parameters: { type: 'object', required: ['caller_name', 'callback_number', 'reason', 'preferred_callback_time'], properties: {
+      caller_name: { type: 'string', description: 'Caller name.' }, callback_number: { type: 'string', description: 'Confirmed callback number in E.164 format.' },
+      reason: { type: 'string', description: 'Why the caller needs a human.' }, preferred_callback_time: { type: 'string', description: 'Preferred callback time and local time zone, or no preference if confirmed by caller.' },
+    } }, speak_after_execution: true, speak_during_execution: false,
+  }]
+}
+
 export const buildHumanTransferTool = (): Record<string, unknown> => ({
   type: 'transfer_call',
   name: MANAGED_TOOL,
@@ -32,11 +47,12 @@ export const updateHumanTransferTools = (
   tools: Array<Record<string, unknown>>,
   destination: string | null
 ): Array<Record<string, unknown>> => {
-  const existing = tools.filter((tool) => tool.name !== MANAGED_TOOL)
+  const managed = new Set([MANAGED_TOOL, 'recepta_confirm_reception', 'recepta_save_callback'])
+  const existing = tools.filter((tool) => !managed.has(String(tool.name)))
   if (existing.some((tool) => tool.type === 'transfer_call')) {
     throw new Error('This agent already has a different Transfer Call tool. Review it in Retell before enabling Recepta transfer.')
   }
-  return destination ? [...existing, buildHumanTransferTool()] : existing
+  return [...existing, ...buildPhoneIntakeTools(), ...(destination ? [buildHumanTransferTool()] : [])]
 }
 
 const humanTransferInstructions = [
@@ -46,7 +62,10 @@ const humanTransferInstructions = [
   'Only transfer when the caller asks for a human, has an urgent concern, or cannot be helped by the AI.',
   'Confirm the caller wants a transfer and briefly tell them you are connecting them.',
   'Use recepta_transfer_to_human only for an authorized human handoff. Never invent or ask the caller for a destination number.',
-  'If the transfer fails or the worker does not answer, apologize, collect the caller name, callback number, and reason, and tell them the business will follow up. Never claim the worker answered.',
+  'Transfer hours are enforced by the server in the business local time zone. A call near the cutoff may have transfers disabled so it cannot transfer after hours. Never try another destination.',
+  'When transfers are disabled or fail, collect the caller name, callback number, reason, and preferred callback time including time zone. Confirm details and use recepta_save_callback. Only say the request was saved after success; do not promise a response time.',
+  'If the caller gives a dashboard reception test code, use recepta_confirm_reception. Never invent a code or claim a test passed without a successful result.',
+  'Never claim the worker answered unless the transfer actually connected.',
 ].join('\n')
 
 export const updateHumanTransferPrompt = (prompt: string, enabled: boolean) => {
@@ -60,7 +79,7 @@ export const updateHumanTransferPrompt = (prompt: string, enabled: boolean) => {
     const boundary = end >= 0 ? end + endMarker.length : next >= 0 ? next : prompt.length
     without = (prompt.slice(0, start) + prompt.slice(boundary)).trim()
   }
-  return enabled ? [without, MANAGED_PROMPT + '\n' + humanTransferInstructions + '\n' + endMarker].filter(Boolean).join('\n\n') : without
+  return [without, MANAGED_PROMPT + '\n' + humanTransferInstructions + (enabled ? '' : '\nHuman transfers are disabled. Collect and save callback requests.') + '\n' + endMarker].filter(Boolean).join('\n\n')
 }
 
 type RetellAgentResponse = {
@@ -73,6 +92,7 @@ type RetellLlmResponse = {
   default_dynamic_variables?: Record<string, string>
   general_prompt?: string | null
   general_tools?: Array<Record<string, unknown>> | null
+  states?: Array<{ tools?: Array<{ type?: string }> }>
 }
 
 const retellRequest = async <T>(
@@ -132,6 +152,9 @@ const syncHumanCallTransferImpl = async (options: {
   const llmId = encodeURIComponent(engine.llm_id)
   const llmPath = '/get-retell-llm/' + llmId + '?version=' + engine.version
   const llm = await retellRequest<RetellLlmResponse>(apiKey, llmPath)
+  if ((llm.states ?? []).some(state => (state.tools ?? []).some(tool => tool.type === 'transfer_call'))) {
+    throw new Error('This agent has a state-specific transfer route. Review it before enabling scheduled Recepta transfers.')
+  }
   const nextTools = updateHumanTransferTools(llm.general_tools ?? [], destination)
   const nextPrompt = updateHumanTransferPrompt(llm.general_prompt ?? '', Boolean(destination))
   await retellRequest<unknown>(

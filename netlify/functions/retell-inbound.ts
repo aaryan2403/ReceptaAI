@@ -334,7 +334,7 @@ export default async (request: Request) => {
         },
       },
       dynamic_variables: {
-        ...await resolveInboundTransfer(supabaseAdmin, agent.client_id, agent.retell_agent_id),
+        ...await resolveInboundTransfer(supabaseAdmin, agent.client_id, agent.retell_agent_id, reservedSeconds),
         recepta_answering_mode: answeringMode,
         recepta_business_open: businessSchedule.mode === 'unconfigured' ? 'unknown' : businessOpen ? 'open' : 'closed',
         recepta_schedule_mode: businessSchedule.mode,

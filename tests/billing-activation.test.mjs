@@ -22,7 +22,7 @@ const query = table => {
         rows = []
         for (const row of entries) {
           const keys = Object.keys(row)
-          const sql = `insert into ${quote(table)} (${keys.map(quote).join(',')}) values (${keys.map((_, i) => '$' + (i + 1)).join(',')}) ${conflict ? `on conflict (${quote(conflict)}) do nothing` : ''} returning *`
+          const sql = `insert into ${quote(table)} (${keys.map(quote).join(',')}) values (${keys.map((_, i) => '$' + (i + 1)).join(',')}) ${conflict ? `on conflict (${quote(conflict)}) ${table==='phone_provisioning'?'do update set '+keys.map(key=>quote(key)+'=excluded.'+quote(key)).join(','):'do nothing'}` : ''} returning *`
           rows.push(...(await db.query(sql, keys.map(key => row[key]))).rows)
         }
       } else if (action === 'update' || action === 'delete') {
@@ -64,6 +64,7 @@ globalThis.__paymentDb = {
       if (name === 'configure_recepta_subscription') return { data: (await db.query('select * from configure_recepta_subscription($1,$2)', [args.p_client_id, args.p_configuration])).rows, error: null }
       if (name === 'activate_recepta_checkout') return { data: (await db.query('select * from activate_recepta_checkout($1,$2,$3,$4,$5,$6,$7)', [args.p_client_id, args.p_stripe_subscription_id, args.p_customer_id, args.p_period_start, args.p_period_end, args.p_configuration, args.p_replaces_subscription_id])).rows, error: null }
       if (name === 'recepta_period_usage') return { data: (await db.query('select recepta_period_usage($1,$2,$3) used', [args.p_client_id, args.p_period_start, args.p_period_end])).rows[0].used, error: null }
+      if (['acquire_phone_lock','assign_recepta_provisioned_agent','register_recepta_agent_llm'].includes(name)) return { data:(await db.query(`select ${name}(${Object.keys(args).map((key,i)=>key+'=>$'+(i+1)).join(',')}) result`,Object.values(args))).rows[0].result,error:null }
       throw new Error('Unexpected RPC: ' + name)
     } catch (error) { return { data: null, error: { message: error.message } } }
   },
@@ -133,7 +134,7 @@ test.before(async () => {
   await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
     alter default privileges in schema public grant all on tables to anon,authenticated,service_role;
     alter default privileges in schema public grant execute on functions to anon,authenticated,service_role;
-    create table clients(id uuid primary key,company_name text,contact_email text,status text,role text);
+    create table clients(id uuid primary key,company_name text,contact_email text,status text,role text,deletion_pending boolean default false);
     create table subscriptions(id uuid primary key default gen_random_uuid(),client_id uuid unique references clients,
       plan_name text,monthly_price numeric,monthly_minutes integer default 300,ai_model_id text,
       pii_redaction_enabled boolean default false,safety_guardrails_enabled boolean default false,extra_phone_numbers integer default 0,
@@ -141,11 +142,13 @@ test.before(async () => {
     create table agents(client_id uuid primary key,retell_agent_id text,agent_name text,phone_number text,business_hours text,status text);
     create table agent_phone_numbers(client_id uuid,phone_number text,is_primary boolean,source text,created_at timestamptz default now());
     create table calls(id uuid primary key default gen_random_uuid(),client_id uuid,retell_call_id text,call_status text,duration_seconds integer,started_at timestamptz,ended_at timestamptz);
+    create table callback_requests(id uuid primary key default gen_random_uuid(),client_id uuid,retell_call_id text unique,caller_number text,called_number text,reason text,created_at timestamptz default now());
+    create table service_jobs(job_key text unique,client_id uuid,kind text,payload jsonb);
     create table employees(id uuid,client_id uuid,name text,role text,is_active boolean);
     create table employee_schedules(employee_id uuid,day_of_week integer,is_working boolean,start_time text,end_time text);
     create table ai_models(id text,customer_price_per_minute_cad numeric,is_active boolean,display_name text);
     insert into ai_models values('essential',0.117,true,'Essential'),('premium',0.217,true,'Premium');`)
-  for (const path of ['supabase_add_minute_enforcement.sql','supabase_add_billing_notifications.sql','supabase/migrations/20261014192813_align_minute_enforcement.sql','supabase/migrations/20261014201359_demo_only_call_limit.sql','supabase/migrations/20261016145008_payment_controlled_activation.sql']) await db.exec(await readFile(path,'utf8'))
+  for (const path of ['supabase_add_minute_enforcement.sql','supabase_add_billing_notifications.sql','supabase/migrations/20261014192813_align_minute_enforcement.sql','supabase/migrations/20261014201359_demo_only_call_limit.sql','supabase/migrations/20261016145008_payment_controlled_activation.sql','supabase/migrations/20261102183345_phone_setup_verified_transfers.sql','supabase/migrations/20261105025833_phone_transfer_schedules_and_call_tests.sql','supabase/migrations/20261105030353_paid_reception_provisioning.sql']) await db.exec(await readFile(path,'utf8'))
 })
 test.after(async () => { await db.close() })
 
@@ -316,4 +319,36 @@ test('quotes cannot set payment fields; public roles cannot configure; active ac
   }
   assert.equal((await edit(request(editBody,false))).status, 403)
   assert.equal((await phones(request({ clientId: client, quantity: 1 },false))).status, 403)
+})
+
+
+test('approved paid workflow creates a dedicated agent and one first number, then safely replays',async()=>{
+ await fixture(false)
+ await db.exec('delete from agent_phone_numbers;delete from agents')
+ await configure(configuration)
+ process.env.RECEPTA_PHONE_SETUP_ENABLED='true';process.env.RECEPTA_AUTO_PROVISION_ENABLED='true';process.env.RETELL_ONBOARDING_TEMPLATE_AGENT_ID='agent_template'
+ const originalFetch=globalThis.fetch,requests=[]
+ globalThis.fetch=async(url,options={})=>{
+  const path=new URL(url).pathname;requests.push(path)
+  const response=path.startsWith('/get-agent/')?{agent_id:decodeURIComponent(path.split('/').at(-1)),voice_id:'voice_fixture',response_engine:{type:'retell-llm',llm_id:'llm_template',version:1}}
+   :path.startsWith('/get-retell-llm/')?{model:'gpt-4.1',general_prompt:'You are a receptionist for {{recepta_company_name}}.',general_tools:[{type:'end_call',name:'end_call'}]}
+   :path.startsWith('/get-phone-number/')?{phone_number:decodeURIComponent(path.split('/').at(-1)),inbound_agents:[]}
+   :path==='/create-retell-llm'?{llm_id:'llm_new_fixture'}:{agent_id:'agent_new_fixture'}
+  return new Response(JSON.stringify(response))
+ }
+ try{
+  assert.equal((await checkout(request({monthlyMinutes:60},false))).status,200)
+  assert.equal(requests.length,0)
+  event={type:'checkout.session.completed',data:{object:{mode:'subscription',payment_status:'unpaid',subscription:'sub_after_payment',customer:'cus_original',invoice:'in_synthetic',metadata:checkoutBody.metadata}}}
+  assert.equal((await webhook(request({}))).status,200);assert.equal(requests.length,0)
+  event.data.object.payment_status='paid'
+  const response=await webhook(request({}))
+  assert.equal(response.status,200,await response.text())
+  assert.equal((await webhook(request({}))).status,200)
+  assert.equal(requests.filter(path=>path==='/create-agent').length,1)
+  assert.equal(requests.filter(path=>path==='/create-retell-llm').length,1)
+  assert.equal(globalThis.__paymentRetell.filter(op=>op.kind==='purchase').length,1)
+  assert.equal((await db.query('select retell_agent_id from agents')).rows[0].retell_agent_id,'agent_new_fixture')
+  assert.equal((await db.query('select number_state from phone_provisioning')).rows[0].number_state,'idle')
+ }finally{globalThis.fetch=originalFetch;delete process.env.RECEPTA_PHONE_SETUP_ENABLED;delete process.env.RECEPTA_AUTO_PROVISION_ENABLED;delete process.env.RETELL_ONBOARDING_TEMPLATE_AGENT_ID}
 })

@@ -8,7 +8,7 @@ This is one shared product feature for **every current and future Recepta custom
 
 Each customer must have a dedicated agent in Recepta's managed Retell workspace. Admin creation, reassignment and editing reject an agent owned by a different customer before changing accounts or contacting Retell. The staged migration enforces unique provider-agent and primary-number assignments, including concurrent requests. Existing duplicate assignments must be resolved before the migration can pass; it never moves them silently.
 
-Number provisioning reuses the existing authorized Checkout/payment-webhook workflow. A newly configured customer can continue from Phone Setup to Billing and receive the included first AI number after confirmed payment. Choosing either dashboard option alone never buys a number. A previously assigned number is reused, and verified payment replays cannot purchase it again. Initial account/plan/agent preparation remains the existing Recepta admin workflow; customer forwarding and worker-number changes are self-service thereafter.
+Number provisioning reuses the existing authorized Checkout/payment-webhook workflow. A newly configured customer can continue from Phone Setup to Billing and receive the included first AI number after confirmed payment. Choosing either dashboard option alone never buys a number. A previously assigned number is reused, and verified payment replays cannot purchase it again. Initial account and approved plan preparation remain the existing workflow. With automatic fulfillment configured, confirmed paid Checkout creates a dedicated agent/LLM from an approved generic template and provisions the included first number; existing assigned resources are reused. Routine agent assignment, forwarding setup and worker-number changes do not need a per-customer code change or support call. Ambiguous provider creation failures require exceptional reconciliation rather than a duplicate purchase.
 
 ## Customer experience
 
@@ -35,15 +35,15 @@ New configuration:
 - `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` are existing server-side Twilio settings.
 - `TWILIO_VERIFY_SERVICE_SID` is a Twilio Verify service SID (`VA…`). Configure SMS/voice verification and appropriate geographic/fraud controls in that service. This is separate from an SMS sender number. No number purchase is necessary to implement the Verify integration. Verify usage incurs provider charges when users explicitly request codes.
 
-Never put these credentials in `VITE_*`, source files, browser storage or PR comments. The browser never receives provider secrets, verification SIDs or raw verification codes from the server. Codes are sent directly to the verification provider for checking and are not stored by Recepta.
+Never put these credentials in `VITE_*`, source files, browser storage or PR comments. The browser never receives provider secrets or Twilio challenge SIDs/codes from the server. The separate reception-test code is intentionally displayed to the owner and stored hashed. Codes are sent directly to the verification provider for checking and are not stored by Recepta.
 
 ## Database
 
-The staged migration is `supabase/migrations/20261102183345_phone_setup_verified_transfers.sql`. It has been executed against synthetic PGlite PostgreSQL fixtures; **it has not been applied to production**.
+The staged migrations are the phone-setup migration and the three `20261105` follow-ups for a unique customer agent, transfer schedules/call evidence, and paid provisioning. Fresh empty staging projects use [the isolated schema baseline](../supabase/staging/README.md). It has been executed against synthetic PGlite PostgreSQL fixtures; **it has not been applied to production**.
 
 All new tables have RLS and service-role-only grants/policies. Authenticated customers access them only through verified-session Netlify handlers, scoped to `user.id`. Editable Auth `user_metadata` is not an authority for destinations, verification or billing. No existing customer metadata flags are trusted or migrated as verified numbers.
 
-Tables: `phone_setups`, `phone_verified_numbers`, `phone_transfer_destinations`, `phone_forwarding_sources`, `phone_operation_limits`, `phone_operation_locks`, `retell_agent_sync_locks`, `call_transfer_events`. Client-linked rows cascade on account deletion. Limits contain hashed keys; their storage is bounded by paid account/verification usage, and expired counter rows can be periodically pruned by operations.
+Tables: `phone_setups`, `phone_verified_numbers`, `phone_transfer_destinations`, `phone_forwarding_sources`, `phone_operation_limits`, `phone_operation_locks`, `retell_agent_sync_locks`, `call_transfer_events`, `phone_reception_tests`, `phone_provisioning`. Client-linked rows cascade on account deletion. Limits contain hashed keys; their storage is bounded by paid account/verification usage, and expired counter rows can be periodically pruned by operations.
 
 Settings use a revision and a per-account mutation lease. A durable pending state is saved before publishing to Retell. New inbound calls receive no destination while sync is pending or failed. A failure to mark publication successful also leaves transfers disabled. The owner can retry Save & Sync. Disabling transfers works after payment/verification expires or an agent is removed.
 
@@ -90,7 +90,7 @@ Guides were checked against carrier-owned documentation on 2026-11-02. They dist
 - https://www.twilio.com/docs/verify/api/verification
 - https://www.twilio.com/docs/verify/api/verification-check
 
-Cancellation does not deactivate carrier forwarding. The owner must undo it with the carrier, verify their original line and voicemail, and handle subscription cancellation separately. Incompatible or missing numbers are not labeled connected. Dashboard test confirmations are clearly labeled **customer-reported**, not independently observed carrier status.
+Cancellation does not deactivate carrier forwarding. The owner must undo it with the carrier, verify their original line and voicemail, and handle subscription cancellation separately. Incompatible or missing numbers are not labeled connected. Reception is confirmed only by a signed custom-function request from an admitted, ongoing incoming phone call, validated against the canonical provider call and a short-lived dashboard test code for the current setup revision. Legacy browser-reported reception dates are not used. The original dialed carrier number is not always exposed, so the UI distinguishes AI reception evidence from carrier activation. Handoff test confirmations remain customer-reported; individual call outcomes still require bridge events.
 
 ## Automated verification
 
@@ -108,7 +108,7 @@ For repeatable browser QA, start the Vite development preview and open `/tests/u
 
 | Gate | Evidence needed |
 | --- | --- |
-| Isolated test migration/configuration | Apply staged SQL in the test database, set test environment values and verify grants/advisors there. |
+| Isolated test migration/configuration | All staged schema/catalog SQL installed and hosted RLS/grants verified; isolated Netlify deployment and secure provider configuration remain blocked on account access. |
 | Exact account association | Supplied pair now verified read-only against the assigned customer's confirmed login; billing remains pending. Review any future customer's ownership before assignment. |
 | Paid reception | Call the assigned number; correct AI answers; no default provider binding bypasses admission. |
 | Carrier forwarding | Activate with the actual business carrier; call original number from another phone. |
@@ -122,3 +122,56 @@ For repeatable browser QA, start the Vite development preview and open `/tests/u
 The pre-existing buyer appointment email/SMS acknowledgement gap is outside this phone-management change. Do not advertise caller confirmations as finished solely because a verification text is working.
 
 Keep PR #23 draft and unmerged until these gates are reviewed. No production telephony deployment is authorized by this implementation request.
+
+
+## Transfer schedules, callback requests and real-call reception evidence
+
+Customers choose 24/7, existing business hours, or custom daily transfer hours and
+an IANA time zone. Custom hours support overnight windows and a 21:00 cutoff.
+Business-hours mode reads the admin-managed schedule and its time zone; missing
+hours fail closed. Saving does not edit store hours, answering hours or billing.
+The schedule is durable under the same revision, mutation lease and successful
+Retell publication as the destination. Other publishers preserve managed tools.
+
+The server supplies no native transfer destination outside the permitted window.
+Retell's native transfer tool has no per-attempt authorization hook in this agent
+integration, so admission checks **the entire enforced maximum call lifetime**.
+Calls that could cross the cutoff use callbacks from the beginning; they are not
+cut short. For example, a two-hour admitted call window with a 21:00 cutoff stops
+offering transfers by 19:00. This conservative behavior is visible in the UI.
+Changes apply to new calls; ongoing calls keep their originally admitted window.
+Direct provider edits, shared external tools and caller-supplied destinations must
+not bypass Recepta admission. Existing state-specific transfer routes are rejected
+for review, not silently removed. Retell LLM ownership is indexed separately from
+agent ownership; a shared LLM blocks all managed agent publishers.
+
+The managed callback tool collects caller name, confirmed phone, reason and
+preferred callback time. Signed requests resolve the canonical incoming call and
+its assigned account, never a model-supplied customer ID. The server saves details
+and queues one job in the existing callback notification workflow. Calls displays
+human follow-ups alongside missed calls. Answered AI callbacks use normal minutes;
+only declined calls retain the no-minutes notice. Email failure remains retryable.
+
+The reception code is separate from Twilio number verification. It is generated
+in the dashboard, stored hashed for ten minutes, and must be spoken to the AI in
+a new incoming call. The server checks signature, provider call type/direction,
+active call state, paid account, assigned inbound line, dedicated agent, admission
+metadata, call start time, code and unchanged setup revision. Only that result sets
+`reception_observed_at`. A browser checkbox, routing configuration, SMS approval,
+outbound/web call, old code or another customer's call cannot confirm reception.
+
+Loop checks normalize legacy formatted numbers as well as current E.164 values.
+Known AI numbers and historical forwarding sources are rejected even when saving
+a disabled destination and are checked again on each new call. Hidden carrier
+rules still require an authorized real-world test.
+
+![Custom transfer schedule in the synthetic dashboard](images/transfer-schedule-dashboard.jpg)
+
+
+Validation on 2026-11-05 UTC: **157 regression tests passed**, followed by **52
+focused checks** after the last normalized loop-admission update. ESLint, backend
+TypeScript and the production build passed; existing chunk-size/dependency
+advisories remain. Browser QA verified custom hours and time-zone persistence,
+separate customer defaults, and a 360px layout with zero overflowing controls.
+[Staging installation evidence and deployment boundary](../supabase/staging/README.md).
+No actual carrier forwarding or live human transfer is certified by these tests.

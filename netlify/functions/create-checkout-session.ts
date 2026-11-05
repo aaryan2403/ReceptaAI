@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import { randomBytes } from 'node:crypto'
+import { automaticReceptionConfigured } from '../lib/phoneProvisioning'
 import { normalizePhonePurchase } from '../lib/phoneNumbers'
 
 const MAX_MONTHLY_MINUTES = 100_000_000
@@ -212,7 +213,7 @@ export default async (request: Request) => {
       )
     }
 
-    if (!assignedAgent?.retell_agent_id) {
+    if (!assignedAgent?.retell_agent_id && !automaticReceptionConfigured()) {
       return new Response(
         JSON.stringify({
           error:

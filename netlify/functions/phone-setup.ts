@@ -1,4 +1,6 @@
 import { verifyReceptionResources } from '../lib/phoneReception'
+import { randomInt, createHash } from 'node:crypto'
+import { normalizeTransferSchedule } from '../../src/lib/transferSchedule'
 import { syncRetellPhoneBindings } from '../lib/retell'
 import { requestAuth, json } from '../lib/requestAuth'
 import { normalizePhone, PhoneValidationError } from '../lib/phoneValidation'
@@ -77,12 +79,19 @@ export default async (request: Request) => {
         if (!account.paid || !account.agent?.retell_agent_id || !account.numbers.length || account.settings?.sync_state !== 'synced') throw new PhoneError(409, 'Save and sync an active phone setup before testing.')
         if (raw.expectedRevision !== account.settings.revision) throw new PhoneError(409, 'Setup changed. Reload before confirming a test.')
         if (raw.confirmed !== true) throw new PhoneError(400, 'Confirm you completed a real call test.')
-        if (raw.kind !== 'reception' && raw.kind !== 'transfer') throw new PhoneError(400, 'Choose the completed test.')
+        if (raw.kind !== 'transfer') throw new PhoneError(400, 'Reception requires a real incoming call and its test code. Start the reception test below.')
         if (raw.kind === 'transfer' && !account.destination?.enabled) throw new PhoneError(400, 'Enable transfers before testing a handoff.')
-        checked(await db.from('phone_setups').update(raw.kind === 'transfer' ? { transfer_tested_at: new Date().toISOString() } : {
-          reception_tested_at: new Date().toISOString(), forwarding_confirmed_at: account.settings.mode === 'existing' ? new Date().toISOString() : null,
-        }).eq('client_id', user.id).eq('revision', account.settings.revision))
+        checked(await db.from('phone_setups').update({ transfer_tested_at: new Date().toISOString() }).eq('client_id', user.id).eq('revision', account.settings.revision))
         return json(200, { success: true, message: 'Your test confirmation was saved. Carrier activation is still managed by your carrier.' })
+      }
+      if (action === 'start-reception-test') {
+        if (!account.paid || !account.numbers.length || account.settings?.sync_state !== 'synced') throw new PhoneError(409, 'Save and sync your paid phone setup before starting a test.')
+        if (raw.expectedRevision !== account.settings.revision) throw new PhoneError(409, 'Settings changed. Reload before testing.')
+        const code = String(randomInt(100000, 1000000))
+        checked(await db.from('phone_reception_tests').upsert({ client_id: user.id, revision: account.settings.revision,
+          code_hash: createHash('sha256').update(code).digest('hex'), created_at: new Date().toISOString(),
+          expires_at: new Date(Date.now() + 10 * 60000).toISOString(), confirmed_at: null, retell_call_id: null }, { onConflict: 'client_id' }))
+        return json(200, { success: true, message: `Call ${account.settings.mode === 'existing' ? 'your original business number after activating forwarding' : account.numbers[0]} from another phone. Tell the AI: "Confirm my reception test code ${code}." This code expires in 10 minutes. Then check the test result here.` })
       }
       if (action !== 'save' && action !== 'disable') throw new PhoneError(400, 'Unknown phone setup action.')
       const enabled = action === 'save' && raw.transferEnabled === true
@@ -94,19 +103,22 @@ export default async (request: Request) => {
       const mode = action === 'disable' ? account.settings?.mode ?? 'new' : raw.mode
       const business = action === 'disable' ? account.settings?.business_number ?? null : mode === 'existing' ? normalizePhone(raw.businessNumber) : null
       const worker = action === 'disable' ? account.destination?.phone_number ?? null : normalizePhone(raw.workerNumber)
+      let transferSchedule
+      try { transferSchedule = normalizeTransferSchedule(raw.transferSchedule ?? account.settings?.transfer_schedule) }
+      catch (error) { throw new PhoneError(400, error instanceof Error ? error.message : 'Choose valid transfer hours.') }
       if (mode !== 'new' && mode !== 'existing') throw new PhoneError(400, 'Choose how to connect your business.')
       if (mode === 'existing' && (!business || !isVerifiedNumber(account.verifiedNumbers, 'business', business))) throw new PhoneError(400, 'Verify your existing business number first.')
       if (enabled) {
         if (!worker || !isVerifiedNumber(account.verifiedNumbers, 'worker', worker)) throw new PhoneError(400, 'Verify the worker number before enabling transfers.')
         if (raw.directLineAuthorized !== true) throw new PhoneError(400, 'Confirm the worker authorized this direct line and it does not forward to Recepta.')
-        await assertDirectDestination(db, worker, business)
       }
+      if (worker) await assertDirectDestination(db, worker, business)
       const carrier = action === 'disable' ? account.settings?.carrier ?? 'other' : String(raw.carrier)
       const lineType = action === 'disable' ? account.settings?.line_type ?? 'mobile' : raw.lineType
       if (!carriers.has(carrier) || !['mobile', 'landline', 'voip'].includes(String(lineType))) throw new PhoneError(400, 'Choose a valid carrier and line type.')
       if (!Number.isInteger(raw.expectedRevision) || raw.expectedRevision !== (account.settings?.revision ?? 0)) throw new PhoneError(409, 'Settings changed. Reload before saving.')
       const saved = await db.rpc('save_recepta_phone_setup', { p_client_id: user.id, p_expected_revision: raw.expectedRevision,
-        p_settings: { mode, business_number: business, worker_number: worker, enabled, carrier, line_type: lineType, agent_id: agentId } })
+        p_settings: { mode, business_number: business, worker_number: worker, enabled, carrier, line_type: lineType, agent_id: agentId, transfer_schedule: transferSchedule } })
       if (saved.error) throw new PhoneError(409, 'Could not save. Recheck verified numbers, direct-line safety, and reload if another tab changed your settings.')
       const revision = saved.data
       // Desired state is durable before external publication. Inbound transfers

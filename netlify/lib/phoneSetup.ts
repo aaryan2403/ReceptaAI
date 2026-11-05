@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { hasPaidSubscription } from './subscriptionConfiguration'
 import { normalizePhone } from './phoneValidation'
+import { transferWindowOpen } from './transferSchedule'
 
 export class PhoneError extends Error {
   status: number
@@ -28,18 +29,21 @@ export const withPhoneLock = async <T>(db: SupabaseClient, clientId: string, run
   finally { await db.from('phone_operation_locks').delete().eq('client_id', clientId).eq('token', token) }
 }
 export const loadPhoneAccount = async (db: SupabaseClient, clientId: string) => {
-  const [a, s, p, setup, destinations, verified] = await Promise.all([
-    db.from('agents').select('retell_agent_id,phone_number,status').eq('client_id', clientId).maybeSingle(),
+  const [a, s, p, setup, destinations, verified, provisioning] = await Promise.all([
+    db.from('agents').select('retell_agent_id,phone_number,status,business_hours').eq('client_id', clientId).maybeSingle(),
     db.from('subscriptions').select('status,stripe_subscription_id,current_period_start,current_period_end').eq('client_id', clientId).maybeSingle(),
     db.from('agent_phone_numbers').select('phone_number').eq('client_id', clientId).order('is_primary', { ascending: false }),
     db.from('phone_setups').select('*').eq('client_id', clientId).maybeSingle(),
     db.from('phone_transfer_destinations').select('phone_number,enabled').eq('client_id', clientId).eq('is_primary', true).maybeSingle(),
     db.from('phone_verified_numbers').select('purpose,phone_number,verified_at').eq('client_id', clientId),
+    db.from('phone_provisioning').select('state,number_state').eq('client_id', clientId).maybeSingle(),
   ])
   const agent = checked(a), subscription = checked(s), numbers = checked(p), settings = checked(setup), destination = checked(destinations)
   const verifiedNumbers = checked(verified).filter(row => row.verified_at && Date.parse(row.verified_at) > Date.now() - 90 * 86400000)
   return { agent, paid: hasPaidSubscription(subscription), numbers: [...new Set([...(numbers ?? []).map(row => row.phone_number), agent?.phone_number].filter((v): v is string => Boolean(v)))],
-    settings, destination, verifiedNumbers }
+    settings, destination, verifiedNumbers, provisioning: provisioning.error ? null : provisioning.data ? {
+      state: provisioning.data.state, number_state: provisioning.data.number_state,
+    } : null }
 }
 export const requireDedicatedAgent = async (db: SupabaseClient, clientId: string, agentId?: string | null) => {
   if (!agentId) throw new PhoneError(409, 'Your Recepta agent has not been assigned yet.')
@@ -54,7 +58,8 @@ export const assertDirectDestination = async (db: SupabaseClient, number: string
     db.from('agent_phone_numbers').select('client_id').eq('phone_number', number).limit(1),
     db.from('phone_forwarding_sources').select('client_id').eq('phone_number', number).limit(1),
   ])
-  if (results.some(r => (checked(r)?.length ?? 0) > 0)) throw new PhoneError(400, 'Use a direct worker number. Recepta numbers and known forwarding numbers can create a call loop.')
+  const unsafe = checked(await db.rpc('recepta_unsafe_destination', { p_number: number }))
+  if (unsafe || results.some(r => (checked(r)?.length ?? 0) > 0)) throw new PhoneError(400, 'Use a direct worker number. Recepta numbers and known forwarding numbers can create a call loop.')
 }
 export const isVerifiedNumber = (rows: Array<{ purpose: string; phone_number: string }>, purpose: string, phone: string) =>
   rows.some(row => row.purpose === purpose && row.phone_number === phone)
@@ -93,12 +98,13 @@ export const verifyRequest = async (resource: 'Verifications' | 'VerificationChe
 
 // A safe default is injected for EVERY admitted call. Stale Retell tools have no
 // destination outside this path; inactive accounts never pass existing admission.
-export const resolveInboundTransfer = async (db: SupabaseClient, clientId: string, agentId: string) => {
+export const resolveInboundTransfer = async (db: SupabaseClient, clientId: string, agentId: string, reservedSeconds = 7200, now = new Date()) => {
   const disabled = { recepta_transfer_allowed: 'disabled', recepta_transfer_destination: '' }
   if (!phoneFeatureEnabled()) return disabled
   try {
     const account = await loadPhoneAccount(db, clientId)
     if (!account.paid || account.settings?.sync_state !== 'synced' || account.settings.synced_agent_id !== agentId || !account.destination?.enabled) return disabled
+    if (!transferWindowOpen(account.settings.transfer_schedule, account.agent?.business_hours ?? null, reservedSeconds, now)) return disabled
     await requireDedicatedAgent(db, clientId, agentId)
     const number = normalizePhone(account.destination.phone_number)
     if (!number || !isVerifiedNumber(account.verifiedNumbers, 'worker', number)) return disabled
@@ -110,10 +116,7 @@ export const resolveInboundTransfer = async (db: SupabaseClient, clientId: strin
 // forwards back to any Recepta number, reject the new loop leg before reserving minutes.
 export const isReceptaLoopCaller = async (db: SupabaseClient, from: string | null) => {
   if (!phoneFeatureEnabled() || !from) return false
-  const rows = await Promise.all([
-    db.from('agents').select('client_id').eq('phone_number', from).limit(1),
-    db.from('agent_phone_numbers').select('client_id').eq('phone_number', from).limit(1),
-  ])
+  const result = await db.rpc('recepta_inbound_number', { p_number: from })
   // A DB failure also declines this call while loop protection is enabled.
-  return rows.some(r => r.error || (r.data?.length ?? 0) > 0)
+  return Boolean(result.error || result.data !== false)
 }

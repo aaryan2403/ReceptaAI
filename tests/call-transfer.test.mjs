@@ -35,10 +35,10 @@ test('builds a warm Retell transfer tool with an admission-controlled destinatio
 test('preserves other Retell tools while enabling and disabling transfers', () => {
   const tools = [{ type: 'end_call', name: 'end_call' }]
   const enabled = transfer.updateHumanTransferTools(tools, '+14165550123')
-  assert.equal(enabled.length, 2)
+  assert.equal(enabled.length, 4)
   assert.equal(enabled[0].name, 'end_call')
-  assert.equal(transfer.updateHumanTransferTools(enabled, null).length, 1)
-  assert.equal(transfer.updateHumanTransferTools(enabled, '+16475550189').length, 2)
+  assert.equal(transfer.updateHumanTransferTools(enabled, null).length, 3)
+  assert.equal(transfer.updateHumanTransferTools(enabled, '+16475550189').length, 4)
   assert.throws(() => transfer.updateHumanTransferTools(
     [{ type: 'transfer_call', name: 'transfer_call' }], '+14165550123'
   ))
@@ -51,7 +51,8 @@ test('managed transfer prompt can be safely toggled', () => {
   assert.equal((withTransfer.match(/\[RECEPTA MANAGED HUMAN TRANSFER\]/g) ?? []).length, 1)
   const updated = transfer.updateHumanTransferPrompt(withTransfer, true)
   assert.equal((updated.match(/\[RECEPTA MANAGED HUMAN TRANSFER\]/g) ?? []).length, 1)
-  assert.equal(transfer.updateHumanTransferPrompt(updated, false), base)
+  assert.ok(transfer.updateHumanTransferPrompt(updated, false).startsWith(base))
+  assert.match(transfer.updateHumanTransferPrompt(updated, false), /Human transfers are disabled/)
 })
 
 test('Retell sync updates a draft and accepts an empty successful publish response', async () => {

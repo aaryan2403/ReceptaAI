@@ -45,3 +45,7 @@
 .phoneSetup .phoneDisconnect{border-top:1px solid #28402f;padding-top:22px;margin-top:28px}
 .phoneSetup summary{cursor:pointer;color:#c6d8cd;font-size:14px}
 @media(max-width:680px){.phoneSetup .phoneOptions,.phoneSetup .phoneGrid{grid-template-columns:1fr}.phoneSetup .phoneNumberCard{align-items:flex-start;flex-direction:column;padding:19px}.phoneSetup .phoneHeadingIcon{display:none}.phoneSetup .phoneActions .btn{width:100%}.phoneSetup .phoneInline>*{flex-basis:100%}.phoneSetup .phoneInline button{width:100%}.phoneSetup .phoneGuide,.phoneSetup .phoneTest{padding:16px}.phoneSetup .phoneHeading{gap:12px}.phoneSetup .phoneStatus{white-space:normal}}
+.phoneHours { display: grid; gap: 12px; margin-block: 16px; }
+.phoneHoursRow { display: grid; grid-template-columns: minmax(110px,1fr) minmax(90px,1fr) auto minmax(90px,1fr); align-items: center; gap: 10px; }
+.phoneHoursRow input[type=time] { min-width: 0; width: 100%; }
+@media(max-width: 560px) { .phoneHoursRow { grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); } .phoneHoursRow .phoneCheck { grid-column: 1 / -1; } }

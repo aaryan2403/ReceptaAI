@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import CallTransferSettings from '../../src/components/CallTransferSettings'
+import type { TransferSchedule } from '../../src/lib/transferSchedule'
 import type { PhoneAccount, phoneSetupRequest } from '../../src/lib/phoneSetup'
 import '../../src/index.css'
 import '../../src/App.css'
@@ -10,6 +11,7 @@ import '../../src/App.css'
 if (!import.meta.env.DEV) throw new Error('This fixture is development-only.')
 const phone = (value: unknown) => {
   const digits = String(value ?? '').replace(/\D/g, '')
+  if (!digits) return ''
   return '+' + (digits.length === 10 ? '1' : '') + digits
 }
 const account = (agent: string, number?: string): PhoneAccount => ({
@@ -52,12 +54,14 @@ export function Fixture() {
         if (body.transferEnabled && (worker === business || own.numbers.includes(worker))) throw new Error('Use a direct worker number. Forwarded numbers create a call loop.')
         own.settings = { mode: body.mode as 'new' | 'existing', business_number: business, carrier: String(body.carrier),
           line_type: body.lineType as 'mobile' | 'landline' | 'voip', revision: (own.settings?.revision ?? 0) + 1,
-          sync_state: fail.current ? 'error' : 'synced', reception_tested_at: null, transfer_tested_at: null }
+          transfer_schedule: body.transferSchedule as TransferSchedule, sync_state: fail.current ? 'error' : 'synced', reception_tested_at: null, transfer_tested_at: null }
         own.destination = { phone_number: worker, enabled: body.transferEnabled === true }
         if (fail.current) throw new Error('Settings saved, but agent sync failed. Transfers are unavailable for new calls until you save and sync successfully.')
         message = body.transferEnabled ? 'Warm transfer synced. Complete the real call tests below before relying on it.' : 'Phone setup synced. Human transfers are disabled.'
       } else if (action === 'check-connection') {
         message = 'Synthetic routing check complete. Real reception still requires a phone call.'
+      } else if (action === 'start-reception-test') {
+        message = 'Synthetic reception test code: 654321. Real incoming tests require a deployed isolated test site; this fixture makes no calls.'
       } else if (action === 'confirm-test' && own.settings) {
         if (body.kind === 'reception') own.settings.reception_tested_at = new Date().toISOString()
         else own.settings.transfer_tested_at = new Date().toISOString()

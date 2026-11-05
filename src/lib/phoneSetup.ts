@@ -1,12 +1,14 @@
+import type { TransferSchedule } from './transferSchedule'
 export type PhoneAccount = {
   paid: boolean
   agent: { retell_agent_id: string | null; status: string | null } | null
   numbers: string[]
   settings: { mode: 'new' | 'existing'; business_number: string | null; carrier: string; line_type: 'mobile' | 'landline' | 'voip'; revision: number;
-    sync_state: string; reception_tested_at: string | null; transfer_tested_at: string | null } | null
+    sync_state: string; reception_tested_at: string | null; reception_observed_at?: string | null; transfer_tested_at: string | null; transfer_schedule?: TransferSchedule | null } | null
   destination: { phone_number: string; enabled: boolean } | null
   verifiedNumbers: Array<{ purpose: string; phone_number: string; verified_at: string }>
   verificationAvailable: boolean
+  provisioning?: { state: string; number_state: string } | null
 }
 export const phoneSetupRequest = async <T>(body?: Record<string, unknown>, endpoint = 'phone-setup'): Promise<T> => {
   const { supabase } = await import('./supabase')

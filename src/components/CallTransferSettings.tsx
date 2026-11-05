@@ -3,6 +3,7 @@ import { Phone, ArrowRight, ShieldCheck, AlertTriangle, CheckCircle2 } from 'luc
 import { phoneSetupRequest, type PhoneAccount } from '../lib/phoneSetup'
 import { forwardingGuide } from '../lib/forwardingGuides'
 import './PhoneSetup.css'
+import { defaultTransferSchedule, type TransferSchedule } from '../lib/transferSchedule'
 
 const canonical = (v: string) => { const d = v.replace(/\D/g, ''); return '+' + (d.length === 10 ? '1' : '') + d }
 function VerifyNumber({ purpose, number, verified, disabled, available, run }: {
@@ -39,6 +40,7 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
   const [carrier, setCarrier] = useState('rogers')
   const [lineType, setLineType] = useState<'mobile' | 'landline' | 'voip'>('mobile')
   const [enabled, setEnabled] = useState(false)
+  const [schedule, setSchedule] = useState<TransferSchedule>(defaultTransferSchedule)
   const [authorized, setAuthorized] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -53,6 +55,7 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
       setWorker(data.destination?.phone_number ?? ''); setEnabled(data.destination?.enabled ?? false)
       setCarrier(data.settings?.carrier ?? 'rogers'); setLineType(data.settings?.line_type ?? 'mobile')
       setAuthorized(false); setDirty(false)
+      setSchedule(data.settings?.transfer_schedule ?? defaultTransferSchedule())
     }
   }, [request])
   useEffect(() => { let mounted = true
@@ -77,7 +80,7 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
   const guide = forwardingGuide(carrier, lineType, assigned)
   const verified = (purpose: string, value: string) => Boolean(account?.verifiedNumbers.some(row => row.purpose === purpose && row.phone_number === canonical(value)))
   const editable = Boolean(account?.paid && !busy)
-  const tested = !dirty && Boolean(account?.settings?.reception_tested_at)
+  const tested = !dirty && Boolean(account?.settings?.reception_observed_at)
   return <section className="agentPanel phoneSetup" aria-labelledby="phoneSetupTitle" aria-busy={loading || busy}>
     <div className="phoneHeading"><div><span className="agentSectionLabel">PHONE SETUP / MANAGE NUMBERS</span><h2 id="phoneSetupTitle">Your business, connected.</h2>
       <p>Keep the number your customers know, or use your Recepta number. Hand off to a person when it matters.</p></div><span className="phoneHeadingIcon"><Phone aria-hidden="true" size={24} /></span></div>
@@ -85,9 +88,10 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
     {message && <div role="status" className="phoneAlert phoneSuccess"><CheckCircle2 size={18} aria-hidden="true" /><span>{message}</span></div>}
     {loading ? <p role="status">Loading your phone setup…</p> : !account ? <button type="button" className="btn btnOutline" onClick={() => { setLoading(true); setError(''); void load().catch(e => setError(e.message)).finally(() => setLoading(false)) }}>Retry loading</button> : <>
       {!account.paid && <div className="phoneWarning">Phone service is paused until payment is complete. Your saved settings remain available. <a href="/dashboard/billing">Open Billing</a>.</div>}
+      {account.provisioning && (['creating_llm', 'creating_agent'].includes(account.provisioning.state) || ['purchasing', 'review'].includes(account.provisioning.number_state)) && <div className="phoneWarning">Provider setup is awaiting confirmation. Your purchase and resource records are preserved, and duplicate creation is blocked. Refresh after setup finishes; an uncertain provider result requires Recepta operations to reconcile it.</div>}
       <div className="phoneNumberCard"><div><span>YOUR RECEPTA AI NUMBER</span><strong>{assigned || 'Awaiting number assignment'}</strong>
         {account.numbers.slice(1).map(number => <p key={number}>{number}</p>)}</div>
-        <span className={`phoneStatus ${tested && account.paid ? 'phoneStatusGood' : ''}`}>{!account.paid ? 'Billing required' : !assigned ? 'Setup pending' : tested ? 'Call tested by you' : 'Assigned · call test needed'}</span>
+        <span className={`phoneStatus ${tested && account.paid ? 'phoneStatusGood' : ''}`}>{!account.paid ? 'Billing required' : !assigned ? 'Setup pending' : tested ? 'AI reception confirmed' : 'Assigned · incoming test needed'}</span>
       </div>
       {!assigned && <div className="phoneGuide"><strong>{account.paid ? 'Your number is being prepared.' : 'Start with the number included in your plan.'}</strong>
         <p>{account.paid ? 'Your assigned number will appear here when setup finishes. Check Billing for your payment status.' : 'After your receptionist is assigned, complete secure Checkout in Billing. Your first Recepta number is provisioned after confirmed payment. No number is purchased just by choosing an option here.'}</p>
@@ -107,6 +111,8 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
           <div className="phoneGrid"><label className="phoneLabel">Carrier<select value={carrier} onChange={e => { setCarrier(e.target.value); setDirty(true) }}><option value="rogers">Rogers</option><option value="bell">Bell</option><option value="telus">TELUS</option><option value="other">Other / hosted provider</option></select></label>
             <label className="phoneLabel">Line type<select value={lineType} onChange={e => { setLineType(e.target.value as typeof lineType); setDirty(true) }}><option value="mobile">Cellphone</option><option value="landline">Landline</option><option value="voip">VoIP / PBX</option></select></label></div>
           <div className="phoneGuide"><strong>{guide.title}</strong><p>Entering your number here does not redirect calls. You must activate forwarding with your carrier. Your original number stays with that carrier.</p>
+            <p>Number verification confirms access to your line. Carrier activation authorizes forwarding. A separate incoming call test confirms the AI answers. Straightforward setup often targets 5–15 minutes; carrier requirements can take longer.</p>
+            <p>Managed activation is not configured for this carrier. Follow the official steps below from your existing phone or carrier account; no extra app is required.</p>
             {assigned ? <ol>{guide.steps.map(step => <li key={step}>{step}</li>)}</ol> : <p>Wait for your Recepta number before activating forwarding.</p>}
             <p>{guide.note}</p><a href={guide.url} target="_blank" rel="noopener noreferrer">Official carrier instructions ↗</a>
             <p className="phoneMuted">Carrier forwarding and long-distance charges may apply. SMS to the original business number is not forwarded. For missed-call forwarding, use the carrier’s conditional options and check voicemail compatibility.</p>
@@ -120,9 +126,21 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
         <VerifyNumber purpose="worker" number={worker} verified={verified('worker', worker)} disabled={!editable} available={account.verificationAvailable} run={run} />
         <div className="phoneWarning"><AlertTriangle size={17} aria-hidden="true" /><span>Use a separate direct line. A business number that forwards to Recepta can create a call loop. Verify that the worker’s own carrier forwarding is off.</span></div>
         <label className="phoneCheck"><input type="checkbox" checked={authorized} onChange={e => setAuthorized(e.target.checked)} />The worker authorizes these calls, and this line does not forward to Recepta.</label>
+        <div className="phoneGuide"><h3>When can the AI transfer?</h3>
+          <label className="phoneLabel">Transfer availability<select value={schedule.mode} onChange={e => { setSchedule({ ...schedule, mode: e.target.value as TransferSchedule['mode'] }); setDirty(true) }}>
+            <option value="24/7">24/7</option><option value="business_hours">Business hours only</option><option value="custom">Custom transfer hours</option></select></label>
+          {schedule.mode === 'business_hours' ? <p>Uses your existing admin-managed store hours and their time zone. If store hours are not configured, transfers stay unavailable.</p> : <label className="phoneLabel">Your local time zone<input value={schedule.timeZone} placeholder="America/Toronto" list="transferTimeZones" onChange={e => { setSchedule({ ...schedule, timeZone: e.target.value }); setDirty(true) }} /><datalist id="transferTimeZones">{['America/Toronto', 'America/Vancouver', 'America/Edmonton', 'America/Winnipeg', 'America/Halifax', 'America/St_Johns', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles'].map(zone => <option key={zone} value={zone} />)}</datalist></label>}
+          {schedule.mode === 'custom' && <div className="phoneHours">{schedule.hours.map((day, index) => <div className="phoneHoursRow" key={day.day}>
+            <label className="phoneCheck"><input type="checkbox" checked={day.open} onChange={e => { setSchedule({ ...schedule, hours: schedule.hours.map((row, i) => i === index ? { ...row, open: e.target.checked } : row) }); setDirty(true) }} />{day.day}</label>
+            <input type="time" aria-label={`${day.day} transfer start`} value={day.start} disabled={!day.open} onChange={e => { setSchedule({ ...schedule, hours: schedule.hours.map((row, i) => i === index ? { ...row, start: e.target.value } : row) }); setDirty(true) }} />
+            <span>to</span><input type="time" aria-label={`${day.day} transfer cutoff`} value={day.end} disabled={!day.open} onChange={e => { setSchedule({ ...schedule, hours: schedule.hours.map((row, i) => i === index ? { ...row, end: e.target.value } : row) }); setDirty(true) }} />
+          </div>)}</div>}
+          <p>For a 9 p.m. cutoff, choose custom hours and set the end time to 21:00. An end time earlier than the start continues into the next day. Outside transfer hours, the AI collects a callback request.</p>
+          <p className="phoneMuted">Changes apply to new calls. To enforce the cutoff, calls that could continue past it also use callback collection. AI reception and store hours stay unchanged.</p>
+        </div>
       </fieldset>
       <div className="phoneActions"><button type="button" className="btn btnPrimary" disabled={!editable || !account.agent?.retell_agent_id || (enabled && (!verified('worker', worker) || !authorized)) || (mode === 'existing' && !verified('business', business))}
-        onClick={() => { void perform({ action: 'save', mode, businessNumber: business, carrier, lineType, workerNumber: worker, transferEnabled: enabled, directLineAuthorized: authorized, expectedRevision: account.settings?.revision ?? 0 }) }}>{busy ? 'Working…' : 'Save & Sync with Agent'}</button>
+        onClick={() => { void perform({ action: 'save', mode, businessNumber: business, carrier, lineType, workerNumber: worker, transferEnabled: enabled, transferSchedule: schedule, directLineAuthorized: authorized, expectedRevision: account.settings?.revision ?? 0 }) }}>{busy ? 'Working…' : 'Save & Sync with Agent'}</button>
         {account.destination?.enabled && <button type="button" className="btn btnOutline" disabled={busy} onClick={() => { void perform({ action: 'disable' }) }}>Disable transfers now</button>}
         <button type="button" className="btn btnOutline" disabled={busy || !assigned} onClick={() => { void perform({ action: 'check-connection' }) }}>Check number connection</button>
       </div>
@@ -131,9 +149,10 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
         <ol><li>From a different phone, call {mode === 'existing' ? 'your original business number after activating forwarding' : 'your Recepta number'}. Confirm the right AI answers.</li>
           <li>Ask a business question, then ask for a human. The worker should hear the private brief and speak with the caller. Caller and worker need separate phones for this test.</li>
           <li>Repeat while the worker leaves the call unanswered, rejects it, and has voicemail enabled. Confirm callback details are collected. Check the call and handoff outcome in Calls.</li></ol>
-        <p>Test confirmations below are reported by you. They do not prove carrier activation or replace real-call checks.</p>
+        <p>Start a reception test, then read its code to the AI during a new incoming call. Recepta confirms reception only after that real call. To test forwarding, dial your original business number; the phone network does not always reveal which number you originally dialed.</p>
         <div className="phoneActions"><button type="button" className="btn btnOutline" disabled={busy || dirty || !account.paid || account.settings?.sync_state !== 'synced' || !assigned}
-          onClick={() => { void perform({ action: 'confirm-test', kind: 'reception', confirmed: true, expectedRevision: account.settings?.revision }) }}>{tested ? 'Reception test confirmed by you' : 'I tested reception successfully'}</button>
+          onClick={() => { void perform({ action: 'start-reception-test', expectedRevision: account.settings?.revision }) }}>{tested ? 'Start a new reception test' : 'Start incoming call test'}</button>
+          <button type="button" className="btn btnOutline" disabled={busy || dirty} onClick={() => { setBusy(true); void load(false).then(() => setMessage('Latest incoming-call test result loaded.')).catch(e => setError(e.message)).finally(() => setBusy(false)) }}>Check test result</button>
           {account.destination?.enabled && <button type="button" className="btn btnOutline" disabled={busy || dirty || !account.paid || account.settings?.sync_state !== 'synced'} onClick={() => { void perform({ action: 'confirm-test', kind: 'transfer', confirmed: true, expectedRevision: account.settings?.revision }) }}>{!dirty && account.settings?.transfer_tested_at ? 'Transfer test confirmed by you' : 'I tested the human handoff'}</button>}</div>
       </div>
       <details className="phoneDisconnect"><summary>Disconnecting, changing providers, or cancelling?</summary><p>Before your service ends, deactivate forwarding with your original carrier so calls ring your business normally. Recepta cannot switch off a carrier’s forwarding remotely.</p>
