@@ -11,7 +11,10 @@ export const transferWindowOpen = (raw: unknown, businessHours: string | null, s
     const setting = normalizeTransferSchedule(raw)
     const schedule = setting.mode === 'business_hours' ? getStoredBusinessSchedule(businessHours)
       : { ...setting, mode: setting.mode === '24/7' ? '24/7' as const : 'custom' as const }
-    const end = now.getTime() + seconds * 1000
+    // Cover provider admission/answer setup latency as well as agent lifetime.
+    // Retell inbound attempts time out after 10 seconds; successful retries
+    // compute a fresh window. Keep a full minute of additional safety.
+    const end = now.getTime() + (seconds + 60) * 1000
     if (!isBusinessOpen(schedule, now) || !isBusinessOpen(schedule, new Date(end))) return false
     // Check each local-minute boundary, including DST transitions and overnight
     // windows. Limits also prevent an untrusted duration from creating work.

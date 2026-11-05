@@ -13,6 +13,7 @@ test('transfer cutoff is exclusive and covers the entire enforced call lifetime'
   assert.equal(transferWindowOpen(setting, null, 600, new Date('2026-11-05T00:30:00Z')), true) // 19:30 Toronto
   assert.equal(transferWindowOpen(setting, null, 600, new Date('2026-11-05T01:59:00Z')), false)
   assert.equal(transferWindowOpen(setting, null, 1, new Date('2026-11-05T02:00:00Z')), false)
+  assert.equal(transferWindowOpen(setting, null, 1, new Date('2026-11-05T01:59:30Z')), false) // provider setup margin
   assert.equal(transferWindowOpen(setting, null, 600, new Date('2026-11-04T13:59:00Z')), false)
 })
 test('time zones, overnight windows and closed days remain independent for each customer', () => {

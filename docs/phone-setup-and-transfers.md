@@ -135,7 +135,7 @@ Retell publication as the destination. Other publishers preserve managed tools.
 
 The server supplies no native transfer destination outside the permitted window.
 Retell's native transfer tool has no per-attempt authorization hook in this agent
-integration, so admission checks **the entire enforced maximum call lifetime**.
+integration, so admission checks **the entire enforced maximum call lifetime plus a one-minute provider setup margin**.
 Calls that could cross the cutoff use callbacks from the beginning; they are not
 cut short. For example, a two-hour admitted call window with a 21:00 cutoff stops
 offering transfers by 19:00. This conservative behavior is visible in the UI.
