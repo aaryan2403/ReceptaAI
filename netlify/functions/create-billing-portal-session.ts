@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { stripeSecretKey } from '../lib/stripeEnvironment'
 import { billingOrigin } from '../lib/billingNotifications'
 
 const json = (status: number, body: object) => new Response(JSON.stringify(body), {
@@ -8,7 +9,8 @@ const json = (status: number, body: object) => new Response(JSON.stringify(body)
 
 export default async (request: Request) => {
   if (request.method !== 'POST') return json(405, { error: 'Method not allowed.' })
-  const { SUPABASE_URL, SUPABASE_SECRET_KEY, STRIPE_SECRET_KEY } = process.env
+  const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env
+  const STRIPE_SECRET_KEY = stripeSecretKey()
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !STRIPE_SECRET_KEY) return json(500, { error: 'Billing is not configured.' })
   const token = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
   if (!token) return json(401, { error: 'Please sign in again.' })

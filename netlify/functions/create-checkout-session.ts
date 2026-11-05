@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { stripeSecretKey as configuredStripeSecretKey } from '../lib/stripeEnvironment'
 import { randomBytes } from 'node:crypto'
 import { automaticReceptionConfigured } from '../lib/phoneProvisioning'
 import { normalizePhonePurchase } from '../lib/phoneNumbers'
@@ -22,7 +23,7 @@ export default async (request: Request) => {
     const supabaseSecretKey =
       process.env.SUPABASE_SECRET_KEY
     const stripeSecretKey =
-      process.env.STRIPE_SECRET_KEY
+      configuredStripeSecretKey()
     const retellApiKey =
       process.env.RETELL_API_KEY
 

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { stripeSecretKey } from './stripeEnvironment'
 import { billingOrigin } from './billingNotifications'
 
 export type ServiceJob = {
@@ -64,8 +65,9 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
   if (!payload.billing_done) {
     const customer=payload.stripe_customer_id as string|null, subscription=payload.stripe_subscription_id as string|null
     if (customer || subscription) {
-      if (!process.env.STRIPE_SECRET_KEY) throw new Error('Stripe cleanup configuration is missing.')
-      const stripe=new Stripe(process.env.STRIPE_SECRET_KEY,{ timeout:4000,maxNetworkRetries:0 })
+      const key = stripeSecretKey()
+      if (!key) throw new Error('Stripe cleanup configuration is missing.')
+      const stripe=new Stripe(key,{ timeout:4000,maxNetworkRetries:0 })
       if (subscription) {
         try {
           const current=await stripe.subscriptions.retrieve(subscription)

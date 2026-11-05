@@ -33,16 +33,24 @@ access. Each model must still be validated against the intended Retell workspace
 
 ## Deployment boundary
 
-Create a separate Netlify project pointing to `feature/existing-number-onboarding`,
-with build `npm run build`, publish `dist`, and functions `netlify/functions`.
-Use this staging project's URL and keys exclusively; never inherit production
-Supabase, Stripe, Retell webhook URLs or customer data. Server-only secret keys
-must be entered through the provider's secure settings, never chat or source.
+Use PR #23's Netlify Deploy Preview with explicit overrides for only
+`feature/existing-number-onboarding`. Netlify branch values take precedence for
+that branch's Deploy Preview. Preserve existing production and generic context
+values. Build with `npm run build`, publish `dist`, and use `netlify/functions`.
+Set both frontend and server Supabase URLs/keys to this staging project; never
+test with production customer data. Server-only secrets belong in Netlify's
+secret settings, never chat or source. `RECEPTA_APP_URL` must point to the preview.
 
 Public: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`.
 Server: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `RETELL_API_KEY`, `ADMIN_EMAIL`,
 `RECEPTA_APP_URL`, the existing test-mode Stripe/webhook configuration, the existing
 owner-notification configuration, and Twilio Account SID/Auth Token/Verify Service SID.
+Set `RECEPTA_REQUIRE_STRIPE_TEST_MODE=true` on this branch. Every Stripe client,
+including cleanup jobs, refuses live keys in this mode; non-production Netlify
+contexts also require test keys. The Stripe webhook rejects live events before
+database changes. Missing test credentials leave billing unavailable rather than
+using inherited production credentials. Empty Netlify branch overrides are not
+retained and must not be relied on to remove inherited values.
 Keep `RECEPTA_PHONE_SETUP_ENABLED=false` until isolated credentials are ready.
 Automatic creation additionally needs `RECEPTA_AUTO_PROVISION_ENABLED=true` and an
 approved **generic, unassigned** `RETELL_ONBOARDING_TEMPLATE_AGENT_ID`.
@@ -91,7 +99,16 @@ refer to existing calendar tables retained as server-only with no browser grants
 Original performance advisories were inspected; unrelated legacy policy/index
 normalization was not applied as part of this feature.
 
-Netlify was reachable but signed out; the secure sign-in request was declined.
-No separate Netlify staging project or provider-secret configuration was completed.
-The existing PR preview remains distinct from a fully isolated telephony test
-installation. No live messages, calls, purchases or provider agents were created.
+Netlify and Supabase browser sign-in are now confirmed. The feature branch has
+staging-only frontend/server URLs, the staging publishable key and existing
+staging server secret, preview app URL, Phone Setup enabled, automatic provisioning
+disabled, and existing Twilio account/service identifiers. Production values were
+preserved. The server secret is marked secret for Builds, Functions and Runtime.
+
+The rotated Twilio Auth Token and Stripe test credentials still need secure
+configuration. The Stripe connector currently has access only to the live Recepta
+account; this does not supply test API keys. No staging Auth/customer accounts or
+Retell resource assignments have been fabricated to bypass payment/ownership.
+Redeployment and hosted verification are required after configuration changes.
+Netlify reports production deploys paused because only operational credits remain.
+No plan upgrade/payment, live messages/calls, purchases or provider agents were made.

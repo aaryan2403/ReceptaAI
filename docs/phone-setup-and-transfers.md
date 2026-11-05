@@ -28,6 +28,7 @@ Existing server-only configuration:
 
 - `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `RETELL_API_KEY`, `ADMIN_EMAIL`.
 - `RECEPTA_APP_URL` must be the externally reachable URL of the intended test deployment. Number routing uses this URL, falling back to Netlify `URL`. Set it explicitly in the test environment so a production value is not inherited.
+- `RECEPTA_REQUIRE_STRIPE_TEST_MODE=true` makes isolated staging refuse inherited live Stripe credentials across Checkout, customer creation, the billing portal, reminders and cleanup. Non-production Netlify contexts require test credentials as well. Only signed events with `livemode: false` are accepted in this mode. Production billing keeps its existing behavior when this test-only flag is absent.
 
 New configuration:
 

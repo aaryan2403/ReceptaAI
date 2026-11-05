@@ -363,3 +363,27 @@ test('deletion waits for an in-progress call without exhausting retries and bloc
  state.providerCalls=[];await due();await run(globalThis.__operationsDb)
  assert.equal((await job('delete-client:'+client)).status,'complete')
 })
+
+test('staging cleanup cannot cancel live billing or delete resources with an inherited live Stripe key',async()=>{
+ await fixture()
+ const previousKey=process.env.STRIPE_SECRET_KEY,previousMode=process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE
+ process.env.STRIPE_SECRET_KEY='sk_live_synthetic'
+ process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE='true'
+ try{
+  await deletion(request({clientId:client},'admin'))
+  await run(globalThis.__operationsDb)
+  const pending=await job('delete-client:'+client)
+  assert.notEqual(pending.status,'complete')
+  assert.match(pending.last_error,/Stripe cleanup configuration is missing/)
+  assert.equal(state.stripeOps.length,0)
+  assert.equal(state.retellOps.length,0)
+  assert.equal(state.authOps.length,0)
+  assert.equal((await db.query('select count(*) from clients where id=$1',[client])).rows[0].count,1)
+  const result=await operations(new Request('https://synthetic.test',{headers:{authorization:'Bearer admin'}}))
+  assert.equal(result.status,200)
+  assert.equal((await result.json()).configuration.stripe,false)
+ }finally{
+  if(previousKey===undefined)delete process.env.STRIPE_SECRET_KEY;else process.env.STRIPE_SECRET_KEY=previousKey
+  if(previousMode===undefined)delete process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE;else process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE=previousMode
+ }
+})

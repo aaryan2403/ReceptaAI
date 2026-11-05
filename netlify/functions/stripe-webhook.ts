@@ -4,6 +4,7 @@ import { checked, loadPhoneAccount, withPhoneLock } from '../lib/phoneSetup'
 import { verifyReceptionResources } from '../lib/phoneReception'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { stripeSecretKey as configuredStripeSecretKey, stripeTestModeRequired } from '../lib/stripeEnvironment'
 import {
   purchaseRetellPhoneNumber,
   releaseRetellPhoneNumber,
@@ -31,7 +32,7 @@ export default async (request: Request) => {
   const supabaseSecretKey =
     process.env.SUPABASE_SECRET_KEY
   const stripeSecretKey =
-    process.env.STRIPE_SECRET_KEY
+    configuredStripeSecretKey()
   const webhookSecret =
     process.env.STRIPE_WEBHOOK_SECRET
   const retellApiKey =
@@ -82,6 +83,12 @@ export default async (request: Request) => {
         signature,
         webhookSecret
       )
+
+    if (stripeTestModeRequired() && event.livemode !== false) {
+      return new Response(JSON.stringify({ error: 'Only Stripe test events are accepted in this deployment.' }), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      })
+    }
 
     const supabaseAdmin =
       createClient(
