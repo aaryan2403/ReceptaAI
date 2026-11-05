@@ -95,7 +95,7 @@ const compile = async file => {
       export const syncRetellSubscription = async options => { globalThis.__paymentRetell.push({ kind:'subscription', ...options }); return { agentUpdated:options.active } };
       export const syncRetellPhoneBindings = async options => { globalThis.__paymentRetell.push({ kind:'binding', ...options }); return [] };
       export const purchaseRetellPhoneNumber = async options => { globalThis.__paymentRetell.push({ kind:'purchase', ...options }); return '+14165550999' };
-      export const releaseRetellPhoneNumber = async () => {};
+      export const releaseRetellPhoneNumber = async options => { globalThis.__paymentRetell.push({ kind:'release', ...options }) };
     ` : 'export const createClient = () => globalThis.__paymentDb' }))
   } }] })
   return (await import('data:text/javascript;base64,' + Buffer.from(output.outputFiles[0].text).toString('base64'))).default
@@ -243,7 +243,7 @@ test('unpaid Checkout stays pending; verified paid Checkout applies exactly once
   await fixture(false)
   await configure({ ...configuration, plan_name: 'Recepta Pro', monthly_price: 306.02 })
   assert.equal((await checkout(request({ monthlyMinutes: 60 }, false))).status, 200)
-  event = { type: 'checkout.session.completed', data: { object: { mode: 'subscription', payment_status: 'unpaid', subscription: 'sub_after_payment', customer: 'cus_original', invoice: 'in_synthetic', metadata: checkoutBody.metadata } } }
+  event = { type: 'checkout.session.completed', livemode: true, data: { object: { mode: 'subscription', payment_status: 'unpaid', subscription: 'sub_after_payment', customer: 'cus_original', invoice: 'in_synthetic', metadata: checkoutBody.metadata } } }
   assert.equal((await webhook(request({}))).status, 200)
   assert.equal((await sub()).status, 'pending')
   event.data.object.payment_status = 'paid'
@@ -273,7 +273,7 @@ test('a future customer receives the included first number only after verified p
  await configure(configuration)
  assert.equal((await checkout(request({monthlyMinutes:60},false))).status,200)
  assert.equal(checkoutBody.metadata.extra_phone_numbers,'0')
- event={type:'checkout.session.completed',data:{object:{mode:'subscription',payment_status:'unpaid',subscription:'sub_after_payment',customer:'cus_original',invoice:'in_synthetic',metadata:checkoutBody.metadata}}}
+ event={type:'checkout.session.completed',livemode:true,data:{object:{mode:'subscription',payment_status:'unpaid',subscription:'sub_after_payment',customer:'cus_original',invoice:'in_synthetic',metadata:checkoutBody.metadata}}}
  assert.equal((await webhook(request({}))).status,200)
  assert.equal(globalThis.__paymentRetell.filter(op=>op.kind==='purchase').length,0)
  event.data.object.payment_status='paid'
@@ -283,6 +283,38 @@ test('a future customer receives the included first number only after verified p
  assert.equal((await db.query('select phone_number from agent_phone_numbers where client_id=$1',[client])).rows[0].phone_number,'+14165550999')
  assert.equal((await db.query('select retell_agent_id from agents where client_id=$1',[client])).rows[0].retell_agent_id,'agent_test')
  assert.equal((await sub()).status,'active')
+})
+
+test('test Checkout and cancellation exercise billing without purchasing or releasing Retell numbers', async () => {
+  await fixture(false)
+  await db.exec("update agent_phone_numbers set source='retell'")
+  await configure({ ...configuration, monthly_price: 227.02, extra_phone_numbers: 1 })
+  assert.equal((await checkout(request({ monthlyMinutes: 60 }, false))).status, 200)
+  assert.equal(checkoutBody.metadata.extra_phone_numbers, '1')
+  event = {
+    type: 'checkout.session.completed',
+    livemode: false,
+    data: { object: {
+      mode: 'subscription', payment_status: 'paid', subscription: 'sub_after_payment',
+      customer: 'cus_original', invoice: 'in_synthetic', metadata: checkoutBody.metadata,
+    } },
+  }
+  assert.equal((await webhook(request({}))).status, 200)
+  assert.equal((await sub()).status, 'active')
+  assert.equal(globalThis.__paymentRetell.some(operation => operation.kind === 'purchase'), false)
+
+  event = {
+    type: 'customer.subscription.deleted',
+    livemode: false,
+    data: { object: { id: 'sub_after_payment' } },
+  }
+  assert.equal((await webhook(request({}))).status, 200)
+  assert.equal((await sub()).status, 'cancelled')
+  assert.equal(globalThis.__paymentRetell.some(operation => operation.kind === 'release'), false)
+  const retained = await db.query('select phone_number, source from agent_phone_numbers where client_id=$1', [client])
+  assert.deepEqual(retained.rows, [{ phone_number: '+14165550100', source: 'retell' }])
+  const agent = await db.query('select phone_number, status from agents where client_id=$1', [client])
+  assert.deepEqual(agent.rows, [{ phone_number: '+14165550100', status: 'paused' }])
 })
 
 test('a regular paid renewal preserves the pending quote and renews only the paid configuration', async () => {
@@ -339,7 +371,7 @@ test('approved paid workflow creates a dedicated agent and one first number, the
  try{
   assert.equal((await checkout(request({monthlyMinutes:60},false))).status,200)
   assert.equal(requests.length,0)
-  event={type:'checkout.session.completed',data:{object:{mode:'subscription',payment_status:'unpaid',subscription:'sub_after_payment',customer:'cus_original',invoice:'in_synthetic',metadata:checkoutBody.metadata}}}
+  event={type:'checkout.session.completed',livemode:true,data:{object:{mode:'subscription',payment_status:'unpaid',subscription:'sub_after_payment',customer:'cus_original',invoice:'in_synthetic',metadata:checkoutBody.metadata}}}
   assert.equal((await webhook(request({}))).status,200);assert.equal(requests.length,0)
   event.data.object.payment_status='paid'
   const response=await webhook(request({}))

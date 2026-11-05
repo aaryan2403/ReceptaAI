@@ -90,6 +90,10 @@ export default async (request: Request) => {
       })
     }
 
+    // Test payments can exercise billing. Retell purchases, creation and
+    // releases require a verified live Stripe event.
+    const liveBillingEvent = event.livemode === true
+
     const supabaseAdmin =
       createClient(
         supabaseUrl,
@@ -279,7 +283,7 @@ export default async (request: Request) => {
             }
           }
 
-          const automatic = automaticReceptionConfigured()
+          const automatic = liveBillingEvent && automaticReceptionConfigured()
           if (automatic) await ensurePaidReceptionAgent(supabaseAdmin, clientId)
           const fulfillReception = async () => {
           if (automatic && !(await loadPhoneAccount(supabaseAdmin, clientId)).paid) return
@@ -318,10 +322,9 @@ export default async (request: Request) => {
               const pending = checked(await supabaseAdmin.from('phone_provisioning').select('pending_number').eq('client_id', clientId).maybeSingle())
               if (pending?.pending_number && phoneNumbers.includes(pending.pending_number)) checked(await supabaseAdmin.from('phone_provisioning').update({ number_state: 'idle', pending_number: null }).eq('client_id', clientId))
             }
-            const numbersToPurchase = Math.max(
-              0,
-              phonePurchase.purchaseCount - phoneNumbers.length
-            )
+            const numbersToPurchase = liveBillingEvent
+              ? Math.max(0, phonePurchase.purchaseCount - phoneNumbers.length)
+              : 0
 
             for (let index = 0; index < numbersToPurchase; index += 1) {
               if (await isDeletingClient(supabaseAdmin,clientId)) return new Response(null,{ status:200 })
@@ -644,9 +647,9 @@ export default async (request: Request) => {
           })
         }
 
-        const purchasedRows = phoneRows.filter(
-          (row) => row.source === 'retell'
-        )
+        const purchasedRows = liveBillingEvent
+          ? phoneRows.filter((row) => row.source === 'retell')
+          : []
 
         if (purchasedRows.length > 0) {
           if (!retellApiKey) {
@@ -670,7 +673,7 @@ export default async (request: Request) => {
         }
 
         const remainingNumbers = phoneRows
-          .filter((row) => row.source !== 'retell')
+          .filter((row) => !liveBillingEvent || row.source !== 'retell')
           .map((row) => row.phone_number)
 
         if (remainingNumbers[0]) {
