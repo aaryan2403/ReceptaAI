@@ -8,7 +8,7 @@ import { build } from 'esbuild'
 // These tests never charge a card, buy a number, send mail or change live data.
 const client = '00000000-0000-0000-0000-000000000001'
 const newClient = '00000000-0000-0000-0000-000000000002'
-let db, checkoutBody, event, stripeCalls
+let db, checkoutBody, event, stripeCalls, stripeApiKeys
 const period = { start: Math.floor(Date.now() / 1000) - 3600, end: Math.floor(Date.now() / 1000) + 29 * 86400 }
 const quote = name => '"' + name.replaceAll('"', '""') + '"'
 const query = table => {
@@ -70,6 +70,7 @@ globalThis.__paymentDb = {
   },
 }
 globalThis.__paymentStripe = class {
+  constructor(apiKey) { stripeApiKeys.push(apiKey) }
   customers = { create: async () => { stripeCalls.push('customer-create'); return { id: 'cus_new' } }, del: async () => {} }
   checkout = { sessions: { create: async body => { checkoutBody = body; return { url: 'https://checkout.stripe.test/synthetic' } } } }
   webhooks = { constructEvent: () => event }
@@ -121,7 +122,7 @@ const editBody = { clientId: client, companyName: 'Synthetic company', email: 'o
 const sub = async id => (await db.query('select * from subscriptions where client_id=$1', [id ?? client])).rows[0]
 const configure = async value => (await db.query('select * from configure_recepta_subscription($1,$2)', [client, value])).rows[0]
 const fixture = async (paid = true) => {
-  stripeCalls = []; checkoutBody = null; globalThis.__paymentRetell = []
+  stripeCalls = []; stripeApiKeys = []; checkoutBody = null; globalThis.__paymentRetell = []
   await db.exec('truncate billing_notifications, call_minute_reservations, calls, agent_phone_numbers, agents, subscriptions, clients cascade')
   await db.query("insert into clients(id,company_name,contact_email,status,role) values($1,'Synthetic company','owner@example.test','live','client')", [client])
   await db.query(`insert into subscriptions(client_id,plan_name,monthly_price,monthly_minutes,ai_model_id,pii_redaction_enabled,safety_guardrails_enabled,extra_phone_numbers,status,stripe_subscription_id,stripe_customer_id,current_period_start,current_period_end)
@@ -285,7 +286,21 @@ test('a future customer receives the included first number only after verified p
  assert.equal((await sub()).status,'active')
 })
 
-test('test Checkout and cancellation exercise billing without purchasing or releasing Retell numbers', async () => {
+test('staging Checkout and webhooks use the sandbox key and preserve Retell numbers', async (t) => {
+  const stagingEnvironment = {
+    RECEPTA_REQUIRE_STRIPE_TEST_MODE: 'true',
+    STRIPE_SECRET_KEY: 'sk_live_synthetic',
+    STRIPE_STAGING_SECRET_KEY: 'sk_test_synthetic_staging',
+  }
+  const previous = Object.fromEntries(Object.keys(stagingEnvironment).map(key => [key, process.env[key]]))
+  Object.assign(process.env, stagingEnvironment)
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
+
   await fixture(false)
   await db.exec("update agent_phone_numbers set source='retell'")
   await configure({ ...configuration, monthly_price: 227.02, extra_phone_numbers: 1 })
@@ -315,6 +330,7 @@ test('test Checkout and cancellation exercise billing without purchasing or rele
   assert.deepEqual(retained.rows, [{ phone_number: '+14165550100', source: 'retell' }])
   const agent = await db.query('select phone_number, status from agents where client_id=$1', [client])
   assert.deepEqual(agent.rows, [{ phone_number: '+14165550100', status: 'paused' }])
+  assert.deepEqual(stripeApiKeys, Array(3).fill(stagingEnvironment.STRIPE_STAGING_SECRET_KEY))
 })
 
 test('a regular paid renewal preserves the pending quote and renews only the paid configuration', async () => {

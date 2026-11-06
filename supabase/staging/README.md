@@ -43,14 +43,15 @@ secret settings, never chat or source. `RECEPTA_APP_URL` must point to the previ
 
 Public: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`.
 Server: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `RETELL_API_KEY`, `ADMIN_EMAIL`,
-`RECEPTA_APP_URL`, the existing test-mode Stripe/webhook configuration, the existing
-owner-notification configuration, and Twilio Account SID/Auth Token/Verify Service SID.
-Set `RECEPTA_REQUIRE_STRIPE_TEST_MODE=true` on this branch. Every Stripe client,
-including cleanup jobs, refuses live keys in this mode; non-production Netlify
-contexts also require test keys. The Stripe webhook rejects live events before
-database changes. Missing test credentials leave billing unavailable rather than
-using inherited production credentials. Empty Netlify branch overrides are not
-retained and must not be relied on to remove inherited values.
+`RECEPTA_APP_URL`, `STRIPE_STAGING_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, the
+existing owner-notification configuration, and Twilio Account SID/Auth Token/Verify Service SID.
+Set `RECEPTA_REQUIRE_STRIPE_TEST_MODE=true` on this branch. Staging and other
+non-production Netlify contexts use only `STRIPE_STAGING_SECRET_KEY`, which
+must start with `sk_test_` or `rk_test_`. A missing or invalid staging key blocks
+billing. Production reads `STRIPE_SECRET_KEY`. Set the sandbox webhook signing
+secret in the branch override of `STRIPE_WEBHOOK_SECRET`. The webhook rejects
+live events before database changes and reserves Retell purchases and releases
+for live Stripe events.
 Keep `RECEPTA_PHONE_SETUP_ENABLED=false` until isolated credentials are ready.
 Automatic creation additionally needs `RECEPTA_AUTO_PROVISION_ENABLED=true` and an
 approved **generic, unassigned** `RETELL_ONBOARDING_TEMPLATE_AGENT_ID`.

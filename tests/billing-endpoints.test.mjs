@@ -200,7 +200,9 @@ test('billing usage is aggregated only for the authenticated client and its paid
 test('staging rejects signed live billing events before changing tenant records', async () => {
   reset()
   const previous = process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE
+  const previousStagingKey = process.env.STRIPE_STAGING_SECRET_KEY
   process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE = 'true'
+  process.env.STRIPE_STAGING_SECRET_KEY = 'sk_test_synthetic_staging'
   try {
     for (const livemode of [true, undefined]) {
       state.event = { ...invoiceEvent('invoice.paid'), livemode }
@@ -217,5 +219,7 @@ test('staging rejects signed live billing events before changing tenant records'
   } finally {
     if (previous === undefined) delete process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE
     else process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE = previous
+    if (previousStagingKey === undefined) delete process.env.STRIPE_STAGING_SECRET_KEY
+    else process.env.STRIPE_STAGING_SECRET_KEY = previousStagingKey
   }
 })
