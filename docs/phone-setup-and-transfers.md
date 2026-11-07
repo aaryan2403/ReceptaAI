@@ -8,7 +8,7 @@ This is one shared product feature for **every current and future Recepta custom
 
 Each customer must have a dedicated agent in Recepta's managed Retell workspace. Admin creation, reassignment and editing reject an agent owned by a different customer before changing accounts or contacting Retell. The staged migration enforces unique provider-agent and primary-number assignments, including concurrent requests. Existing duplicate assignments must be resolved before the migration can pass; it never moves them silently.
 
-Number provisioning reuses the existing authorized Checkout/payment-webhook workflow. A newly configured customer can continue from Phone Setup to Billing and receive the included first AI number after confirmed payment. Choosing either dashboard option alone never buys a number. A previously assigned number is reused, and verified payment replays cannot purchase it again. Initial account and approved plan preparation remain the existing workflow. With automatic fulfillment configured, confirmed paid Checkout creates a dedicated agent/LLM from an approved generic template and provisions the included first number; existing assigned resources are reused. Routine agent assignment, forwarding setup and worker-number changes do not need a per-customer code change or support call. Ambiguous provider creation failures require exceptional reconciliation rather than a duplicate purchase.
+Number provisioning reuses the existing authorized Checkout/payment-webhook workflow. A newly configured customer can continue from Phone Setup to Billing and receive the included first AI number after confirmed payment. Choosing either dashboard option alone never buys a number. A previously assigned number is reused, and verified payment replays cannot purchase it again. Verified-email customer signup now initializes a pending Standard or Pro account with the GPT-4.1 catalog model and 300 editable monthly minutes. With automatic fulfillment configured, confirmed paid Checkout creates a dedicated agent/LLM from an approved generic template and provisions the included first number; existing assigned resources are reused. Routine agent assignment, forwarding setup and worker-number changes do not need a per-customer code change or support call. Ambiguous provider creation failures require exceptional reconciliation rather than a duplicate purchase.
 
 ## Customer experience
 
@@ -176,3 +176,62 @@ advisories remain. Browser QA verified custom hours and time-zone persistence,
 separate customer defaults, and a 360px layout with zero overflowing controls.
 [Staging installation evidence and deployment boundary](../supabase/staging/README.md).
 No actual carrier forwarding or live human transfer is certified by these tests.
+
+
+## Self-service completion update
+
+### Implemented in the development branch
+
+- Customer signup and email confirmation initialize a pending account, receptionist row and server-priced Standard or Pro plan atomically. Repeated initialization preserves the existing account. GPT-4.1 is the initial model, with 300 monthly minutes editable in Billing.
+- Dashboard Overview links directly to Phone Setup. Phone Setup displays the assigned agent and every assigned number, verification state, sync state and reception-test evidence. Save results distinguish a completed write from a failed refresh.
+- Billing lets customers choose Canada or the US and add number allowances at C$20 per additional number per month. The existing included-number workflow assigns available digits through Retell after paid authorization.
+- A configured Twilio trunk additionally enables exact local-number search and selection. Searches are read-only and filtered for voice capability. The customer confirms the chosen number and monthly cost, and availability is rechecked before Checkout. One exact number is supported per Checkout. Search results are not reservations.
+- The signed live-payment handler purchases the exact number through Twilio, connects the configured trunk, verifies the returned account/trunk/number identity, journals the provider SID and imports the number into Retell using the same paid-admission webhook. It validates an existing import before reusing it. Staging blocks actual purchases.
+- Identical Checkout requests share a deterministic Stripe idempotency key. Both manually assigned and automatically created agents use the customer provisioning lock and purchase journal. Ambiguous purchase/import outcomes stop for review.
+- Cleanup and cancellation preserve underlying agents and phone numbers. Cancellation pauses service and keeps the local assignment. Customer deletion detaches routing and removes local account records after existing billing/call cleanup. Legacy orphan-number jobs are quarantined for review. Account deletion is blocked while a creation/purchase/import remains unresolved.
+- Server-only phone audit records survive account deletion. Browser roles cannot read or write this ledger or call the customer initialization RPC.
+- Every preview Retell operation requires an explicit staging key. Inherited production Retell credentials are excluded. Twilio staging verification additionally requires the target to be allowlisted.
+- Admin Operations has a read-only phone-provider readiness check. It validates the configured Verify service/account through Twilio and reports credential/configuration status without returning secrets.
+
+### Required one-time configuration
+
+Scope the following values to the development branch in Netlify. Preserve production values.
+
+| Setting | Purpose |
+| --- | --- |
+| `RECEPTA_PHONE_SETUP_ENABLED=true` | Expose phone setup and verified-email onboarding |
+| `RECEPTA_REQUIRE_STRIPE_TEST_MODE=true` | Enforce the Stripe sandbox boundary |
+| `RETELL_STAGING_API_KEY` | Dedicated isolated Retell workspace used by every preview provider operation |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID` | Staging Verify credentials and approved service |
+| `RECEPTA_STAGING_VERIFY_TARGETS` | Comma-separated approved E.164 staging verification destinations |
+| `STRIPE_STAGING_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Sandbox Checkout and signed webhook delivery |
+| `RECEPTA_AUTO_PROVISION_ENABLED`, `RETELL_ONBOARDING_TEMPLATE_AGENT_ID` | Approved generic, unassigned Retell LLM template and automatic fulfillment gate |
+| `RECEPTA_TWILIO_NUMBERS_ENABLED=true` | Enable exact-number search once its trunk is configured |
+| `TWILIO_TRUNK_SID`, `TWILIO_TERMINATION_URI` | Dedicated Elastic SIP trunk and its `*.pstn.twilio.com` termination hostname |
+| `TWILIO_TRUNK_USERNAME`, `TWILIO_TRUNK_PASSWORD` | Dedicated trunk authentication credentials |
+
+Configure the Twilio trunk's origination route, authentication and termination permissions using the provider guide before enabling exact-number fulfillment. The code attaches purchased numbers to that trunk. Verify both inbound routing and warm transfer on the actual trunk.
+
+Supabase Auth must allow customer signup, email confirmation and the preview login redirect, with working confirmation-mail delivery. The existing verified staging login is preserved.
+
+Apply `20261107004145_self_service_phone_onboarding.sql` and `20261107051800_selected_twilio_numbers.sql` after the existing feature migrations. Both self-service migrations were applied on `mvufjeqxqvpcfqwmihpy`. Hosted read-only checks verified the initialization RPC permissions, audit visibility and unfinished-provisioning guard. The rollback-only hosted onboarding fixture did not execute because its confirmation expired. Local PostgreSQL tests exercise atomic initialization and audit retention.
+
+### Remaining release gates and operating limits
+
+Real SMS/voice verification, carrier forwarding, incoming audio, staff briefing, successful/rejected/busy/unanswered transfer, voicemail detection, fallback and loop tests require approved test numbers and a controlled test window. Automated tests use synthetic provider responses. The exact-number purchase/import flow has not bought or imported a real number.
+
+Provider inventory can change after payment. An unavailable number or uncertain purchase/import preserves the journal for reconciliation. A paid order that cannot be fulfilled requires selecting a replacement with authorization or a billing remedy. The implementation preserves provider resources during that review.
+
+Transfer schedules use the existing conservative admission window. With a two-hour call limit and a one-minute setup margin, a 21:00 cutoff stops offering transfers near 18:59. This protects after-hours restrictions and must be explained during onboarding.
+
+Retained provider numbers can continue to incur provider charges after a Recepta subscription is cancelled. Permanent agent deletion and number release are handled separately in the provider dashboard with explicit owner authorization. Recepta exposes no automatic agent-delete or number-release endpoint.
+
+Netlify sign-in is required to verify branch-scoped runtime credentials and use the readiness check with a staging admin login. The current Netlify browser session is signed out. Supabase's staging security advisor also reports leaked-password protection disabled. Evaluate Auth password protections before launch.
+
+### Provider references
+
+- [Twilio available-number search](https://www.twilio.com/docs/phone-numbers/api/availablephonenumberlocal-resource)
+- [Twilio purchase and trunk attachment](https://www.twilio.com/docs/phone-numbers/api/incomingphonenumber-resource)
+- [Retell Twilio Elastic SIP setup](https://docs.retellai.com/deploy/twilio)
+- [Retell import API](https://docs.retellai.com/api-references/import-phone-number)
+- [Twilio Verify service inspection](https://www.twilio.com/docs/verify/api/service)

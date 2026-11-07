@@ -41,8 +41,8 @@ export const loadPhoneAccount = async (db: SupabaseClient, clientId: string) => 
   const agent = checked(a), subscription = checked(s), numbers = checked(p), settings = checked(setup), destination = checked(destinations)
   const verifiedNumbers = checked(verified).filter(row => row.verified_at && Date.parse(row.verified_at) > Date.now() - 90 * 86400000)
   return { agent, paid: hasPaidSubscription(subscription), numbers: [...new Set([...(numbers ?? []).map(row => row.phone_number), agent?.phone_number].filter((v): v is string => Boolean(v)))],
-    settings, destination, verifiedNumbers, provisioning: provisioning.error ? null : provisioning.data ? {
-      state: provisioning.data.state, number_state: provisioning.data.number_state,
+    settings, destination, verifiedNumbers, provisioning: checked(provisioning) ? {
+      state: provisioning.data!.state, number_state: provisioning.data!.number_state,
     } : null }
 }
 export const requireDedicatedAgent = async (db: SupabaseClient, clientId: string, agentId?: string | null) => {
@@ -80,17 +80,40 @@ export const assertBusinessVerificationTarget = async (db: SupabaseClient, clien
   // forbidden as a worker destination, including after renewal.
 }
 
-export const verificationConfigured = () => Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_VERIFY_SERVICE_SID)
+const verificationCredentials = () => {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim() ?? ''
+  const serviceSid = process.env.TWILIO_VERIFY_SERVICE_SID?.trim() ?? ''
+  const token = process.env.TWILIO_AUTH_TOKEN?.trim()
+  return /^AC[0-9a-f]{32}$/i.test(accountSid) && /^VA[0-9a-f]{32}$/i.test(serviceSid) && token ? { accountSid, serviceSid, token } : null
+}
+export const verificationConfigured = () => verificationCredentials() !== null
+const verificationAuthorization = (accountSid: string, token: string) =>
+  'Basic ' + Buffer.from(accountSid + ':' + token).toString('base64')
+
+export const verifyServiceReadiness = async () => {
+  const credentials = verificationCredentials()
+  if (!credentials) return 'missing_or_invalid_configuration'
+  try {
+    const response = await fetch(`https://verify.twilio.com/v2/Services/${credentials.serviceSid}`, {
+      headers: { Authorization: verificationAuthorization(credentials.accountSid, credentials.token) },
+      signal: AbortSignal.timeout(7000),
+    })
+    if (!response.ok) return response.status === 401 || response.status === 403 ? 'credentials_rejected' : 'service_unavailable'
+    const service = await response.json()
+    return service.sid === credentials.serviceSid && service.account_sid === credentials.accountSid ? 'verified' : 'service_mismatch'
+  } catch { return 'service_unavailable' }
+}
 export const verifyRequest = async (resource: 'Verifications' | 'VerificationCheck', fields: Record<string, string>) => {
-  if (!verificationConfigured()) throw new PhoneError(503, 'Phone verification is not connected yet. Recepta must configure the verification service before transfers can be enabled.')
-  const sid = process.env.TWILIO_VERIFY_SERVICE_SID!
-  if (!/^VA[0-9a-fA-F]{32}$/.test(sid)) throw new PhoneError(503, 'Phone verification service is not configured correctly.')
-  const response = await fetch(`https://verify.twilio.com/v2/Services/${sid}/${resource}`, {
+  const credentials = verificationCredentials()
+  if (!credentials) throw new PhoneError(503, 'Phone verification is not connected yet. Recepta must configure the verification service before transfers can be enabled.')
+  const response = await fetch(`https://verify.twilio.com/v2/Services/${credentials.serviceSid}/${resource}`, {
     method: 'POST', signal: AbortSignal.timeout(12000),
-    headers: { Authorization: 'Basic ' + Buffer.from(process.env.TWILIO_ACCOUNT_SID + ':' + process.env.TWILIO_AUTH_TOKEN).toString('base64'),
+    headers: { Authorization: verificationAuthorization(credentials.accountSid, credentials.token),
       'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(fields).toString(),
   })
+  if ([401, 403].includes(response.status)) throw new PhoneError(503, 'The verification provider rejected the server configuration.')
+  if (response.status >= 500) throw new PhoneError(503, 'The verification provider is temporarily unavailable.')
   if (!response.ok) throw new PhoneError(response.status === 429 ? 429 : 400,
     resource === 'VerificationCheck' ? 'The code is invalid or expired. Request a new code if needed.' : 'Could not send a verification code. Check the number and try again later.')
   return await response.json() as { sid?: string; status?: string; valid?: boolean }

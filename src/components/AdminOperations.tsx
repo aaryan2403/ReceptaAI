@@ -6,6 +6,8 @@ type Client={ id:string;company_name:string|null;call_retention_days:number;dele
 type Operations={ jobs:AlertRow[];callAlerts:AlertRow[];billingAlerts:AlertRow[];clients:Client[];configuration:{ emailSending:boolean;deliveryTracking:boolean;deliveryTrackingError?:string|null;retell:boolean;stripe:boolean } }
 
 export default function AdminOperations({ hideWhenClear=false }: { hideWhenClear?:boolean }) {
+  const [phoneCheck, setPhoneCheck] = useState('')
+  const [checkingPhone, setCheckingPhone] = useState(false)
   const [data,setData]=useState<Operations|null>(null)
   const [error,setError]=useState('')
   const [actionError,setActionError]=useState<{ action:string;message:string }|null>(null)
@@ -75,6 +77,28 @@ export default function AdminOperations({ hideWhenClear=false }: { hideWhenClear
     } catch(failure) { setMessage('');setActionError({ action:String(body.action),message:failure instanceof Error ? failure.message : 'Operation failed.' }) }
     finally { actionInFlight.current=false;setBusy(false);setConnecting(false) }
   }
+  const checkPhone = async () => {
+    setCheckingPhone(true)
+    setPhoneCheck('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Please sign in again.')
+      const response = await fetch('/.netlify/functions/admin-phone-readiness', {
+        signal: AbortSignal.timeout(12000), headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || 'Phone provider check failed.')
+      setPhoneCheck([
+        'Twilio Verify: ' + String(result.twilioVerify).replaceAll('_', ' '),
+        'Selected-number SIP trunk: ' + (result.selectedNumbersConfigured ? 'configured' : 'setup required'),
+        'Retell key: ' + (result.retellCredentialPresent ? 'present' : 'missing'),
+        'Stripe key and signing secret: ' + (result.stripeCredentialPresent && result.stripeSigningSecretPresent ? 'present' : 'setup required'),
+        ...(result.staging ? ['Staging test numbers: ' + (result.stagingTargetsConfigured ? 'configured' : 'missing')] : []),
+      ].join(' · '))
+    } catch (failure) {
+      setPhoneCheck(failure instanceof Error ? failure.message : 'Phone provider check failed.')
+    } finally { setCheckingPhone(false) }
+  }
   const trackingConnected=data?.configuration.deliveryTracking===true
   const visibleActionError=(trackingConnected && actionError?.action==='connect_email_tracking' ? '' : actionError?.message) || (!trackingConnected ? data?.configuration.deliveryTrackingError : '')
   const rows=[...(data?.jobs ?? []),...(data?.callAlerts ?? []).map(row=>({ ...row,kind:'Owner email' })),...(data?.billingAlerts ?? []).map(row=>({ ...row,kind:'Billing email' }))]
@@ -88,6 +112,10 @@ export default function AdminOperations({ hideWhenClear=false }: { hideWhenClear
     {error && <p role="alert">{error}</p>}
     {data && <>
       <p>Email sending: {data.configuration.emailSending ? 'configured':'missing'} · Delivery tracking: {data.configuration.deliveryTracking ? 'connected':'setup required'} · Retell: {data.configuration.retell ? 'configured':'missing'} · Stripe: {data.configuration.stripe ? 'configured':'missing'}</p>
+      {!hideWhenClear && <>
+        <button type="button" className="btn btnOutline" disabled={checkingPhone} onClick={() => void checkPhone()}>{checkingPhone ? 'Checking phone providers…' : 'Check phone providers'}</button>
+        {phoneCheck && <p role="status">{phoneCheck}</p>}
+      </>}
       {!data.configuration.deliveryTracking && <>
         <button type="button" className="btn btnOutline" disabled={busy} aria-busy={connecting} onClick={()=>void action({ action:'connect_email_tracking' })}>{connecting ? 'Connecting…' : 'Connect Email Delivery Tracking'}</button>
         <p>Connect Resend to confirm whether notification emails are delivered or bounced. Connection status appears below.</p>

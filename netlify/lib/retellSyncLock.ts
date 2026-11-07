@@ -1,3 +1,4 @@
+import { getRetellApiKey } from './retellEnvironment'
 import { randomUUID } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 
@@ -17,7 +18,7 @@ export const withRetellAgentSync = async <T>(agentId: string, run: () => Promise
     if (assigned.length !== 1) throw new Error('A dedicated customer agent is required before synchronization.')
     const get = async (id: string) => {
       const response = await fetch('https://api.retellai.com/get-agent/' + encodeURIComponent(id), {
-        headers: { Authorization: 'Bearer ' + process.env.RETELL_API_KEY }, signal: AbortSignal.timeout(5000),
+        headers: { Authorization: 'Bearer ' + getRetellApiKey() }, signal: AbortSignal.timeout(5000),
       })
       if (!response.ok) throw new Error('Could not verify provider agent isolation.')
       const agent = await response.json()

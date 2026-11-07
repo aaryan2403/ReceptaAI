@@ -1,3 +1,4 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { hasPaidSubscription, saveSubscriptionConfiguration } from '../lib/subscriptionConfiguration'
 
 import { createClient } from '@supabase/supabase-js'
@@ -49,7 +50,7 @@ export default async (request: Request) => {
   const adminEmail =
     process.env.ADMIN_EMAIL
   const retellApiKey =
-    process.env.RETELL_API_KEY
+    getRetellApiKey()
 
   if (
     !supabaseUrl ||

@@ -51,7 +51,7 @@ must start with `sk_test_` or `rk_test_`. A missing or invalid staging key block
 billing. Production reads `STRIPE_SECRET_KEY`. Set the sandbox webhook signing
 secret in the branch override of `STRIPE_WEBHOOK_SECRET`. The webhook rejects
 live events before database changes and reserves Retell purchases and releases
-for live Stripe events.
+for live Stripe events. Ordinary cancellation and client cleanup preserve all underlying Retell agents and numbers.
 Keep `RECEPTA_PHONE_SETUP_ENABLED=false` until isolated credentials are ready.
 Automatic creation additionally needs `RECEPTA_AUTO_PROVISION_ENABLED=true` and an
 approved **generic, unassigned** `RETELL_ONBOARDING_TEMPLATE_AGENT_ID`.
@@ -68,7 +68,7 @@ Lost creation responses remain in the server-only creation journal. An operator
 must reconcile those exceptional outcomes with the provider before clearing an
 intent or retrying; blind retry could create a duplicate or incur charges. Known
 LLM/agent IDs and pending purchased numbers are retained for safe continuation.
-The existing orphan-number cleanup workflow remains in place.
+Legacy orphan-number jobs require reconciliation and preserve provider assets.
 
 ## Real-world gates
 
@@ -113,3 +113,15 @@ Retell resource assignments have been fabricated to bypass payment/ownership.
 Redeployment and hosted verification are required after configuration changes.
 Netlify reports production deploys paused because only operational credits remain.
 No plan upgrade/payment, live messages/calls, purchases or provider agents were made.
+
+
+## Additional self-service migrations
+
+After the existing feature migrations, apply:
+
+1. `supabase/migrations/20261107004145_self_service_phone_onboarding.sql`
+2. `supabase/migrations/20261107051800_selected_twilio_numbers.sql`
+
+Preview Retell operations now require `RETELL_STAGING_API_KEY`; an inherited production key is excluded. Verification sends in staging require the destination in `RECEPTA_STAGING_VERIFY_TARGETS`. Admin Operations offers a read-only phone-provider check.
+
+Exact-number selection additionally requires the dedicated Twilio trunk configuration documented in [the completion update](../../docs/phone-setup-and-transfers.md#self-service-completion-update). Keep this gate disabled until infrastructure and real-call tests are approved.

@@ -1,3 +1,4 @@
+import { getRetellApiKey } from './retellEnvironment'
 import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -15,7 +16,7 @@ export const storeTransferEvent = async (db: SupabaseClient, payload: {
   let agentId = payload.call?.agent_id
   if (!agentId) {
     const response = await fetch('https://api.retellai.com/v2/get-call/' + encodeURIComponent(callId), {
-      headers: { Authorization: 'Bearer ' + process.env.RETELL_API_KEY }, signal: AbortSignal.timeout(5000),
+      headers: { Authorization: 'Bearer ' + getRetellApiKey() }, signal: AbortSignal.timeout(5000),
     })
     if (!response.ok) return new Response(null, { status: 503 })
     const call = await response.json()

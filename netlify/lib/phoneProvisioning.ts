@@ -1,9 +1,10 @@
+import { getRetellApiKey } from './retellEnvironment'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { assertAgentAssignable } from './agentOwnership'
 import { checked, loadPhoneAccount, PhoneError, withPhoneLock } from './phoneSetup'
 
 export const automaticReceptionConfigured = () => process.env.RECEPTA_PHONE_SETUP_ENABLED === 'true' && process.env.RECEPTA_AUTO_PROVISION_ENABLED === 'true'
-  && Boolean(process.env.RETELL_ONBOARDING_TEMPLATE_AGENT_ID && process.env.RETELL_API_KEY)
+  && Boolean(process.env.RETELL_ONBOARDING_TEMPLATE_AGENT_ID && getRetellApiKey())
 
 // Called exclusively after the existing signed paid-invoice workflow. A journal
 // records intent before each non-idempotent provider creation. Unknown outcomes
@@ -28,7 +29,7 @@ export const ensurePaidReceptionAgent = async (db: SupabaseClient, clientId: str
     if (journal?.state === 'creating_llm' || journal?.state === 'creating_agent') throw new PhoneError(409, 'Provider creation has an uncertain outcome. Reconciliation is required before retrying; no duplicate will be created.')
     const api = async (path: string, body?: Record<string, unknown>) => {
       const response = await fetch('https://api.retellai.com' + path, { method: body ? 'POST' : 'GET',
-        headers: { Authorization: 'Bearer ' + process.env.RETELL_API_KEY, 'Content-Type': 'application/json' },
+        headers: { Authorization: 'Bearer ' + getRetellApiKey(), 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(10000), ...(body ? { body: JSON.stringify(body) } : {}),
       })
       if (!response.ok) throw new Error('Provider receptionist setup failed. The creation journal is preserved for safe retry/reconciliation.')

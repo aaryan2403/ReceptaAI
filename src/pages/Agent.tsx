@@ -105,7 +105,7 @@ export default function Agent() {
 
   const scheduleSummary = storeHoursSummary(agent?.business_hours)
 
-  const effectiveAgentStatus=hasPaidService ? agent?.status : 'paused'
+  const effectiveAgentStatus = hasPaidService ? agent?.status : 'paused'
   const getStatusInfo = () => {
     switch (effectiveAgentStatus) {
       case 'live':
@@ -424,7 +424,7 @@ export default function Agent() {
                     ? 'Receptionist paused'
                     : effectiveAgentStatus === 'testing'
                       ? 'Receptionist being tested'
-                      : 'AI configuration pending'}
+                      : 'Phone setup needed'}
               </strong>
 
               <p>
@@ -434,7 +434,7 @@ export default function Agent() {
                     ? 'Your receptionist is currently paused and is not handling customer calls.'
                     : effectiveAgentStatus === 'testing'
                       ? 'The Recepta team is currently testing your receptionist before activation.'
-                      : 'Your dashboard is ready. The remaining step is connecting and configuring your AI receptionist.'}
+                      : 'Open Phone Setup to see your agent and number assignment and complete the incoming call test.'}
               </p>
             </div>
           </div>

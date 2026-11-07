@@ -183,7 +183,7 @@ test('deletion retry removes the Recepta account and assignment while preserving
  assert.equal((await job('delete-client:'+client)).status,'complete');assert.deepEqual((await job('delete-client:'+client)).payload,{})
  assert.equal((await db.query('select count(*) n from agents where client_id=$1',[client])).rows[0].n,0)
  assert.deepEqual(state.retellOps.map(({ method, path })=>[method,path]),[
-  ['DELETE','/delete-phone-number/%2B14165550100'],
+  ['PATCH','/update-phone-number/%2B14165550100'],
   ['POST','/v3/list-calls'],
   ['DELETE','/v2/delete-call/provider_only_call'],
   ['POST','/v3/list-calls'],
@@ -195,7 +195,7 @@ test('Retell cleanup failure retains provider IDs and retries without repeating 
  state.retellFailure=false;await due();await run(globalThis.__operationsDb)
  assert.equal(state.stripeOps.filter(x=>x==='cancel').length,1);assert.equal(state.authOps.at(-1),'delete')
 })
-test('manual numbers are detached; a shared Retell agent blocks destructive provider cleanup',async()=>{
+test('numbers are detached; a shared Retell agent blocks ambiguous provider cleanup',async()=>{
  await fixture();await db.query("update agent_phone_numbers set source='manual'");await deletion(request({clientId:client},'admin'));await run(globalThis.__operationsDb)
  assert.ok(state.retellOps.some(x=>x.path.startsWith('/update-phone-number/')));assert.ok(!state.retellOps.some(x=>x.path.startsWith('/delete-phone-number/')))
  await fixture();await db.query("insert into agents(client_id,retell_agent_id,status) values($1,'agent_test','live')",[other]);await deletion(request({clientId:client},'admin'));await run(globalThis.__operationsDb)
@@ -392,4 +392,15 @@ test('staging cleanup cannot cancel live billing or delete resources with an inh
   if(previousKey===undefined)delete process.env.STRIPE_SECRET_KEY;else process.env.STRIPE_SECRET_KEY=previousKey
   if(previousMode===undefined)delete process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE;else process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE=previousMode
  }
+})
+
+test('a legacy orphan-number job cannot delete an existing customer or release a provider asset', async () => {
+  await fixture()
+  const key = 'orphan-number:' + client + ':+14165550100'
+  await db.query("insert into service_jobs(job_key,client_id,kind,payload) values($1,$2,'delete_client',$3)", [key, client,
+    { billing_done: true, numbers: [{ number: '+14165550100', source: 'retell' }] }])
+  await run(globalThis.__operationsDb)
+  assert.equal(state.authOps.length, 0)
+  assert.equal(state.retellOps.length, 0)
+  assert.match((await job(key)).last_error, /operator review/)
 })

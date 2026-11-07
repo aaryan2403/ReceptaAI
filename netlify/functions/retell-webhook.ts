@@ -1,3 +1,4 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { TRANSFER_EVENTS, storeTransferEvent } from '../lib/transferEvents'
 import { isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 import { createClient } from '@supabase/supabase-js'
@@ -113,7 +114,7 @@ export default async (
   const supabaseSecretKey =
     process.env.SUPABASE_SECRET_KEY
   const retellApiKey =
-    process.env.RETELL_API_KEY
+    getRetellApiKey()
 
   if (
     !supabaseUrl ||

@@ -80,6 +80,7 @@ const setup=async()=>{
  await db.exec(await readFile('supabase/migrations/20261102183345_phone_setup_verified_transfers.sql','utf8'))
  await db.exec(await readFile('supabase/migrations/20261105025833_phone_transfer_schedules_and_call_tests.sql','utf8'))
  await db.exec(await readFile('supabase/migrations/20261105030353_paid_reception_provisioning.sql','utf8'))
+ await db.exec(await readFile('supabase/migrations/20261107051800_selected_twilio_numbers.sql', 'utf8'))
  await db.query(`insert into clients(id,contact_email) values($1,'owner@example.test'),($2,'other@example.test'),($3,'admin@example.test')`,[one,two,admin])
  await db.query("insert into agents(client_id,retell_agent_id,phone_number,status) values($1,'agent_test',$2,'live')",[one,ai])
  await db.query("insert into agent_phone_numbers(client_id,phone_number,is_primary) values($1,$2,true)",[one,ai])

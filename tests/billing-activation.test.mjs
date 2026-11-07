@@ -8,7 +8,7 @@ import { build } from 'esbuild'
 // These tests never charge a card, buy a number, send mail or change live data.
 const client = '00000000-0000-0000-0000-000000000001'
 const newClient = '00000000-0000-0000-0000-000000000002'
-let db, checkoutBody, event, stripeCalls, stripeApiKeys
+let db, checkoutBody, checkoutOptions, event, stripeCalls, stripeApiKeys
 const period = { start: Math.floor(Date.now() / 1000) - 3600, end: Math.floor(Date.now() / 1000) + 29 * 86400 }
 const quote = name => '"' + name.replaceAll('"', '""') + '"'
 const query = table => {
@@ -72,7 +72,7 @@ globalThis.__paymentDb = {
 globalThis.__paymentStripe = class {
   constructor(apiKey) { stripeApiKeys.push(apiKey) }
   customers = { create: async () => { stripeCalls.push('customer-create'); return { id: 'cus_new' } }, del: async () => {} }
-  checkout = { sessions: { create: async body => { checkoutBody = body; return { url: 'https://checkout.stripe.test/synthetic' } } } }
+  checkout = { sessions: { create: async (body, options) => { checkoutBody = body; checkoutOptions = options; return { url: 'https://checkout.stripe.test/synthetic' } } } }
   webhooks = { constructEvent: () => event }
   subscriptions = {
     retrieve: async id => ({ id, status: 'active' }),
@@ -96,7 +96,7 @@ const compile = async file => {
       export const syncRetellSubscription = async options => { globalThis.__paymentRetell.push({ kind:'subscription', ...options }); return { agentUpdated:options.active } };
       export const syncRetellPhoneBindings = async options => { globalThis.__paymentRetell.push({ kind:'binding', ...options }); return [] };
       export const purchaseRetellPhoneNumber = async options => { globalThis.__paymentRetell.push({ kind:'purchase', ...options }); return '+14165550999' };
-      export const releaseRetellPhoneNumber = async options => { globalThis.__paymentRetell.push({ kind:'release', ...options }) };
+
     ` : 'export const createClient = () => globalThis.__paymentDb' }))
   } }] })
   return (await import('data:text/javascript;base64,' + Buffer.from(output.outputFiles[0].text).toString('base64'))).default
@@ -149,7 +149,7 @@ test.before(async () => {
     create table employee_schedules(employee_id uuid,day_of_week integer,is_working boolean,start_time text,end_time text);
     create table ai_models(id text,customer_price_per_minute_cad numeric,is_active boolean,display_name text);
     insert into ai_models values('essential',0.117,true,'Essential'),('premium',0.217,true,'Premium');`)
-  for (const path of ['supabase_add_minute_enforcement.sql','supabase_add_billing_notifications.sql','supabase/migrations/20261014192813_align_minute_enforcement.sql','supabase/migrations/20261014201359_demo_only_call_limit.sql','supabase/migrations/20261016145008_payment_controlled_activation.sql','supabase/migrations/20261102183345_phone_setup_verified_transfers.sql','supabase/migrations/20261105025833_phone_transfer_schedules_and_call_tests.sql','supabase/migrations/20261105030353_paid_reception_provisioning.sql']) await db.exec(await readFile(path,'utf8'))
+  for (const path of ['supabase_add_minute_enforcement.sql','supabase_add_billing_notifications.sql','supabase/migrations/20261014192813_align_minute_enforcement.sql','supabase/migrations/20261014201359_demo_only_call_limit.sql','supabase/migrations/20261016145008_payment_controlled_activation.sql','supabase/migrations/20261102183345_phone_setup_verified_transfers.sql','supabase/migrations/20261105025833_phone_transfer_schedules_and_call_tests.sql','supabase/migrations/20261105030353_paid_reception_provisioning.sql','supabase/migrations/20261107051800_selected_twilio_numbers.sql']) await db.exec(await readFile(path,'utf8'))
 })
 test.after(async () => { await db.close() })
 
@@ -286,11 +286,24 @@ test('a future customer receives the included first number only after verified p
  assert.equal((await sub()).status,'active')
 })
 
+test('live subscription cancellation pauses service and preserves the paid number assignment', async () => {
+  await fixture()
+  await db.exec("update agent_phone_numbers set source='retell'")
+  event = { type: 'customer.subscription.deleted', livemode: true, data: { object: { id: 'sub_original' } } }
+  const response = await webhook(request({}))
+  assert.equal(response.status, 200, await response.text())
+  assert.equal((await sub()).status, 'cancelled')
+  assert.deepEqual((await db.query('select phone_number, source from agent_phone_numbers where client_id=$1', [client])).rows,
+    [{ phone_number: '+14165550100', source: 'retell' }])
+  assert.equal(globalThis.__paymentRetell.some(operation => operation.kind === 'subscription' && operation.active === false), true)
+})
+
 test('staging Checkout and webhooks use the sandbox key and preserve Retell numbers', async (t) => {
   const stagingEnvironment = {
     RECEPTA_REQUIRE_STRIPE_TEST_MODE: 'true',
     STRIPE_SECRET_KEY: 'sk_live_synthetic',
     STRIPE_STAGING_SECRET_KEY: 'sk_test_synthetic_staging',
+    RETELL_STAGING_API_KEY: 'synthetic-staging-retell',
   }
   const previous = Object.fromEntries(Object.keys(stagingEnvironment).map(key => [key, process.env[key]]))
   Object.assign(process.env, stagingEnvironment)
@@ -399,4 +412,54 @@ test('approved paid workflow creates a dedicated agent and one first number, the
   assert.equal((await db.query('select retell_agent_id from agents')).rows[0].retell_agent_id,'agent_new_fixture')
   assert.equal((await db.query('select number_state from phone_provisioning')).rows[0].number_state,'idle')
  }finally{globalThis.fetch=originalFetch;delete process.env.RECEPTA_PHONE_SETUP_ENABLED;delete process.env.RECEPTA_AUTO_PROVISION_ENABLED;delete process.env.RETELL_ONBOARDING_TEMPLATE_AGENT_ID}
+})
+
+
+test('exact-number Checkout checks inventory, confirms price and resumes paid fulfillment without duplicate purchases', async (t) => {
+  await fixture(false)
+  await db.exec('delete from agent_phone_numbers;update agents set phone_number=null')
+  await configure(configuration)
+  const settings = {
+    RECEPTA_PHONE_SETUP_ENABLED: 'true', RECEPTA_TWILIO_NUMBERS_ENABLED: 'true',
+    TWILIO_ACCOUNT_SID: 'AC'+'a'.repeat(32), TWILIO_AUTH_TOKEN: 'synthetic',
+    TWILIO_TRUNK_SID: 'TK'+'b'.repeat(32), TWILIO_TERMINATION_URI: 'fixture.pstn.twilio.com',
+    TWILIO_TRUNK_USERNAME: 'synthetic', TWILIO_TRUNK_PASSWORD: 'synthetic', RECEPTA_APP_URL: 'https://recepta.test',
+  }
+  const before = Object.fromEntries(Object.keys(settings).map(key => [key, process.env[key]]))
+  Object.assign(process.env, settings)
+  const originalFetch = globalThis.fetch
+  let imported = false
+  const providerRequests = []
+  const number = '+12125550101'
+  globalThis.fetch = async (url, options = {}) => {
+    providerRequests.push({ url, method: options.method ?? 'GET' })
+    if (url.includes('AvailablePhoneNumbers')) return new Response(JSON.stringify({ available_phone_numbers: [{ phone_number: number, capabilities: { voice: true } }] }))
+    if (url.includes('IncomingPhoneNumbers')) return new Response(JSON.stringify({ sid:'PN'+'c'.repeat(32),phone_number:number,account_sid:settings.TWILIO_ACCOUNT_SID,trunk_sid:settings.TWILIO_TRUNK_SID }))
+    if (url.includes('/get-phone-number/')) return imported ? new Response(JSON.stringify({ phone_number:number,inbound_webhook_url:'https://recepta.test/.netlify/functions/retell-inbound',sip_outbound_trunk_config:{ termination_uri:settings.TWILIO_TERMINATION_URI },outbound_agents:[{ agent_id:'agent_test' }] })) : new Response('{}',{status:404})
+    if (url.endsWith('/import-phone-number')) { imported=true;return new Response(JSON.stringify({phone_number:number})) }
+    throw new Error('Unexpected provider request')
+  }
+  t.after(() => {
+    globalThis.fetch = originalFetch
+    for (const [key,value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
+  const body = { monthlyMinutes:60, phonePreferences:{country:'US',extraNumbers:0,selectedNumber:number,purchaseConfirmed:true} }
+  assert.equal((await checkout(request(body,false))).status,200)
+  const firstIdempotency = checkoutOptions.idempotencyKey
+  assert.equal(checkoutBody.metadata.selected_phone_number,number)
+  assert.equal(checkoutBody.line_items[0].price_data.unit_amount,20602)
+  assert.equal(providerRequests.every(row => row.method==='GET'),true)
+  assert.equal((await checkout(request(body,false))).status,200)
+  assert.equal(checkoutOptions.idempotencyKey,firstIdempotency)
+  event={type:'checkout.session.completed',livemode:true,data:{object:{mode:'subscription',payment_status:'paid',subscription:'sub_after_payment',customer:'cus_original',invoice:'in_synthetic',metadata:checkoutBody.metadata}}}
+  const paid=await webhook(request({}))
+  assert.equal(paid.status,200,await paid.text())
+  assert.equal((await webhook(request({}))).status,200)
+  assert.equal(providerRequests.filter(row => row.method==='POST' && row.url.includes('IncomingPhoneNumbers')).length,1)
+  assert.equal(providerRequests.filter(row => row.url.endsWith('/import-phone-number')).length,1)
+  assert.deepEqual((await db.query('select phone_number,source from agent_phone_numbers where client_id=$1',[client])).rows,[{phone_number:number,source:'manual'}])
+  assert.equal(globalThis.__paymentRetell.some(row=>row.kind==='purchase'),false)
 })

@@ -1,3 +1,4 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { verifyRetellSignature } from '../lib/retell'
@@ -10,7 +11,7 @@ export default async (request: Request) => {
   if (request.method !== 'POST') return json(405, { error: 'Method not allowed.' })
   try {
     requirePhoneFeature()
-    const key = process.env.RETELL_API_KEY, url = process.env.SUPABASE_URL, secret = process.env.SUPABASE_SECRET_KEY
+    const key = getRetellApiKey(), url = process.env.SUPABASE_URL, secret = process.env.SUPABASE_SECRET_KEY
     if (!key || !url || !secret) throw new PhoneError(503, 'Phone tools are unavailable.')
     const body = await request.text()
     if (body.length > 160000) throw new PhoneError(413, 'Request too large.')

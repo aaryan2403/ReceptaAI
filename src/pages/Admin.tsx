@@ -1070,7 +1070,7 @@ export default function Admin() {
 
     if (
       !window.confirm(
-        `Permanently delete the Recepta account for ${clientName}? Any linked agent stays in Retell.`
+        `Permanently delete the Recepta account for ${clientName}? Linked agents and numbers stay in Retell.`
       )
     ) {
       return

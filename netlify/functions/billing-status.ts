@@ -1,5 +1,7 @@
+import { selectedNumbersConfigured } from '../lib/twilioNumbers'
 import { createClient } from '@supabase/supabase-js'
 import { isDeletingClient } from '../lib/requestAuth'
+import { phoneFeatureEnabled } from '../lib/phoneSetup'
 import { getBillingUsage } from '../lib/billingNotifications'
 
 const json = (status: number, body: object) => new Response(JSON.stringify(body), {
@@ -22,7 +24,7 @@ export default async (request: Request) => {
       .eq('client_id', user.id).maybeSingle()
     if (error) throw error
     const usedSeconds = subscription ? await getBillingUsage(db, subscription) : 0
-    return json(200, { subscription, usedSeconds })
+    return json(200, { subscription, usedSeconds, phoneManagementAvailable: phoneFeatureEnabled(), selectedNumbersAvailable: selectedNumbersConfigured() })
   } catch (error) {
     console.error('Could not load billing balance:', error)
     return json(500, { error: 'Could not load your minute balance. Please contact Recepta.' })

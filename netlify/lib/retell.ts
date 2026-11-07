@@ -1,3 +1,4 @@
+import { assertRetellPhoneAgent } from './phoneReception'
 import { withRetellAgentSync } from './retellSyncLock'
 import { getCallMaxSeconds } from './callMinutes'
 import {
@@ -160,7 +161,7 @@ export const retellAccessDetails = (error: unknown, operation: 'agent' | 'list' 
   const detail = error instanceof Error ? error.message : ''
   const result = (code: string, message: string) => ({ code, providerStatus: status, error: message })
   if (status === 401 || /api key is missing or invalid|unauthorized/i.test(detail)) {
-    return result('invalid_key', 'Retell rejected Recepta’s server API key (HTTP 401). Update RETELL_API_KEY in Netlify for Production with Functions access, then redeploy.')
+    return result('invalid_key', 'Retell rejected Recepta’s server API key (HTTP 401). Update the Retell key for this deployment in Netlify with Functions access, then redeploy.')
   }
   if (status === 403) {
     return result('access_denied', 'Retell denied agent access (HTTP 403). Enable Build → Agent access on the server key in the workspace that owns your agent. Agent synchronization requires Edit access.')
@@ -533,6 +534,12 @@ const updatePhoneBinding = async ({
         `Could not verify Retell phone number (${lookupResponse.status}).`
     )
   }
+
+  const assignedPhone = await lookupResponse.json()
+  if (normalizeE164(assignedPhone.phone_number) !== normalizedPhone) {
+    throw new Error('Retell did not confirm the assigned number.')
+  }
+  assertRetellPhoneAgent(assignedPhone, agentId)
 
   const agents = active
     ? [
@@ -1192,26 +1199,6 @@ export const purchaseRetellPhoneNumber = async ({
   }
 
   return phoneNumber
-}
-
-export const releaseRetellPhoneNumber = async ({
-  apiKey,
-  phoneNumber,
-}: {
-  apiKey: string
-  phoneNumber: string
-}) => {
-  const normalizedPhone = normalizeE164(phoneNumber)
-
-  if (!normalizedPhone) return false
-
-  await retellRequest<unknown>(
-    apiKey,
-    `/delete-phone-number/${encodeURIComponent(normalizedPhone)}`,
-    { method: 'DELETE' }
-  )
-
-  return true
 }
 
 const syncRetellSubscriptionImpl = async (

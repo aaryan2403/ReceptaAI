@@ -63,6 +63,7 @@ const humanTransferInstructions = [
   'Confirm the caller wants a transfer and briefly tell them you are connecting them.',
   'Use recepta_transfer_to_human only for an authorized human handoff. Never invent or ask the caller for a destination number.',
   'Transfer hours are enforced by the server in the business local time zone. A call near the cutoff may have transfers disabled so it cannot transfer after hours. Never try another destination.',
+  'If a transfer is busy, declined, unanswered, reaches voicemail, or fails, tell the caller the handoff did not connect. Offer a callback.',
   'When transfers are disabled or fail, collect the caller name, callback number, reason, and preferred callback time including time zone. Confirm details and use recepta_save_callback. Only say the request was saved after success; do not promise a response time.',
   'If the caller gives a dashboard reception test code, use recepta_confirm_reception. Never invent a code or claim a test passed without a successful result.',
   'Never claim the worker answered unless the transfer actually connected.',

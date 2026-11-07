@@ -26,6 +26,7 @@ function VerifyNumber({ purpose, number, verified, disabled, available, run }: {
       <button type="button" className="btn btnOutline" disabled={disabled || !number || !authorized || !available}
         onClick={async () => { try { await run({ action: 'send-code', purpose, phoneNumber: number, channel, authorized }); setSentTo(number) } catch { /* parent displays the error */ } }}>Send code</button>
     </div>
+    {sentTo === number && sentTo && <p className="phoneMuted">The code expires in 10 minutes. Wait at least one minute before resending.</p>}
     {sentTo && sentTo === number && <div className="phoneInline">
       <input aria-label={`${purpose} verification code`} inputMode="numeric" autoComplete="one-time-code" maxLength={10} placeholder="Verification code" value={code} onChange={e => setCode(e.target.value)} disabled={disabled} />
       <button type="button" className="btn btnOutline" disabled={disabled || !code} onClick={() => { void run({ action: 'verify-code', purpose, phoneNumber: number, code }).catch(() => {}) }}>Verify number</button>
@@ -66,8 +67,9 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
     setBusy(true); setError(''); setMessage('')
     try {
       const result = await request<{ message: string }>(body)
-      await load(body.action === 'save' || body.action === 'disable')
       setMessage(result.message)
+      try { await load(body.action === 'save' || body.action === 'disable') }
+      catch { setError('The update finished, but the latest settings could not load. Refresh before making another change.') }
     } catch (e) {
       await load(false).catch(() => {})
       setError(e instanceof Error ? e.message : 'Could not update phone setup.'); throw e
@@ -81,7 +83,7 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
   const verified = (purpose: string, value: string) => Boolean(account?.verifiedNumbers.some(row => row.purpose === purpose && row.phone_number === canonical(value)))
   const editable = Boolean(account?.paid && !busy)
   const tested = !dirty && Boolean(account?.settings?.reception_observed_at)
-  return <section className="agentPanel phoneSetup" aria-labelledby="phoneSetupTitle" aria-busy={loading || busy}>
+  return <section id="phone-setup" className="agentPanel phoneSetup" aria-labelledby="phoneSetupTitle" aria-busy={loading || busy}>
     <div className="phoneHeading"><div><span className="agentSectionLabel">PHONE SETUP / MANAGE NUMBERS</span><h2 id="phoneSetupTitle">Your business, connected.</h2>
       <p>Keep the number your customers know, or use your Recepta number. Hand off to a person when it matters.</p></div><span className="phoneHeadingIcon"><Phone aria-hidden="true" size={24} /></span></div>
     {error && <div role="alert" className="phoneAlert phoneError"><AlertTriangle size={18} aria-hidden="true" /><span>{error}</span></div>}
@@ -90,6 +92,7 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
       {!account.paid && <div className="phoneWarning">Phone service is paused until payment is complete. Your saved settings remain available. <a href="/dashboard/billing">Open Billing</a>.</div>}
       {account.provisioning && (['creating_llm', 'creating_agent'].includes(account.provisioning.state) || ['purchasing', 'review'].includes(account.provisioning.number_state)) && <div className="phoneWarning">Provider setup is awaiting confirmation. Your purchase and resource records are preserved, and duplicate creation is blocked. Refresh after setup finishes; an uncertain provider result requires Recepta operations to reconcile it.</div>}
       <div className="phoneNumberCard"><div><span>YOUR RECEPTA AI NUMBER</span><strong>{assigned || 'Awaiting number assignment'}</strong>
+        <p>{account.agent?.retell_agent_id ? `Agent: ${account.agent.retell_agent_id}` : 'Agent assignment pending'}</p>
         {account.numbers.slice(1).map(number => <p key={number}>{number}</p>)}</div>
         <span className={`phoneStatus ${tested && account.paid ? 'phoneStatusGood' : ''}`}>{!account.paid ? 'Billing required' : !assigned ? 'Setup pending' : tested ? 'Phone setup complete' : 'Assigned · incoming test needed'}</span>
       </div>
@@ -117,7 +120,7 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
             <p>{guide.note}</p><a href={guide.url} target="_blank" rel="noopener noreferrer">Official carrier instructions ↗</a>
             <p className="phoneMuted">Carrier forwarding and long-distance charges may apply. SMS to the original business number is not forwarded. For missed-call forwarding, use the carrier’s conditional options and check voicemail compatibility.</p>
           </div>
-        </> : <div className="phoneGuide"><strong>{assigned ? 'Your number is ready to publish after a call test.' : 'Your number will appear here after assignment.'}</strong><p>Use your assigned Recepta number on your website, Google Business Profile, and business cards. New number purchases follow the existing paid Checkout and provisioning process.</p><a href="/dashboard/billing">Review your plan and number configuration in Billing <ArrowRight size={14} aria-hidden="true" /></a></div>}
+        </> : <div className="phoneGuide"><strong>{assigned ? 'Your number is ready to publish after a call test.' : 'Your number will appear here after assignment.'}</strong><p>Use your assigned Recepta number on your website, Google Business Profile, and business cards. Choose Canada or the United States in Billing, review your monthly charges, and confirm payment. Retell assigns the available digits.</p><a href="/dashboard/billing">Review your plan and number configuration in Billing <ArrowRight size={14} aria-hidden="true" /></a></div>}
       </fieldset>
       <fieldset disabled={!editable}><legend><span className="phoneStep">02</span> A human when needed</legend>
         <label className="phoneCheck phoneToggle"><input type="checkbox" checked={enabled} onChange={e => { setEnabled(e.target.checked); setDirty(true) }} /><strong>Enable live transfer to a worker</strong></label>
@@ -139,7 +142,7 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
           <p className="phoneMuted">Changes apply to new calls. To enforce the cutoff, calls that could continue past it also use callback collection. AI reception and store hours stay unchanged.</p>
         </div>
       </fieldset>
-      <div className="phoneActions"><button type="button" className="btn btnPrimary" disabled={!editable || !account.agent?.retell_agent_id || (enabled && (!verified('worker', worker) || !authorized)) || (mode === 'existing' && !verified('business', business))}
+      <div className="phoneActions"><button type="button" className="btn btnPrimary" disabled={!editable || !assigned || !account.agent?.retell_agent_id || (enabled && (!verified('worker', worker) || !authorized)) || (mode === 'existing' && !verified('business', business))}
         onClick={() => { void perform({ action: 'save', mode, businessNumber: business, carrier, lineType, workerNumber: worker, transferEnabled: enabled, transferSchedule: schedule, directLineAuthorized: authorized, expectedRevision: account.settings?.revision ?? 0 }) }}>{busy ? 'Working…' : 'Save & Sync with Agent'}</button>
         {account.destination?.enabled && <button type="button" className="btn btnOutline" disabled={busy} onClick={() => { void perform({ action: 'disable' }) }}>Disable transfers now</button>}
         <button type="button" className="btn btnOutline" disabled={busy || !assigned} onClick={() => { void perform({ action: 'check-connection' }) }}>Check number connection</button>
@@ -156,7 +159,7 @@ export default function CallTransferSettings({ request = phoneSetupRequest }: { 
           {account.destination?.enabled && <button type="button" className="btn btnOutline" disabled={busy || dirty || !account.paid || account.settings?.sync_state !== 'synced'} onClick={() => { void perform({ action: 'confirm-test', kind: 'transfer', confirmed: true, expectedRevision: account.settings?.revision }) }}>{!dirty && account.settings?.transfer_tested_at ? 'Transfer test confirmed by you' : 'I tested the human handoff'}</button>}</div>
       </div>
       <details className="phoneDisconnect"><summary>Disconnecting, changing providers, or cancelling?</summary><p>Before your service ends, deactivate forwarding with your original carrier so calls ring your business normally. Recepta cannot switch off a carrier’s forwarding remotely.</p>
-        <p>{guide.cancel}</p><p>Test your original number after deactivation and restore voicemail if needed. Cancel billing separately in Billing. A cancelled or expired service cannot answer new AI calls; saved dashboard pages remain available. Existing-number service stays with your carrier. A Recepta-provided number is subject to its billing and release terms.</p></details>
+        <p>{guide.cancel}</p><p>Test your original number after deactivation and restore voicemail if needed. Cancel billing separately in Billing. A cancelled or expired service cannot answer new AI calls; saved dashboard pages remain available. Existing-number service stays with your carrier. Cancelling pauses AI service. Recepta preserves the underlying number and agent in Retell.</p></details>
     </>}
   </section>
 }

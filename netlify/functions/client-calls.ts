@@ -1,3 +1,4 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { appointmentCallId, isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 import { createClient } from '@supabase/supabase-js'
 import { isDeletingClient } from '../lib/requestAuth'
@@ -297,7 +298,7 @@ export default async (request: Request) => {
 
   const supabaseUrl = process.env.SUPABASE_URL
   const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY
-  const retellApiKey = process.env.RETELL_API_KEY
+  const retellApiKey = getRetellApiKey()
 
   if (!supabaseUrl || !supabaseSecretKey || !retellApiKey) {
     return json(500, {

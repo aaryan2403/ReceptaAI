@@ -30,6 +30,8 @@ test.before(async () => {
   await db.exec(await readFile('supabase/migrations/20261105025833_phone_transfer_schedules_and_call_tests.sql', 'utf8'))
   await db.exec(catalog)
   await db.exec(await readFile('supabase/migrations/20261105030353_paid_reception_provisioning.sql', 'utf8'))
+ await db.exec(await readFile('supabase/migrations/20261107051800_selected_twilio_numbers.sql', 'utf8'))
+  await db.exec(await readFile('supabase/migrations/20261107004145_self_service_phone_onboarding.sql', 'utf8'))
   await db.query('insert into auth.users values ($1),($2),($3)', [one, two, administrator])
   await db.query(`insert into clients(id,company_name,contact_email,role) values
     ($1,'North fixture','north@example.test','client'),
@@ -48,7 +50,7 @@ const asCustomer = async (id, run) => {
 test('fresh staging bootstrap supports the phone migration and enables RLS on all application tables', async () => {
   const tables = (await db.query(`select relname,relrowsecurity from pg_class c join pg_namespace n on n.oid=c.relnamespace
     where n.nspname='public' and relkind='r'`)).rows
-  assert.equal(tables.length, 37)
+  assert.equal(tables.length, 38)
   assert.ok(tables.every(t => t.relrowsecurity))
   assert.ok(tables.some(t => t.relname === 'phone_setups'))
   assert.ok(tables.some(t => t.relname === 'call_notifications'))
@@ -117,4 +119,29 @@ test('public product catalog is available to customers and seeding never overwri
   await assert.rejects(db.exec('begin;\n' + catalog + '\ncommit;'), /requires an empty model catalog/)
   await db.exec('rollback')
   assert.deepEqual((await db.query('select id,customer_price_per_minute_cad from ai_models order by id')).rows, before)
+})
+
+test('verified customer initialization is atomic, pending, and idempotent, with server-only phone audit', async () => {
+  const id = '00000000-0000-0000-0000-000000000104'
+  const query = "select initialize_recepta_customer($1,'new@example.test','New business','Recepta Standard') as created"
+  await db.query('insert into auth.users values ($1)', [id])
+  await asCustomer(one, async () => {
+    await assert.rejects(db.query(query, [id]), /permission denied/)
+    await assert.rejects(db.query('select * from phone_operation_audit'), /permission denied/)
+  })
+  await db.exec('set role service_role')
+  try {
+    assert.equal((await db.query(query, [id])).rows[0].created, true)
+    assert.equal((await db.query(query, [id])).rows[0].created, false)
+    const result = await db.query('select status, monthly_price, stripe_subscription_id from subscriptions where client_id=$1', [id])
+    assert.deepEqual(result.rows, [{ status: 'pending', monthly_price: '249.10', stripe_subscription_id: null }])
+    assert.equal((await db.query('select retell_agent_id from agents where client_id=$1', [id])).rows[0].retell_agent_id, null)
+    await db.query("insert into agent_phone_numbers(client_id,phone_number,source,is_primary) values($1,'+14165550114','manual',true)", [id])
+    await db.query('delete from clients where id=$1', [id])
+    const audit = await db.query('select action from phone_operation_audit where client_id=$1 order by id', [id])
+    assert.deepEqual(audit.rows, [{ action: 'insert' }, { action: 'delete' }])
+  } finally {
+    await db.exec('reset role')
+    await db.query('delete from auth.users where id=$1', [id])
+  }
 })

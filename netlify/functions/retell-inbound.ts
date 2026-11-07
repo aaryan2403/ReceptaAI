@@ -1,3 +1,4 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { resolveInboundTransfer, isReceptaLoopCaller } from '../lib/phoneSetup'
 import { createClient } from '@supabase/supabase-js'
 import {
@@ -39,7 +40,7 @@ export default async (request: Request) => {
   const supabaseSecretKey =
     process.env.SUPABASE_SECRET_KEY
   const retellApiKey =
-    process.env.RETELL_API_KEY
+    getRetellApiKey()
 
   if (
     !supabaseUrl ||
@@ -180,7 +181,7 @@ export default async (request: Request) => {
     }
   }
 
-  if (!agent && requestedAgentId) {
+  if (!agent && !toNumber && !payload.call_inbound.to_number && requestedAgentId) {
     const { data, error } =
       await supabaseAdmin
         .from('agents')

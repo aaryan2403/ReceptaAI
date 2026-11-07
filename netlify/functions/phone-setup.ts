@@ -1,7 +1,9 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { verifyReceptionResources } from '../lib/phoneReception'
 import { randomInt, createHash } from 'node:crypto'
 import { normalizeTransferSchedule } from '../../src/lib/transferSchedule'
 import { syncRetellPhoneBindings } from '../lib/retell'
+import { stripeTestModeRequired } from '../lib/stripeEnvironment'
 import { requestAuth, json } from '../lib/requestAuth'
 import { normalizePhone, PhoneValidationError } from '../lib/phoneValidation'
 import { syncHumanCallTransfer } from '../lib/callTransfer'
@@ -36,9 +38,10 @@ export default async (request: Request) => {
         return json(200, { success: true, message: 'Human transfers disabled for new calls. Calls already in progress keep their original settings.' })
       }
       if (action === 'check-connection') {
-        if (!process.env.RETELL_API_KEY) throw new PhoneError(503, 'Retell is not connected.')
+        const apiKey = getRetellApiKey()
+        if (!apiKey) throw new PhoneError(503, 'Retell is not connected.')
         const id = await requireDedicatedAgent(db, user.id, account.agent?.retell_agent_id)
-        const result = await verifyReceptionResources(process.env.RETELL_API_KEY, id, account.numbers)
+        const result = await verifyReceptionResources(apiKey, id, account.numbers)
         return json(200, { success: true, ...result, message: result.routingReady
           ? 'Assigned number routing is configured. A real call is still required to verify reception and carrier forwarding.'
           : 'Number routing needs setup. With active billing, save and sync, then repeat the call test.' })
@@ -49,6 +52,9 @@ export default async (request: Request) => {
         if (!['business', 'worker'].includes(String(purpose))) throw new PhoneError(400, 'Choose a business or worker number.')
         const phone = normalizePhone(raw.phoneNumber)
         if (!phone) throw new PhoneError(400, 'Enter the phone number to verify.')
+        if (stripeTestModeRequired() && !(process.env.RECEPTA_STAGING_VERIFY_TARGETS ?? '').split(',').map(value => value.trim()).includes(phone)) {
+          throw new PhoneError(403, 'This number is not authorized for staging verification.')
+        }
         if (purpose === 'business') await assertBusinessVerificationTarget(db, user.id, phone)
         else await assertDirectDestination(db, phone)
         if (action === 'send-code') {
@@ -57,6 +63,7 @@ export default async (request: Request) => {
           await rateLimit(db, 'send-cooldown:' + user.id, 1, 60)
           await rateLimit(db, 'send-account:' + user.id, 5, 3600)
           await rateLimit(db, 'send-target:' + phone, 5, 3600)
+          await rateLimit(db, 'verification-target-lock:' + phone, 1, 60)
           await rateLimit(db, 'send-global', 100, 3600)
           const result = await verifyRequest('Verifications', { To: phone, Channel: String(raw.channel) })
           if (!result.sid || result.status !== 'pending') throw new PhoneError(502, 'Verification could not be started.')
@@ -97,9 +104,9 @@ export default async (request: Request) => {
       const enabled = action === 'save' && raw.transferEnabled === true
       if (action === 'save' && !account.paid) throw new PhoneError(403, 'Complete payment in Billing before configuring phone service. You can still disable transfers.')
       const agentId = await requireDedicatedAgent(db, user.id, account.agent?.retell_agent_id)
-      const apiKey = process.env.RETELL_API_KEY
+      const apiKey = getRetellApiKey()
       if (!apiKey) throw new PhoneError(503, 'Retell synchronization is not configured.')
-      if (enabled && !account.numbers.length) throw new PhoneError(409, 'An assigned Recepta number is required before enabling transfers.')
+      if (!account.numbers.length) throw new PhoneError(409, 'Wait for your assigned Recepta number before syncing setup.')
       const mode = action === 'disable' ? account.settings?.mode ?? 'new' : raw.mode
       const business = action === 'disable' ? account.settings?.business_number ?? null : mode === 'existing' ? normalizePhone(raw.businessNumber) : null
       const worker = action === 'disable' ? account.destination?.phone_number ?? null : normalizePhone(raw.workerNumber)

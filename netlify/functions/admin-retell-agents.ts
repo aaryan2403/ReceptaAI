@@ -1,3 +1,4 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { requestAuth, json } from '../lib/requestAuth'
 import { getAvailableRetellAgent, listAvailableRetellAgents, retellAccessDetails } from '../lib/retell'
 
@@ -6,8 +7,8 @@ export default async (request: Request) => {
   try {
     const auth = await requestAuth(request, true)
     if (auth.response) return auth.response
-    const apiKey = process.env.RETELL_API_KEY?.trim()
-    if (!apiKey) return json(503, { error: 'RETELL_API_KEY is missing from this deployment. Configure it in Netlify for Production with Functions access, then redeploy.' })
+    const apiKey = getRetellApiKey()
+    if (!apiKey) return json(503, { error: 'RETELL_API_KEY is missing from this deployment. Configure the Retell key for this deployment in Netlify with Functions access, then redeploy.' })
     const params = new URL(request.url).searchParams
     const cursor = params.get('cursor') || undefined
     const agentId = params.get('agentId')?.trim() || undefined

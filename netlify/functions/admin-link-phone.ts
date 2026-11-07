@@ -1,3 +1,4 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { requestAuth, json } from '../lib/requestAuth'
 import { checked, PhoneError, requirePhoneFeature, rateLimit, withPhoneLock } from '../lib/phoneSetup'
 import { normalizePhone } from '../lib/phoneValidation'
@@ -16,7 +17,7 @@ export default async (request: Request) => {
     }
     const { db } = auth
     const phone = normalizePhone(raw.phoneNumber)
-    if (!phone || !process.env.RETELL_API_KEY) throw new PhoneError(503, 'A valid number and Retell connection are required.')
+    if (!phone || !getRetellApiKey()) throw new PhoneError(503, 'A valid number and Retell connection are required.')
     const owner = checked(await db.from('clients').select('contact_email,deletion_pending').eq('id', raw.clientId).maybeSingle())
     const user = await db.auth.admin.getUserById(raw.clientId)
     if (!owner || owner.deletion_pending || user.error || !user.data.user?.email || !user.data.user.email_confirmed_at ||
@@ -28,11 +29,11 @@ export default async (request: Request) => {
     return await withPhoneLock(db, raw.clientId, async () => {
       // Read the provider BEFORE any assignment write. No purchases, agent
       // creation, subscription activation, or guesses about account ownership.
-      await verifyReceptionResources(process.env.RETELL_API_KEY!, raw.agentId, [phone])
+      await verifyReceptionResources(getRetellApiKey()!, raw.agentId, [phone])
       checked(await db.rpc('link_recepta_phone_pair', { p_client_id: raw.clientId, p_agent_id: raw.agentId, p_phone: phone }),
         'Could not link these resources. They may already belong to another account or conflict with its setup.')
       // Immediately remove any direct binding that could bypass paid admission.
-      const results = await syncRetellPhoneBindings({ apiKey: process.env.RETELL_API_KEY!, agentId: raw.agentId, phoneNumbers: [phone], active: false })
+      const results = await syncRetellPhoneBindings({ apiKey: getRetellApiKey()!, agentId: raw.agentId, phoneNumbers: [phone], active: false })
       if (results.some(result => !result.updated)) throw new PhoneError(502, 'Assignment saved, but number routing needs a retry. Service has not been activated.')
       return json(200, { success: true, message: 'Existing number and agent linked to the verified account. Billing and normal activation checks still apply. Reload the client before editing further.' })
     })

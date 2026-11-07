@@ -1,3 +1,4 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { assertAgentAssignable } from '../lib/agentOwnership'
 import { assertRetellAgentAvailable, syncRetellSubscription } from '../lib/retell'
@@ -139,7 +140,7 @@ export default async (request: Request) => {
 
     if (normalizedRetellId) {
       const retellApiKey =
-        process.env.RETELL_API_KEY
+        getRetellApiKey()
 
       if (!retellApiKey) {
         return new Response(
@@ -186,7 +187,7 @@ export default async (request: Request) => {
 
     if (error) throw error
 
-    if (normalizedRetellId && process.env.RETELL_API_KEY) {
+    if (normalizedRetellId && getRetellApiKey()) {
       const [agentResult, subscriptionResult] = await Promise.all([
         supabaseAdmin.from('agents').select('demo_mode').eq('client_id', clientId).maybeSingle(),
         supabaseAdmin.from('subscriptions').select('status, stripe_subscription_id, current_period_start, current_period_end, pii_redaction_enabled, safety_guardrails_enabled, ai_model_id').eq('client_id', clientId).maybeSingle(),
@@ -194,7 +195,7 @@ export default async (request: Request) => {
       if (agentResult.error) throw agentResult.error
       if (subscriptionResult.error) throw subscriptionResult.error
       await syncRetellSubscription({
-        apiKey: process.env.RETELL_API_KEY, agentId: normalizedRetellId, active: hasPaidSubscription(subscriptionResult.data),
+        apiKey: getRetellApiKey(), agentId: normalizedRetellId, active: hasPaidSubscription(subscriptionResult.data),
         demoMode: agentResult.data?.demo_mode === true,
         piiRedactionEnabled: subscriptionResult.data?.pii_redaction_enabled === true,
         safetyGuardrailsEnabled: subscriptionResult.data?.safety_guardrails_enabled === true,

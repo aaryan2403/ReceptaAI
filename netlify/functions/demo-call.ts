@@ -1,3 +1,4 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { createClient } from '@supabase/supabase-js'
 import { DEMO_CALL_MAX_SECONDS } from '../lib/callMinutes'
 import { demoJson, hashDemoToken, isDemoToken, verifyDemoAgent } from '../lib/demoLinks'
@@ -6,7 +7,8 @@ export default async (request: Request) => {
   if (request.method !== 'POST') return demoJson(405, { error: 'Method not allowed.' })
   const token = request.headers.get('x-recepta-demo') ?? ''
   if (!isDemoToken(token)) return demoJson(404, { error: 'This demo link is unavailable.' })
-  const { SUPABASE_URL, SUPABASE_SECRET_KEY, RETELL_API_KEY } = process.env
+  const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env
+  const RETELL_API_KEY = getRetellApiKey()
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !RETELL_API_KEY) return demoJson(503, { error: 'The demo is not configured.' })
   let body
   try { body = await request.json() } catch { return demoJson(400, { error: 'Invalid request.' }) }

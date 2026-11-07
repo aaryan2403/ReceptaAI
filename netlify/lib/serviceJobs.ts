@@ -1,3 +1,4 @@
+import { getRetellApiKey } from './retellEnvironment'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import { stripeSecretKey } from './stripeEnvironment'
@@ -14,13 +15,12 @@ const missing = (error: unknown) => typeof error === 'object' && error !== null 
 type RetellCleanupPath =
   | '/v3/list-calls'
   | `/v2/delete-call/${string}`
-  | `/delete-phone-number/${string}`
   | `/update-phone-number/${string}`
 
 const cleanupRetell = async (path:RetellCleanupPath, init:RequestInit = { method:'DELETE' }) => {
-  if (!process.env.RETELL_API_KEY) throw new Error('Retell cleanup configuration is missing.')
+  if (!getRetellApiKey()) throw new Error('Retell cleanup configuration is missing.')
   const response = await fetch('https://api.retellai.com'+path, {
-    ...init, signal:AbortSignal.timeout(4000), headers:{ Authorization:`Bearer ${process.env.RETELL_API_KEY}`, 'Content-Type':'application/json' },
+    ...init, signal:AbortSignal.timeout(4000), headers:{ Authorization:`Bearer ${getRetellApiKey()}`, 'Content-Type':'application/json' },
   })
   if (!response.ok && (response.status!==404 || init.method==='POST')) throw new Error(`Retell cleanup failed (${response.status}).`)
   return response.status===404 || response.status===204 ? null : await response.json()
@@ -61,6 +61,9 @@ const callbackEmail = async (db:SupabaseClient, job:ServiceJob) => {
 }
 
 const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) => {
+  if (job.job_key !== 'delete-client:' + job.client_id) {
+    throw new Error('Legacy number reconciliation requires operator review. Customer records and provider assets are preserved.')
+  }
   const payload={ ...job.payload }
   const continueBeforeDeadline = () => { if (Date.now()>deadline-4500) throw new ContinueWork() }
   const progress=async (values:Record<string,unknown>) => {
@@ -101,8 +104,7 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
   for (const number of numbers) {
     if (done.includes(number.number)) continue
     continueBeforeDeadline()
-    if (number.source==='retell') await cleanupRetell(`/delete-phone-number/${encodeURIComponent(number.number)}`)
-    else await cleanupRetell(`/update-phone-number/${encodeURIComponent(number.number)}`, { method:'PATCH',body:JSON.stringify({ inbound_agents:null,outbound_agents:null,inbound_webhook_url:null }) })
+    await cleanupRetell(`/update-phone-number/${encodeURIComponent(number.number)}`, { method:'PATCH',body:JSON.stringify({ inbound_agents:null,outbound_agents:null,inbound_webhook_url:null }) })
     done.push(number.number)
     await progress({ numbers_done:done })
   }

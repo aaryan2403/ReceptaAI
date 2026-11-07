@@ -1,3 +1,4 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { createClient } from '@supabase/supabase-js'
 import { assertAgentAssignable } from '../lib/agentOwnership'
 import Stripe from 'stripe'
@@ -67,7 +68,7 @@ export default async (request: Request) => {
     const stripeSecretKey =
       configuredStripeSecretKey()
     const retellApiKey =
-      process.env.RETELL_API_KEY
+      getRetellApiKey()
 
     if (
       !supabaseUrl ||
