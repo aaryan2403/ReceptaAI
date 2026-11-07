@@ -171,7 +171,7 @@ test('an ambiguous callback retry stops before provider idempotency expires',asy
  await fixture();await callback();await db.exec("update service_jobs set first_send_at=now()-interval '24 hours'")
  await run(globalThis.__operationsDb);assert.equal(state.mail.length,0);assert.equal((await job('callback:'+client+':missed_test')).status,'needs_attention')
 })
-test('failed Stripe cancellation preserves the paused account; retry completes cleanup before deleting Auth',async()=>{
+test('deletion retry removes the Recepta account and assignment while preserving the Retell agent',async()=>{
  await fixture();state.stripeFailure=true
  assert.equal((await deletion(request({clientId:client},'admin'))).status,202)
  assert.equal((await db.query('select deletion_pending from clients where id=$1',[client])).rows[0].deletion_pending,true)
@@ -181,7 +181,13 @@ test('failed Stripe cancellation preserves the paused account; retry completes c
  state.stripeFailure=false;state.providerCalls=[{call_id:'provider_only_call',call_status:'ended'}];await due();await run(globalThis.__operationsDb)
  assert.deepEqual(state.authOps,['ban','delete']);assert.equal((await db.query('select count(*) n from clients where id=$1',[client])).rows[0].n,0)
  assert.equal((await job('delete-client:'+client)).status,'complete');assert.deepEqual((await job('delete-client:'+client)).payload,{})
- assert.ok(state.retellOps.some(x=>x.path==='/v2/delete-call/provider_only_call'));assert.ok(state.retellOps.some(x=>x.path==='/delete-agent/agent_test'))
+ assert.equal((await db.query('select count(*) n from agents where client_id=$1',[client])).rows[0].n,0)
+ assert.deepEqual(state.retellOps.map(({ method, path })=>[method,path]),[
+  ['DELETE','/delete-phone-number/%2B14165550100'],
+  ['POST','/v3/list-calls'],
+  ['DELETE','/v2/delete-call/provider_only_call'],
+  ['POST','/v3/list-calls'],
+ ])
 })
 test('Retell cleanup failure retains provider IDs and retries without repeating confirmed Stripe cleanup',async()=>{
  await fixture();state.retellFailure=true;await deletion(request({clientId:client},'admin'));await run(globalThis.__operationsDb)
