@@ -1,12 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { stripeSecretKey } from '../lib/stripeEnvironment'
 import { deliverBillingNotices, getBillingUsage, queueBillingNotice, queueUsageNotice } from '../lib/billingNotifications'
 
 // Netlify invokes scheduled functions only on the production deployment.
 export const config = { schedule: '0 * * * *' }
 
 export default async () => {
-  const { SUPABASE_URL, SUPABASE_SECRET_KEY, STRIPE_SECRET_KEY } = process.env
+  const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env
+  const STRIPE_SECRET_KEY = stripeSecretKey()
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !STRIPE_SECRET_KEY) throw new Error('Billing reminder configuration is missing.')
   const db = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, { auth: { persistSession: false } })
   const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 3000, maxNetworkRetries: 0 })

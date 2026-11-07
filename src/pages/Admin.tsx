@@ -1,3 +1,4 @@
+import AdminPhoneLink from '../components/AdminPhoneLink'
 import {
   useCallback,
   useEffect,
@@ -1069,7 +1070,7 @@ export default function Admin() {
 
     if (
       !window.confirm(
-        `Permanently delete ${clientName}?`
+        `Permanently delete the Recepta account for ${clientName}? Linked agents and numbers stay in Retell.`
       )
     ) {
       return
@@ -2298,6 +2299,8 @@ export default function Admin() {
                     One E.164 number per line. The first number is primary.
                   </small>
                 </label>
+
+                <AdminPhoneLink key={editingClient.id} clientId={editingClient.id} ownerEmail={editingClient.contact_email} />
 
                 <div
                   id="adminPhonePurchasePanel"

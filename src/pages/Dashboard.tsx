@@ -571,6 +571,7 @@ export default function Dashboard() {
           >
             Agent
           </a>
+          <a className="btn btnOutline" href="/dashboard/agent#phone-setup">Phone Setup / Manage Numbers</a>
 
           <a href="/dashboard/requests" className="dashboardNavItem">
             Customer Requests

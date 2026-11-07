@@ -1,4 +1,6 @@
 import BillingAccessNotice from '../components/BillingAccessNotice'
+import '../components/PhoneSetup.css'
+import { phoneSetupRequest } from '../lib/phoneSetup'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchBillingStatus } from '../lib/billing'
@@ -12,6 +14,15 @@ const EXTRA_NUMBER_MONTHLY_CAD = 20
 const MINUTE_OPTIONS = [100, 300, 500, 1000, 2500, 5000]
 
 export default function Billing() {
+  const [numberSelectionAvailable, setNumberSelectionAvailable] = useState(false)
+  const [searchingNumbers, setSearchingNumbers] = useState(false)
+  const [availableNumbers, setAvailableNumbers] = useState<Array<{ number: string; locality: string; region: string }>>([])
+  const [selectedNumber, setSelectedNumber] = useState('')
+  const [numberPurchaseConfirmed, setNumberPurchaseConfirmed] = useState(false)
+  const [phoneManagement, setPhoneManagement] = useState(false)
+  const [phoneCountry, setPhoneCountry] = useState<'CA' | 'US'>('CA')
+  const [areaCode, setAreaCode] = useState('')
+  const [extraNumbers, setExtraNumbers] = useState(0)
   const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [secondsUsed, setSecondsUsed] = useState(0)
   const [managingBilling, setManagingBilling] = useState(false)
@@ -41,6 +52,11 @@ export default function Billing() {
         setSubscription(loadedSubscription)
         const configured = { ...loadedSubscription, ...(loadedSubscription?.pending_configuration ?? {}) }
         setSelectedMinutes(String(configured.monthly_minutes ?? 300))
+        setPhoneManagement(billingStatus.phoneManagementAvailable === true)
+        setNumberSelectionAvailable(billingStatus.selectedNumbersAvailable === true)
+        setPhoneCountry(loadedSubscription?.pending_configuration?.phone_number_country ?? 'CA')
+        setAreaCode(loadedSubscription?.pending_configuration?.phone_number_area_code ?? '')
+        setExtraNumbers(Number(configured.extra_phone_numbers ?? 0))
 
         if (configured.ai_model_id) {
           const assignedModel = (modelsResult.data ?? []).find(
@@ -69,8 +85,8 @@ export default function Billing() {
     return base + monthlyMinutes * modelRate +
       (configuration.pii_redaction_enabled ? monthlyMinutes * PII_RATE_CAD : 0) +
       (configuration.safety_guardrails_enabled ? monthlyMinutes * GUARDRAIL_RATE_CAD : 0) +
-      Math.max(0, Number(configuration.extra_phone_numbers ?? 0)) * EXTRA_NUMBER_MONTHLY_CAD
-  }, [modelRate, monthlyMinutes, subscription])
+      (phoneManagement ? extraNumbers : Number(configuration.extra_phone_numbers ?? 0)) * EXTRA_NUMBER_MONTHLY_CAD
+  }, [modelRate, monthlyMinutes, subscription, phoneManagement, extraNumbers])
 
   const balance = calculateMinuteBalance(subscription ?? {
     monthly_minutes: 0, status: null,
@@ -99,6 +115,17 @@ export default function Billing() {
     }
   }
 
+  const searchNumbers = async () => {
+    setSearchingNumbers(true); setError(''); setSelectedNumber(''); setNumberPurchaseConfirmed(false)
+    try {
+      const query = new URLSearchParams({ country: phoneCountry, areaCode })
+      const result = await phoneSetupRequest<{ numbers: typeof availableNumbers }>(undefined, 'phone-number-search?' + query)
+      setAvailableNumbers(result.numbers)
+      if (!result.numbers.length) setError('No matching numbers are available. Try another area code.')
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Number search failed.') }
+    finally { setSearchingNumbers(false) }
+  }
+
   const startMinuteCheckout = async () => {
     setError('')
     if (!checkoutConfiguration?.plan_name || !checkoutConfiguration.ai_model_id) {
@@ -122,6 +149,7 @@ export default function Billing() {
         },
         body: JSON.stringify({
           monthlyMinutes,
+          ...(phoneManagement ? { phonePreferences: { country: phoneCountry, areaCode, extraNumbers, selectedNumber, purchaseConfirmed: numberPurchaseConfirmed } } : {}),
         }),
       })
       const body = await response.json().catch(() => ({}))
@@ -155,7 +183,9 @@ export default function Billing() {
     : 'Not scheduled'
   const minuteAllowanceChanged =
     monthlyMinutes !== Number(subscription?.monthly_minutes ?? 0)
-  const paymentChangePending = Boolean(subscription?.pending_configuration) || minuteAllowanceChanged
+  const currentExtraNumbers = Number(checkoutConfiguration?.extra_phone_numbers ?? 0)
+  const paymentChangePending = Boolean(subscription?.pending_configuration) || minuteAllowanceChanged ||
+    (phoneManagement && extraNumbers !== Number(subscription?.extra_phone_numbers ?? 0))
 
   return (
     <main className="dashboardPage">
@@ -308,6 +338,29 @@ export default function Billing() {
               </div>
 
               <div className="billingCheckoutSummary">
+                {phoneManagement && <fieldset className="phoneSetup">
+                  <legend>Recepta phone numbers</legend>
+                  <p>Your plan includes one number. Additional numbers cost C$20 each per month. Retell assigns available digits after payment.</p>
+                  <div className="phoneGrid">
+                    <label className="phoneLabel">Country for new numbers<select value={phoneCountry} onChange={e => { setPhoneCountry(e.target.value === 'US' ? 'US' : 'CA'); setSelectedNumber(''); setAvailableNumbers([]); setAreaCode(''); setNumberPurchaseConfirmed(false) }}>
+                      <option value="CA">Canada</option><option value="US">United States</option>
+                    </select></label>
+                    {(phoneCountry === 'US' || numberSelectionAvailable) && <label className="phoneLabel">Area code (optional)<input inputMode="numeric" maxLength={3} value={areaCode} onChange={e => { setAreaCode(e.target.value); setSelectedNumber(''); setAvailableNumbers([]); setNumberPurchaseConfirmed(false) }} /></label>}
+                    <label className="phoneLabel">Additional numbers<select value={extraNumbers} onChange={e => setExtraNumbers(Number(e.target.value))}>
+                      {Array.from({ length: 21 - currentExtraNumbers }, (_, index) => index + currentExtraNumbers).map(count => <option key={count} value={count}>{count}</option>)}
+                    </select></label>
+                  </div>
+                  {numberSelectionAvailable ? <>
+                    <button type="button" className="btn btnOutline" disabled={saving || searchingNumbers} onClick={() => void searchNumbers()}>{searchingNumbers ? 'Searching…' : 'Search available numbers'}</button>
+                    {availableNumbers.length > 0 && <label className="phoneLabel">Choose your new number<select value={selectedNumber} onChange={e => { setSelectedNumber(e.target.value); setNumberPurchaseConfirmed(false) }}>
+                      <option value="">Assign an available number automatically</option>
+                      {availableNumbers.map(row => <option key={row.number} value={row.number}>{row.number} · {row.locality} {row.region}</option>)}
+                    </select></label>}
+                    {selectedNumber && <label className="phoneCheck"><input type="checkbox" checked={numberPurchaseConfirmed} onChange={e => setNumberPurchaseConfirmed(e.target.checked)} />I authorize purchase of {selectedNumber} after successful payment. My plan includes one number. Each additional number adds C$20 per month.</label>}
+                    <p>Availability can change before payment finishes. One exact number can be selected per Checkout. Number assignment remains pending if the chosen number becomes unavailable.</p>
+                  </> : <p>Exact-number search is awaiting the dedicated Twilio trunk configuration. Country-based assignment is available.</p>}
+                  <p>Review the monthly total before confirming payment in Stripe Checkout.</p>
+                </fieldset>}
                 {subscription.pending_configuration && <p className="calendarAlert" role="status">Recepta prepared a configuration awaiting payment: {checkoutConfiguration?.plan_name}, {assignedModelName}, PII redaction {checkoutConfiguration?.pii_redaction_enabled ? 'on' : 'off'}, Safety Guardrails {checkoutConfiguration?.safety_guardrails_enabled ? 'on' : 'off'}, and {checkoutConfiguration?.extra_phone_numbers ?? 0} additional numbers. Your current paid service stays unchanged until payment succeeds.</p>}
                 <div className="billingCheckoutSummaryHead">
                   <div>
@@ -325,7 +378,7 @@ export default function Billing() {
                     type="button"
                     className="btn btnPrimary billingUpdateSubscription"
                     onClick={startMinuteCheckout}
-                    disabled={saving || (subscription.status === 'active' && !paymentChangePending)}
+                    disabled={saving || (selectedNumber !== '' && !numberPurchaseConfirmed) || (subscription.status === 'active' && !paymentChangePending)}
                   >
                     {saving
                       ? 'Opening secure payment...'

@@ -1,3 +1,4 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { createClient } from '@supabase/supabase-js'
 import { randomBytes } from 'node:crypto'
 import { demoJson, hashDemoToken, verifyDemoAgent } from '../lib/demoLinks'
@@ -6,7 +7,8 @@ export default async (request: Request) => {
   if (!['GET', 'POST', 'PATCH'].includes(request.method)) return demoJson(405, { error: 'Method not allowed.' })
   const authorization = request.headers.get('authorization')
   if (!authorization?.startsWith('Bearer ')) return demoJson(401, { error: 'Unauthorized.' })
-  const { SUPABASE_URL, SUPABASE_SECRET_KEY, RETELL_API_KEY, ADMIN_EMAIL } = process.env
+  const { SUPABASE_URL, SUPABASE_SECRET_KEY, ADMIN_EMAIL } = process.env
+  const RETELL_API_KEY = getRetellApiKey()
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !ADMIN_EMAIL || !RETELL_API_KEY) return demoJson(503, { error: 'Demo sharing is not configured.' })
   const db = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, { auth: { persistSession: false, autoRefreshToken: false } })
   try {

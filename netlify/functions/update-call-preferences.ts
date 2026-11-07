@@ -1,3 +1,4 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { getAnsweringMode } from '../lib/businessHours'
 import { requestAuth } from '../lib/requestAuth'
 import {
@@ -149,7 +150,7 @@ export default async (request: Request) => {
     .from('agents').select('business_hours, retell_agent_id').eq('client_id', clientId).maybeSingle()
   if (agentError || !agent) return json(404, { error: 'Save the client setup before configuring store hours.' })
   const retellAgentId = agent.retell_agent_id?.trim()
-  const retellApiKey = process.env.RETELL_API_KEY
+  const retellApiKey = getRetellApiKey()
   if (retellAgentId && !retellApiKey) return json(503, { error: 'AI synchronization is not configured.' })
 
   const answeringMode = body.answeringMode ?? getAnsweringMode(agent.business_hours)

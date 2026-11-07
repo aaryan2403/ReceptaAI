@@ -9,6 +9,8 @@ export type BillingSubscription = {
     pii_redaction_enabled: boolean
     safety_guardrails_enabled: boolean
     extra_phone_numbers: number
+    phone_number_country?: 'CA' | 'US'
+    phone_number_area_code?: string | null
   } | null
   configuration_revision?: number
   plan_name: 'Recepta Standard' | 'Recepta Pro' | null
@@ -27,7 +29,7 @@ export type BillingSubscription = {
   cancel_at_period_end: boolean
 }
 
-export const fetchBillingStatus = async (): Promise<{ subscription: BillingSubscription | null; usedSeconds: number }> => {
+export const fetchBillingStatus = async (): Promise<{ subscription: BillingSubscription | null; usedSeconds: number; phoneManagementAvailable?: boolean; selectedNumbersAvailable?: boolean }> => {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session?.access_token) throw new Error('Please sign in again.')
   const response = await fetch('/.netlify/functions/billing-status', {

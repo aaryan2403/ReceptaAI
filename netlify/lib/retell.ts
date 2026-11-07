@@ -1,3 +1,5 @@
+import { assertRetellPhoneAgent } from './phoneReception'
+import { withRetellAgentSync } from './retellSyncLock'
 import { getCallMaxSeconds } from './callMinutes'
 import {
   createHmac,
@@ -159,7 +161,7 @@ export const retellAccessDetails = (error: unknown, operation: 'agent' | 'list' 
   const detail = error instanceof Error ? error.message : ''
   const result = (code: string, message: string) => ({ code, providerStatus: status, error: message })
   if (status === 401 || /api key is missing or invalid|unauthorized/i.test(detail)) {
-    return result('invalid_key', 'Retell rejected Recepta’s server API key (HTTP 401). Update RETELL_API_KEY in Netlify for Production with Functions access, then redeploy.')
+    return result('invalid_key', 'Retell rejected Recepta’s server API key (HTTP 401). Update the Retell key for this deployment in Netlify with Functions access, then redeploy.')
   }
   if (status === 403) {
     return result('access_denied', 'Retell denied agent access (HTTP 403). Enable Build → Agent access on the server key in the workspace that owns your agent. Agent synchronization requires Edit access.')
@@ -533,6 +535,12 @@ const updatePhoneBinding = async ({
     )
   }
 
+  const assignedPhone = await lookupResponse.json()
+  if (normalizeE164(assignedPhone.phone_number) !== normalizedPhone) {
+    throw new Error('Retell did not confirm the assigned number.')
+  }
+  assertRetellPhoneAgent(assignedPhone, agentId)
+
   const agents = active
     ? [
         {
@@ -779,7 +787,7 @@ export const formatAppointmentFields = (fields: string[]) =>
     ? fields.map((field) => `- ${field}`).join('\n')
     : 'No additional appointment fields are configured.'
 
-export const syncRetellSchedule = async ({
+const syncRetellScheduleImpl = async ({
   apiKey,
   agentId,
   schedule,
@@ -991,7 +999,7 @@ export const syncRetellSchedule = async ({
   }
 }
 
-export const syncRetellEmployeeSchedule = async ({
+const syncRetellEmployeeScheduleImpl = async ({
   apiKey,
   agentId,
   employeeSchedule,
@@ -1193,27 +1201,7 @@ export const purchaseRetellPhoneNumber = async ({
   return phoneNumber
 }
 
-export const releaseRetellPhoneNumber = async ({
-  apiKey,
-  phoneNumber,
-}: {
-  apiKey: string
-  phoneNumber: string
-}) => {
-  const normalizedPhone = normalizeE164(phoneNumber)
-
-  if (!normalizedPhone) return false
-
-  await retellRequest<unknown>(
-    apiKey,
-    `/delete-phone-number/${encodeURIComponent(normalizedPhone)}`,
-    { method: 'DELETE' }
-  )
-
-  return true
-}
-
-export const syncRetellSubscription = async (
+const syncRetellSubscriptionImpl = async (
   options: RetellSyncOptions
 ) => {
   if (options.active) {
@@ -1250,3 +1238,12 @@ export const syncRetellSubscription = async (
     phoneBindingResults,
   }
 }
+
+export const syncRetellSchedule = (options: Parameters<typeof syncRetellScheduleImpl>[0]) =>
+  withRetellAgentSync(options.agentId, () => syncRetellScheduleImpl(options))
+
+export const syncRetellEmployeeSchedule = (options: Parameters<typeof syncRetellEmployeeScheduleImpl>[0]) =>
+  withRetellAgentSync(options.agentId, () => syncRetellEmployeeScheduleImpl(options))
+
+export const syncRetellSubscription = (options: Parameters<typeof syncRetellSubscriptionImpl>[0]) =>
+  withRetellAgentSync(options.agentId, () => syncRetellSubscriptionImpl(options))

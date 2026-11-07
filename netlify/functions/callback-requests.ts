@@ -14,7 +14,7 @@ export default async (request: Request) => {
       if (updated.error) throw updated.error
       if (!updated.data) return json(404, { error:'Callback not found.' })
     }
-    const result = await db.from('callback_requests').select('id, caller_number, called_number, reason, status, created_at')
+    const result = await db.from('callback_requests').select('id, caller_number, called_number, reason, status, created_at, caller_name, request_details, preferred_callback_time, answered_call')
       .eq('client_id', user.id).order('created_at', { ascending:false }).limit(100)
     if (result.error) throw result.error
     return json(200, { callbacks:result.data })

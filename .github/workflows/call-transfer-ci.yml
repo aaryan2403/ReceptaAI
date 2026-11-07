@@ -1,0 +1,27 @@
+name: Validate Recepta call transfer
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [feature/existing-number-onboarding]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Run phone setup and existing regression tests
+        run: node --test --test-concurrency=1 tests/*.test.mjs
+      - name: Lint with zero warnings
+        run: npm run lint
+      - name: Check telephony backend types
+        run: npx tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --types node --skipLibCheck netlify/functions/*.ts netlify/lib/*.ts
+      - name: Compile production application
+        run: npm run build

@@ -13,12 +13,14 @@
     "test:call-lifecycle": "node --test tests/call-lifecycle*.test.mjs",
     "test:appointments": "node --test tests/appointments*.test.mjs",
     "test:billing": "node --test tests/billing*.test.mjs",
-    "test:demo": "node --test tests/demo*.test.mjs"
+    "test:demo": "node --test tests/demo*.test.mjs",
+    "test:phone": "node --test tests/call-transfer.test.mjs tests/phone-setup.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "libphonenumber-js": "1.13.15",
     "lottie-web": "^5.13.0",
     "lucide-react": "^0.563.0",
     "ogl": "^1.0.11",
