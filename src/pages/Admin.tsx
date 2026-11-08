@@ -1,3 +1,4 @@
+import AdminCallEmailSettings from '../components/AdminCallEmailSettings'
 import {
   useCallback,
   useEffect,
@@ -2403,15 +2404,13 @@ export default function Admin() {
                   }}
                 />
 
-                <NotificationSettingsPanel
-                  planName={editPlanName}
-                  buyerEmailEnabled={editBuyerEmailEnabled}
-                  buyerSmsEnabled={editBuyerSmsEnabled}
-                  onBuyerEmailChange={setEditBuyerEmailEnabled}
-                  onBuyerSmsChange={setEditBuyerSmsEnabled}
-                  showSaveButton
-                  saving={savingEdit}
-                />
+                <AdminCallEmailSettings key={editingClient.id} clientId={editingClient.id} />
+
+                <label style={{ gridColumn: '1 / -1' }}>
+                  <span>Buyer appointment SMS (Pro only)</span>
+                  <input type="checkbox" checked={editBuyerSmsEnabled} disabled={editPlanName !== 'Recepta Pro'} onChange={event => setEditBuyerSmsEnabled(event.target.checked)} />
+                  <small>Requires explicit buyer consent and Twilio. Save the client below to update this SMS preference.</small>
+                </label>
 
                 <label style={{ gridColumn: '1 / -1' }}>
                   <span>AI appointment fields</span>

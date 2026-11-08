@@ -1,3 +1,4 @@
+import { configuredEmailWebhookSecret } from '../lib/emailEnvironment'
 import { createClient } from '@supabase/supabase-js'
 import { verifyEmailWebhook } from '../lib/emailDelivery'
 import { json } from '../lib/requestAuth'
@@ -11,7 +12,7 @@ export default async (request:Request) => {
   if (raw.length>1_000_000) return json(413,{ error:'Payload too large.' })
   const db=createClient(SUPABASE_URL,SUPABASE_SECRET_KEY,{ auth:{ persistSession:false,autoRefreshToken:false } })
   const stored=await db.from('integration_settings').select('value').eq('key','resend_webhook').maybeSingle()
-  const secret=process.env.RESEND_WEBHOOK_SECRET || stored.data?.value?.secret
+  const secret=configuredEmailWebhookSecret() || stored.data?.value?.secret
   if (stored.error || !secret) return json(503,{ error:'Delivery webhook setup is incomplete.' })
   if (!verifyEmailWebhook(raw,request.headers,secret)) return json(401,{ error:'Invalid email webhook signature.' })
   try {
