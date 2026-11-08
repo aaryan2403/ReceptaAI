@@ -128,9 +128,11 @@ Exact-number selection additionally requires the dedicated Twilio trunk configur
 
 ## Call email preferences
 
-Apply `supabase/migrations/20261108033150_client_call_email_preferences.sql` before
-enabling `RECEPTA_CALL_EMAIL_ENABLED=true` and redeploying the per-client email
-changes. Leave this flag off before the migration. Configure `RESEND_STAGING_API_KEY`,
+`supabase/migrations/20261108033150_client_call_email_preferences.sql` is applied
+and verified on staging `mvufjeqxqvpcfqwmihpy`. Configure the dedicated preview
+email credentials and approved test inboxes before enabling
+`RECEPTA_CALL_EMAIL_ENABLED=true` and redeploying the per-client email changes.
+Configure `RESEND_STAGING_API_KEY`,
 `RECEPTA_STAGING_EMAIL_TARGETS` and, if supplied explicitly,
 `RESEND_STAGING_WEBHOOK_SECRET` only for this preview. Use
 [the email implementation and acceptance guide](../../docs/client-call-email.md).

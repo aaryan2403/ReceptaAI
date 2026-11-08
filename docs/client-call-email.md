@@ -85,9 +85,12 @@ retry. A missing/invalid key cannot be repaired by changing email templates.
 
 ## Schema and reliability
 
-Apply `20261108033150_client_call_email_preferences.sql` to staging, then set
-`RECEPTA_CALL_EMAIL_ENABLED=true` in that branch’s Netlify Functions environment and
-redeploy. The flag defaults off: original-schema deployments continue owner mail
+`20261108033150_client_call_email_preferences.sql` is applied to staging
+`mvufjeqxqvpcfqwmihpy`. Read-only verification confirmed the capture column and
+protection trigger exist, use invoker permissions, and are not executable by
+anonymous or authenticated customers. Set `RECEPTA_CALL_EMAIL_ENABLED=true` in that
+branch’s Netlify Functions environment after configuring the dedicated email key
+and approved test recipients, then redeploy. The flag defaults off: original-schema deployments continue owner mail
 and show new controls as awaiting setup. Do not enable it before the migration. It adds a server-written `calls.notification_details` snapshot, protects
 it against stale/sparse replays and retention resurrection, and atomically enqueues
 caller receipts alongside the existing owner outbox. There is no historical backfill.
@@ -109,8 +112,14 @@ Local integration tests use signed webhooks, real PostgreSQL behavior through
 PGlite, and synthetic external providers. They validate role-specific delivery,
 immutable retries, consent gating, per-client admin authorization, plan filtering,
 preview restrictions, safe caller summaries, retention and existing regressions.
-They are not evidence of live Resend delivery. The current browser is signed out of
-Netlify. The hosted staging migration confirmation expired without applying; it
-and the rollout flag remain pending. Runtime key validity, domain verification
-and real inbox receipt still need
-an authenticated live check. No customer email or paid phone call was sent by tests.
+They are not evidence of live Resend delivery. The staging migration is now applied
+and verified. The deployed implementation at `ed5f244` passed GitHub Actions and
+Netlify deploy-preview checks. A subsequent focused rerun passed all 18 admin and
+call-email integration tests. The security advisory check introduced no new findings.
+
+Netlify/Resend credentials are unavailable in this execution environment, and the
+browser connection timed out. The staging database has no saved Resend setup
+status. The rollout flag and dedicated preview email configuration still require
+an authenticated Netlify check. Runtime key validity, sender-domain verification,
+signed delivery events and receipt in both inboxes remain unverified. No customer
+email or paid phone call was sent by these checks. Production remains unchanged.
