@@ -1,3 +1,5 @@
+import AdminCallEmailSettings from '../components/AdminCallEmailSettings'
+import AdminPhoneLink from '../components/AdminPhoneLink'
 import {
   useCallback,
   useEffect,
@@ -181,18 +183,15 @@ const NotificationSettingsPanel = ({
           </p>
         </div>
 
-        <label className={!isPro ? 'adminNotificationOption--disabled' : ''}>
+        <label>
           <input
             type="checkbox"
             checked={buyerEmailEnabled}
-            disabled={!isPro}
             onChange={(event) => onBuyerEmailChange(event.target.checked)}
           />
-          <span>Buyer appointment email</span>
+          <span>Caller email receipt</span>
           <p>
-            {isPro
-              ? 'Optional confirmation email sent to the appointment buyer.'
-              : 'Available only with Recepta Pro appointment booking.'}
+            Sends a receipt after the caller confirms their address and agreement. Customize its fields in Edit Client after creation.
           </p>
         </label>
 
@@ -1069,7 +1068,7 @@ export default function Admin() {
 
     if (
       !window.confirm(
-        `Permanently delete ${clientName}?`
+        `Permanently delete the Recepta account for ${clientName}? Linked agents and numbers stay in Retell.`
       )
     ) {
       return
@@ -2299,6 +2298,8 @@ export default function Admin() {
                   </small>
                 </label>
 
+                <AdminPhoneLink key={editingClient.id} clientId={editingClient.id} ownerEmail={editingClient.contact_email} />
+
                 <div
                   id="adminPhonePurchasePanel"
                   style={{
@@ -2403,15 +2404,13 @@ export default function Admin() {
                   }}
                 />
 
-                <NotificationSettingsPanel
-                  planName={editPlanName}
-                  buyerEmailEnabled={editBuyerEmailEnabled}
-                  buyerSmsEnabled={editBuyerSmsEnabled}
-                  onBuyerEmailChange={setEditBuyerEmailEnabled}
-                  onBuyerSmsChange={setEditBuyerSmsEnabled}
-                  showSaveButton
-                  saving={savingEdit}
-                />
+                <AdminCallEmailSettings key={editingClient.id} clientId={editingClient.id} />
+
+                <label style={{ gridColumn: '1 / -1' }}>
+                  <span>Buyer appointment SMS (Pro only)</span>
+                  <input type="checkbox" checked={editBuyerSmsEnabled} disabled={editPlanName !== 'Recepta Pro'} onChange={event => setEditBuyerSmsEnabled(event.target.checked)} />
+                  <small>Requires explicit buyer consent and Twilio. Save the client below to update this SMS preference.</small>
+                </label>
 
                 <label style={{ gridColumn: '1 / -1' }}>
                   <span>AI appointment fields</span>

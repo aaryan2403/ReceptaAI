@@ -1,5 +1,9 @@
+import { normalizeCallEmailSettings } from '../../src/lib/callEmailSettings'
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { createClient } from '@supabase/supabase-js'
+import { assertAgentAssignable } from '../lib/agentOwnership'
 import Stripe from 'stripe'
+import { stripeSecretKey as configuredStripeSecretKey } from '../lib/stripeEnvironment'
 import {
   assertRetellAgentAvailable,
   syncRetellSchedule,
@@ -63,9 +67,9 @@ export default async (request: Request) => {
     const supabaseSecretKey =
       process.env.SUPABASE_SECRET_KEY
     const stripeSecretKey =
-      process.env.STRIPE_SECRET_KEY
+      configuredStripeSecretKey()
     const retellApiKey =
-      process.env.RETELL_API_KEY
+      getRetellApiKey()
 
     if (
       !supabaseUrl ||
@@ -389,6 +393,7 @@ export default async (request: Request) => {
       retellApiKey
     ) {
       try {
+        await assertAgentAssignable(supabaseAdmin, normalizedRetellId)
         await assertRetellAgentAvailable({
           apiKey: retellApiKey,
           agentId: normalizedRetellId,
@@ -430,6 +435,7 @@ export default async (request: Request) => {
           email: normalizedEmail,
           password,
           email_confirm: true,
+          app_metadata: { recepta_call_email: normalizeCallEmailSettings({ callerEnabled: buyerEmailEnabled }) },
           user_metadata: {
             appointment_email_notifications_enabled:
               buyerEmailEnabled,
@@ -716,6 +722,7 @@ export default async (request: Request) => {
           apiKey: retellApiKey,
           agentId: normalizedRetellId,
           ...scheduleContext,
+          callEmailSettings: normalizeCallEmailSettings({ callerEnabled: buyerEmailEnabled }),
           emailNotificationsEnabled:
             buyerEmailEnabled,
           smsNotificationsEnabled:

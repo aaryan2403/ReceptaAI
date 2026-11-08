@@ -1,6 +1,8 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { hasPaidSubscription, saveSubscriptionConfiguration } from '../lib/subscriptionConfiguration'
 
 import { createClient } from '@supabase/supabase-js'
+import { assertAgentAssignable } from '../lib/agentOwnership'
 import {
   assertRetellAgentAvailable,
   normalizeEmailNotificationsEnabled,
@@ -48,7 +50,7 @@ export default async (request: Request) => {
   const adminEmail =
     process.env.ADMIN_EMAIL
   const retellApiKey =
-    process.env.RETELL_API_KEY
+    getRetellApiKey()
 
   if (
     !supabaseUrl ||
@@ -208,6 +210,7 @@ export default async (request: Request) => {
     }
 
     try {
+      await assertAgentAssignable(supabaseAdmin, retellAgentId, clientId)
       await assertRetellAgentAvailable({
         apiKey: retellApiKey,
         agentId: retellAgentId,

@@ -8,6 +8,9 @@ const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
 export default function Login() {
   const navigate = useNavigate()
 
+  const [signup, setSignup] = useState(false)
+  const [company, setCompany] = useState('')
+  const [plan, setPlan] = useState('Recepta Standard')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -34,6 +37,28 @@ export default function Login() {
         'Admin accounts must sign in through the admin portal.'
       )
       setLoading(false)
+      return
+    }
+
+    if (signup) {
+      try {
+        const { error } = await supabase.auth.signUp({
+          email: normalizedEmail,
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/login`,
+            data: { recepta_self_service: true, company_name: company.trim(), requested_plan: plan },
+          },
+        })
+        if (error) throw new Error(error.message)
+        setSignup(false)
+        setPassword('')
+        setSuccessMessage('Check your email for a confirmation link. Once confirmed, return here and sign in.')
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Could not create your account.')
+      } finally {
+        setLoading(false)
+      }
       return
     }
 
@@ -64,6 +89,23 @@ export default function Login() {
       return
     }
 
+    if (data.user.user_metadata.recepta_self_service === true) {
+      try {
+        const response = await fetch('/.netlify/functions/onboard-customer', {
+          method: 'POST', signal: AbortSignal.timeout(15000),
+          headers: { Authorization: `Bearer ${data.session.access_token}` },
+        })
+        if (!response.ok) {
+          const result = await response.json().catch(() => ({}))
+          throw new Error(result.error || 'Could not finish setting up your account.')
+        }
+        navigate('/dashboard/billing')
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Could not finish setting up your account.')
+        setLoading(false)
+      }
+      return
+    }
     navigate('/dashboard')
   }
 
@@ -127,7 +169,7 @@ export default function Login() {
         </a>
 
         <div className="loginHeading">
-          <h1>Customer Login</h1>
+          <h1>{signup ? 'Create your Recepta account' : 'Customer Login'}</h1>
 
           <p>
             Sign in to manage your Recepta AI
@@ -139,6 +181,14 @@ export default function Login() {
           className="loginForm"
           onSubmit={handleLogin}
         >
+          {signup && <>
+            <label>Business name<input required minLength={2} maxLength={120} value={company} onChange={event => setCompany(event.target.value)} /></label>
+            <label>Plan<select value={plan} onChange={event => setPlan(event.target.value)}>
+              <option value="Recepta Standard">Standard · C$199 base per month</option>
+              <option value="Recepta Pro">Pro · C$299 base per month</option>
+            </select></label>
+            <p>Call minutes and optional numbers are priced in Billing before payment.</p>
+          </>}
           <label>
             Email
 
@@ -158,6 +208,7 @@ export default function Login() {
 
             <input
               type="password"
+              minLength={signup ? 8 : undefined}
               placeholder="Enter your password"
               value={password}
               onChange={(event) =>
@@ -167,7 +218,7 @@ export default function Login() {
             />
           </label>
 
-          <div className="loginOptions">
+          {!signup && <div className="loginOptions">
             <span />
 
             <button
@@ -178,7 +229,7 @@ export default function Login() {
             >
               Forgot password?
             </button>
-          </div>
+          </div>}
 
           {errorMessage && (
             <p className="loginError">
@@ -199,14 +250,14 @@ export default function Login() {
           >
             {loading
               ? 'Please wait...'
-              : 'Customer Login'}
+              : signup ? 'Create account' : 'Customer Login'}
           </button>
         </form>
 
         <p className="loginHelp">
-          Don't have an account? Recepta
-          accounts are created for active
-          clients.
+          <button type="button" className="forgotPassword" disabled={loading} onClick={() => {
+            setSignup(!signup); setErrorMessage(''); setSuccessMessage('')
+          }}>{signup ? 'Back to customer login' : 'Create a customer account'}</button>
         </p>
       </div>
     </main>

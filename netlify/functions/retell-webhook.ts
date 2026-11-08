@@ -1,3 +1,7 @@
+import { callEmailPreferencesEnabled } from '../lib/emailEnvironment'
+import { captureCallEmailDetails } from '../lib/callEmailCapture'
+import { getRetellApiKey } from '../lib/retellEnvironment'
+import { TRANSFER_EVENTS, storeTransferEvent } from '../lib/transferEvents'
 import { isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 import { createClient } from '@supabase/supabase-js'
 import {
@@ -112,7 +116,7 @@ export default async (
   const supabaseSecretKey =
     process.env.SUPABASE_SECRET_KEY
   const retellApiKey =
-    process.env.RETELL_API_KEY
+    getRetellApiKey()
 
   if (
     !supabaseUrl ||
@@ -144,6 +148,8 @@ export default async (
   let payload: {
     event?: RetellEvent | string
     call?: RetellCall
+    start_timestamp?: number
+    transfer_destination?: unknown
   }
 
   try {
@@ -152,6 +158,12 @@ export default async (
     return json(400, {
       error: 'Invalid JSON payload.',
     })
+  }
+
+  if (TRANSFER_EVENTS.has(payload.event ?? '')) {
+    const db = createClient(supabaseUrl, supabaseSecretKey, { auth: { autoRefreshToken: false, persistSession: false } })
+    try { return await storeTransferEvent(db, payload) }
+    catch { return new Response(null, { status: 503 }) }
   }
 
   if (
@@ -389,7 +401,16 @@ export default async (
       (payload.event === 'call_ended' || payload.event === 'call_analyzed')) ||
     (subscription.plan_name === 'Recepta Pro' && payload.event === 'call_analyzed')
   )
-  if (shouldNotifyOwner) record.owner_notification_requested = true
+  if (shouldNotifyOwner) {
+    record.owner_notification_requested = true
+    if (callEmailPreferencesEnabled()) {
+    const account = await supabaseAdmin.auth.admin.getUserById(agent.client_id)
+    if (account.error || !account.data.user) return json(500, { error: 'Could not load call email preferences; retry this event.' })
+    const capture = captureCallEmailDetails(account.data.user.app_metadata?.recepta_call_email, analysis?.custom_analysis_data, piiRedactionEnabled)
+    record.notification_details = capture
+    if (!record.caller_name && capture.callerName) record.caller_name = capture.callerName
+    }
+  }
   record.retell_agent_id = agentId
 
   const { data: savedCall, error: upsertError } =
@@ -422,6 +443,7 @@ export default async (
   if (shouldNotifyOwner) {
     try {
       await deliverCallNotices(supabaseAdmin, 1, `owner-call:${agent.client_id}:${callId}`)
+      if (callEmailPreferencesEnabled() && payload.event === 'call_analyzed') await deliverCallNotices(supabaseAdmin, 1, `caller-call:${agent.client_id}:${callId}`)
     } catch (notificationError) {
       // The call upsert atomically enqueued the notice. Scheduled retries recover
       // even if this attempt fails or the webhook is never replayed.

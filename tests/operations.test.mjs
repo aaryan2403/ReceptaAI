@@ -120,7 +120,7 @@ test.before(async()=>{
  create table calls(id uuid primary key default gen_random_uuid(),client_id uuid references clients on delete cascade,retell_call_id text unique,call_status text,started_at timestamptz default now(),ended_at timestamptz,duration_seconds integer default 0,caller_name text,caller_number text,transcript text,recording_url text,summary text,outcome text,user_sentiment text,call_successful boolean,appointment_booked boolean default false,retell_agent_id text,disconnection_reason text,updated_at timestamptz default now());
  create table employees(id uuid,client_id uuid,name text,role text,is_active boolean);create table employee_schedules(employee_id uuid,day_of_week integer,is_working boolean,start_time text,end_time text);
  create table appointments(id uuid primary key default gen_random_uuid(),client_id uuid references clients on delete cascade,retell_call_id text,status text default 'pending',appointment_time timestamptz,customer_name text,customer_email text,customer_phone text,company_name text,service text,notes text);`)
- for(const path of ['supabase_add_minute_enforcement.sql','supabase_add_billing_notifications.sql','supabase/migrations/20261014064906_call_notification_outbox.sql','supabase/migrations/20261014174126_protect_call_lifecycle.sql','supabase/migrations/20261014192813_align_minute_enforcement.sql','supabase/migrations/20261014201359_demo_only_call_limit.sql','supabase/migrations/20261016145008_payment_controlled_activation.sql','supabase/migrations/20261017054318_launch_operations.sql','supabase/migrations/20261017054326_restrict_database_access.sql'])await db.exec(await readFile(path,'utf8'))
+ for(const path of ['supabase_add_minute_enforcement.sql','supabase_add_billing_notifications.sql','supabase/migrations/20261014064906_call_notification_outbox.sql','supabase/migrations/20261014174126_protect_call_lifecycle.sql','supabase/migrations/20261014192813_align_minute_enforcement.sql','supabase/migrations/20261014201359_demo_only_call_limit.sql','supabase/migrations/20261016145008_payment_controlled_activation.sql','supabase/migrations/20261017054318_launch_operations.sql','supabase/migrations/20261017054326_restrict_database_access.sql','supabase/migrations/20261108033150_client_call_email_preferences.sql'])await db.exec(await readFile(path,'utf8'))
 })
 test('database grants deny anonymous access, preserve tenant reads, and hide deleting accounts even from an old JWT',async()=>{
  await fixture()
@@ -171,7 +171,7 @@ test('an ambiguous callback retry stops before provider idempotency expires',asy
  await fixture();await callback();await db.exec("update service_jobs set first_send_at=now()-interval '24 hours'")
  await run(globalThis.__operationsDb);assert.equal(state.mail.length,0);assert.equal((await job('callback:'+client+':missed_test')).status,'needs_attention')
 })
-test('failed Stripe cancellation preserves the paused account; retry completes cleanup before deleting Auth',async()=>{
+test('deletion retry removes the Recepta account and assignment while preserving the Retell agent',async()=>{
  await fixture();state.stripeFailure=true
  assert.equal((await deletion(request({clientId:client},'admin'))).status,202)
  assert.equal((await db.query('select deletion_pending from clients where id=$1',[client])).rows[0].deletion_pending,true)
@@ -181,7 +181,13 @@ test('failed Stripe cancellation preserves the paused account; retry completes c
  state.stripeFailure=false;state.providerCalls=[{call_id:'provider_only_call',call_status:'ended'}];await due();await run(globalThis.__operationsDb)
  assert.deepEqual(state.authOps,['ban','delete']);assert.equal((await db.query('select count(*) n from clients where id=$1',[client])).rows[0].n,0)
  assert.equal((await job('delete-client:'+client)).status,'complete');assert.deepEqual((await job('delete-client:'+client)).payload,{})
- assert.ok(state.retellOps.some(x=>x.path==='/v2/delete-call/provider_only_call'));assert.ok(state.retellOps.some(x=>x.path==='/delete-agent/agent_test'))
+ assert.equal((await db.query('select count(*) n from agents where client_id=$1',[client])).rows[0].n,0)
+ assert.deepEqual(state.retellOps.map(({ method, path })=>[method,path]),[
+  ['PATCH','/update-phone-number/%2B14165550100'],
+  ['POST','/v3/list-calls'],
+  ['DELETE','/v2/delete-call/provider_only_call'],
+  ['POST','/v3/list-calls'],
+ ])
 })
 test('Retell cleanup failure retains provider IDs and retries without repeating confirmed Stripe cleanup',async()=>{
  await fixture();state.retellFailure=true;await deletion(request({clientId:client},'admin'));await run(globalThis.__operationsDb)
@@ -189,7 +195,7 @@ test('Retell cleanup failure retains provider IDs and retries without repeating 
  state.retellFailure=false;await due();await run(globalThis.__operationsDb)
  assert.equal(state.stripeOps.filter(x=>x==='cancel').length,1);assert.equal(state.authOps.at(-1),'delete')
 })
-test('manual numbers are detached; a shared Retell agent blocks destructive provider cleanup',async()=>{
+test('numbers are detached; a shared Retell agent blocks ambiguous provider cleanup',async()=>{
  await fixture();await db.query("update agent_phone_numbers set source='manual'");await deletion(request({clientId:client},'admin'));await run(globalThis.__operationsDb)
  assert.ok(state.retellOps.some(x=>x.path.startsWith('/update-phone-number/')));assert.ok(!state.retellOps.some(x=>x.path.startsWith('/delete-phone-number/')))
  await fixture();await db.query("insert into agents(client_id,retell_agent_id,status) values($1,'agent_test','live')",[other]);await deletion(request({clientId:client},'admin'));await run(globalThis.__operationsDb)
@@ -362,4 +368,39 @@ test('deletion waits for an in-progress call without exhausting retries and bloc
  assert.match(pending.last_error,/current call/)
  state.providerCalls=[];await due();await run(globalThis.__operationsDb)
  assert.equal((await job('delete-client:'+client)).status,'complete')
+})
+
+test('staging cleanup cannot cancel live billing or delete resources with an inherited live Stripe key',async()=>{
+ await fixture()
+ const previousKey=process.env.STRIPE_SECRET_KEY,previousMode=process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE
+ process.env.STRIPE_SECRET_KEY='sk_live_synthetic'
+ process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE='true'
+ try{
+  await deletion(request({clientId:client},'admin'))
+  await run(globalThis.__operationsDb)
+  const pending=await job('delete-client:'+client)
+  assert.notEqual(pending.status,'complete')
+  assert.match(pending.last_error,/Stripe cleanup configuration is missing/)
+  assert.equal(state.stripeOps.length,0)
+  assert.equal(state.retellOps.length,0)
+  assert.equal(state.authOps.length,0)
+  assert.equal((await db.query('select count(*) from clients where id=$1',[client])).rows[0].count,1)
+  const result=await operations(new Request('https://synthetic.test',{headers:{authorization:'Bearer admin'}}))
+  assert.equal(result.status,200)
+  assert.equal((await result.json()).configuration.stripe,false)
+ }finally{
+  if(previousKey===undefined)delete process.env.STRIPE_SECRET_KEY;else process.env.STRIPE_SECRET_KEY=previousKey
+  if(previousMode===undefined)delete process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE;else process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE=previousMode
+ }
+})
+
+test('a legacy orphan-number job cannot delete an existing customer or release a provider asset', async () => {
+  await fixture()
+  const key = 'orphan-number:' + client + ':+14165550100'
+  await db.query("insert into service_jobs(job_key,client_id,kind,payload) values($1,$2,'delete_client',$3)", [key, client,
+    { billing_done: true, numbers: [{ number: '+14165550100', source: 'retell' }] }])
+  await run(globalThis.__operationsDb)
+  assert.equal(state.authOps.length, 0)
+  assert.equal(state.retellOps.length, 0)
+  assert.match((await job(key)).last_error, /operator review/)
 })

@@ -1,9 +1,14 @@
+import { provisionSelectedTwilioNumber } from '../lib/twilioNumbers'
+import { getRetellApiKey } from '../lib/retellEnvironment'
 
+import { automaticReceptionConfigured, ensurePaidReceptionAgent } from '../lib/phoneProvisioning'
+import { checked, loadPhoneAccount, withPhoneLock } from '../lib/phoneSetup'
+import { verifyReceptionResources } from '../lib/phoneReception'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { stripeSecretKey as configuredStripeSecretKey, stripeTestModeRequired } from '../lib/stripeEnvironment'
 import {
   purchaseRetellPhoneNumber,
-  releaseRetellPhoneNumber,
   syncRetellPhoneBindings,
   syncRetellSubscription,
 } from '../lib/retell'
@@ -28,11 +33,11 @@ export default async (request: Request) => {
   const supabaseSecretKey =
     process.env.SUPABASE_SECRET_KEY
   const stripeSecretKey =
-    process.env.STRIPE_SECRET_KEY
+    configuredStripeSecretKey()
   const webhookSecret =
     process.env.STRIPE_WEBHOOK_SECRET
   const retellApiKey =
-    process.env.RETELL_API_KEY
+    getRetellApiKey()
 
   if (
     !supabaseUrl ||
@@ -79,6 +84,16 @@ export default async (request: Request) => {
         signature,
         webhookSecret
       )
+
+    if (stripeTestModeRequired() && event.livemode !== false) {
+      return new Response(JSON.stringify({ error: 'Only Stripe test events are accepted in this deployment.' }), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Test payments can exercise billing. Retell purchases and agent creation
+    // require a verified live Stripe event.
+    const liveBillingEvent = event.livemode === true
 
     const supabaseAdmin =
       createClient(
@@ -156,6 +171,7 @@ export default async (request: Request) => {
 
         const clientId =
           session.metadata?.client_id
+        const selectedNumber = session.metadata?.selected_phone_number || ''
         const planName =
           session.metadata?.plan_name
         const aiModelId =
@@ -269,7 +285,11 @@ export default async (request: Request) => {
             }
           }
 
-          const { data: assignedAgent } =
+          const automatic = liveBillingEvent && automaticReceptionConfigured()
+          if (automatic) await ensurePaidReceptionAgent(supabaseAdmin, clientId)
+          const fulfillReception = async () => {
+          if (automatic && !(await loadPhoneAccount(supabaseAdmin, clientId)).paid) return
+          const { data: assignedAgent, error: assignedAgentError } =
             await supabaseAdmin
               .from('agents')
               .select(
@@ -278,14 +298,10 @@ export default async (request: Request) => {
               .eq('client_id', clientId)
               .maybeSingle()
 
-          if (
-            assignedAgent?.retell_agent_id
-          ) {
-            if (!retellApiKey) {
-              throw new Error(
-                'RETELL_API_KEY is missing.'
-              )
-            }
+          let receptionReady = false
+          if (assignedAgentError) throw assignedAgentError
+          if (liveBillingEvent && assignedAgent?.retell_agent_id && !retellApiKey) throw new Error('Retell is not configured.')
+          if (assignedAgent?.retell_agent_id && retellApiKey) {
 
             const phonePurchase = normalizePhonePurchase({
               count: extraPhoneNumbers + 1,
@@ -299,15 +315,25 @@ export default async (request: Request) => {
             const phoneNumbers = phoneRows.map(
               (row) => row.phone_number
             )
-            const numbersToPurchase = Math.max(
-              0,
-              phonePurchase.purchaseCount - phoneNumbers.length
-            )
+            if (automatic) await verifyReceptionResources(retellApiKey, assignedAgent.retell_agent_id, phoneNumbers)
+            if (liveBillingEvent) {
+              const pending = checked(await supabaseAdmin.from('phone_provisioning').select('pending_number').eq('client_id', clientId).maybeSingle())
+              if (pending?.pending_number && phoneNumbers.includes(pending.pending_number)) checked(await supabaseAdmin.from('phone_provisioning').update({ number_state: 'idle', pending_number: null, twilio_number_sid: null, number_import_state: 'idle' }).eq('client_id', clientId))
+            }
+            const numbersToPurchase = liveBillingEvent
+              ? Math.max(0, phonePurchase.purchaseCount - phoneNumbers.length)
+              : 0
 
             for (let index = 0; index < numbersToPurchase; index += 1) {
               if (await isDeletingClient(supabaseAdmin,clientId)) return new Response(null,{ status:200 })
-              const purchasedPhoneNumber =
-                await purchaseRetellPhoneNumber({
+              const purchaseJournal = checked(await supabaseAdmin.from('phone_provisioning').select('*').eq('client_id', clientId).maybeSingle())
+              if ((purchaseJournal?.number_state === 'purchasing' && !purchaseJournal.twilio_number_sid) || purchaseJournal?.number_state === 'review') throw new Error('Number purchase needs reconciliation; duplicate purchase blocked.')
+              if (!purchaseJournal?.pending_number) checked(await supabaseAdmin.from('phone_provisioning').upsert({
+                client_id: clientId, state: purchaseJournal?.state ?? 'assigned', agent_id: assignedAgent.retell_agent_id, number_state: 'purchasing',
+              }, { onConflict: 'client_id' }))
+              const purchasedPhoneNumber = selectedNumber
+                ? await provisionSelectedTwilioNumber(supabaseAdmin, clientId, assignedAgent.retell_agent_id, selectedNumber, purchaseJournal)
+                : purchaseJournal?.pending_number ?? await purchaseRetellPhoneNumber({
                   apiKey: retellApiKey,
                   agentId: assignedAgent.retell_agent_id,
                   countryCode: phonePurchase.countryCode,
@@ -317,38 +343,25 @@ export default async (request: Request) => {
                   }`,
                 })
 
+              checked(await supabaseAdmin.from('phone_provisioning').update({ number_state: 'received', pending_number: purchasedPhoneNumber }).eq('client_id', clientId))
+
               const { error: saveNumberError } = await supabaseAdmin
                 .from('agent_phone_numbers')
                 .insert({
                   client_id: clientId,
                   phone_number: purchasedPhoneNumber,
                   is_primary: phoneNumbers.length === 0,
-                  source: 'retell',
+                  source: selectedNumber ? 'manual' : 'retell',
                 })
 
               if (saveNumberError) {
-                try {
-                  await releaseRetellPhoneNumber({
-                    apiKey: retellApiKey,
-                    phoneNumber: purchasedPhoneNumber,
-                  })
-                } catch (releaseError) {
-                  // Keep a cleanup task even if account deletion has already
-                  // removed its normal number ledger or this release failed.
-                  const orphan=await supabaseAdmin.from('service_jobs').upsert({
-                    job_key:`orphan-number:${clientId}:${purchasedPhoneNumber}`,client_id:clientId,kind:'delete_client',
-                    payload:{ billing_done:true,agent_id:null,numbers:[{ number:purchasedPhoneNumber,source:'retell' }] },
-                  },{ onConflict:'job_key',ignoreDuplicates:true })
-                  if (orphan.error) throw orphan.error
-                  console.error(
-                    'Could not roll back an untracked Retell number:',
-                    releaseError
-                  )
-                }
-
+                checked(await supabaseAdmin.from('phone_provisioning').update({
+                  number_state: 'review', pending_number: purchasedPhoneNumber,
+                }).eq('client_id', clientId))
                 throw saveNumberError
               }
 
+              checked(await supabaseAdmin.from('phone_provisioning').update({ number_state: 'idle', pending_number: null, twilio_number_sid: null, number_import_state: 'idle' }).eq('client_id', clientId))
               phoneNumbers.push(purchasedPhoneNumber)
             }
 
@@ -362,7 +375,7 @@ export default async (request: Request) => {
 
             if (primaryPhoneError) throw primaryPhoneError
 
-            await syncRetellSubscription({
+            const synchronization = await syncRetellSubscription({
               apiKey: retellApiKey,
               agentId:
                 assignedAgent.retell_agent_id,
@@ -374,12 +387,14 @@ export default async (request: Request) => {
               safetyGuardrailsEnabled,
               aiModelId,
             })
+            if (synchronization.phoneBindingResults?.some(result => !result.updated)) {
+              throw new Error('A Retell number could not be connected. The paid assignment is preserved for retry.')
+            }
+            receptionReady = Boolean(primaryPhoneNumber)
+
           }
 
-          const restoredStatus =
-            assignedAgent?.retell_agent_id
-              ? 'live'
-              : 'setup'
+          const restoredStatus = receptionReady ? 'live' : 'setup'
 
           const [
             clientRestore,
@@ -406,6 +421,9 @@ export default async (request: Request) => {
           if (agentRestore.error) {
             throw agentRestore.error
           }
+          }
+          if (liveBillingEvent) await withPhoneLock(supabaseAdmin, clientId, fulfillReception)
+          else await fulfillReception()
         }
       }
     }
@@ -591,13 +609,8 @@ export default async (request: Request) => {
           (row) => row.phone_number
         )
 
-        if (assignedAgent?.retell_agent_id) {
-          if (!retellApiKey) {
-            throw new Error(
-              'RETELL_API_KEY is missing.'
-            )
-          }
-
+        if (liveBillingEvent && assignedAgent?.retell_agent_id && !retellApiKey) throw new Error('Retell is not configured.')
+        if (assignedAgent?.retell_agent_id && retellApiKey) {
           await syncRetellSubscription({
             apiKey: retellApiKey,
             agentId:
@@ -610,51 +623,7 @@ export default async (request: Request) => {
           })
         }
 
-        const purchasedRows = phoneRows.filter(
-          (row) => row.source === 'retell'
-        )
 
-        if (purchasedRows.length > 0) {
-          if (!retellApiKey) {
-            throw new Error('RETELL_API_KEY is missing.')
-          }
-
-          for (const row of purchasedRows) {
-            await releaseRetellPhoneNumber({
-              apiKey: retellApiKey,
-              phoneNumber: row.phone_number,
-            })
-
-            const { error: deleteNumberError } = await supabaseAdmin
-              .from('agent_phone_numbers')
-              .delete()
-              .eq('client_id', clientId)
-              .eq('phone_number', row.phone_number)
-
-            if (deleteNumberError) throw deleteNumberError
-          }
-        }
-
-        const remainingNumbers = phoneRows
-          .filter((row) => row.source !== 'retell')
-          .map((row) => row.phone_number)
-
-        if (remainingNumbers[0]) {
-          const { error: primaryRowError } = await supabaseAdmin
-            .from('agent_phone_numbers')
-            .update({ is_primary: true })
-            .eq('client_id', clientId)
-            .eq('phone_number', remainingNumbers[0])
-
-          if (primaryRowError) throw primaryRowError
-        }
-
-        const { error: primaryPhoneError } = await supabaseAdmin
-          .from('agents')
-          .update({ phone_number: remainingNumbers[0] ?? null })
-          .eq('client_id', clientId)
-
-        if (primaryPhoneError) throw primaryPhoneError
       }
     }
 

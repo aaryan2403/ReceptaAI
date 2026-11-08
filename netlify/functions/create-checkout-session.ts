@@ -1,6 +1,11 @@
+import { searchTwilioNumbers, selectedNumbersConfigured } from '../lib/twilioNumbers'
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
-import { randomBytes } from 'node:crypto'
+import { stripeTestModeRequired, stripeSecretKey as configuredStripeSecretKey } from '../lib/stripeEnvironment'
+import { createHash } from 'node:crypto'
+import { automaticReceptionConfigured } from '../lib/phoneProvisioning'
+import { phoneFeatureEnabled } from '../lib/phoneSetup'
 import { normalizePhonePurchase } from '../lib/phoneNumbers'
 
 const MAX_MONTHLY_MINUTES = 100_000_000
@@ -21,15 +26,15 @@ export default async (request: Request) => {
     const supabaseSecretKey =
       process.env.SUPABASE_SECRET_KEY
     const stripeSecretKey =
-      process.env.STRIPE_SECRET_KEY
+      configuredStripeSecretKey()
     const retellApiKey =
-      process.env.RETELL_API_KEY
+      getRetellApiKey()
 
     if (
       !supabaseUrl ||
       !supabaseSecretKey ||
       !stripeSecretKey ||
-      !retellApiKey
+      (!retellApiKey && !stripeTestModeRequired())
     ) {
       return new Response(
         JSON.stringify({
@@ -86,7 +91,7 @@ export default async (request: Request) => {
       )
     }
 
-    const { monthlyMinutes } = await request.json()
+    const { monthlyMinutes, phonePreferences } = await request.json()
 
     const minutes = Number(monthlyMinutes)
 
@@ -165,6 +170,7 @@ export default async (request: Request) => {
     if (
       replacingSubscriptionId &&
       !currentSubscription.pending_configuration &&
+      (!phoneFeatureEnabled() || phonePreferences?.extraNumbers === undefined || phonePreferences.extraNumbers === currentSubscription.extra_phone_numbers) &&
       Number(currentSubscription.monthly_minutes) === Math.floor(minutes)
     ) {
       return new Response(
@@ -198,7 +204,7 @@ export default async (request: Request) => {
     const { data: assignedAgent, error: agentError } =
       await supabaseAdmin
         .from('agents')
-        .select('retell_agent_id')
+        .select('retell_agent_id,phone_number')
         .eq('client_id', user.id)
         .maybeSingle()
 
@@ -212,7 +218,7 @@ export default async (request: Request) => {
       )
     }
 
-    if (!assignedAgent?.retell_agent_id) {
+    if (!assignedAgent?.retell_agent_id && !automaticReceptionConfigured() && !stripeTestModeRequired()) {
       return new Response(
         JSON.stringify({
           error:
@@ -284,10 +290,33 @@ export default async (request: Request) => {
     const safetyGuardrails =
       configuration.safety_guardrails_enabled === true
 
-    const extraPhoneNumbers =
-      Number(
-        configuration.extra_phone_numbers ?? 0
-      )
+    const existingExtraNumbers = Number(configuration.extra_phone_numbers ?? 0)
+    const preferences = phoneFeatureEnabled() ? phonePreferences : undefined
+    if (preferences && (!['CA', 'US'].includes(preferences.country) ||
+      !Number.isInteger(preferences.extraNumbers) || preferences.extraNumbers < existingExtraNumbers)) {
+      return new Response(JSON.stringify({ error: 'Choose a supported country and keep your existing numbers.' }), { status: 400 })
+    }
+    const extraPhoneNumbers = preferences?.extraNumbers ?? existingExtraNumbers
+    const selectedNumber = typeof preferences?.selectedNumber === 'string' ? preferences.selectedNumber : ''
+    if (selectedNumber) {
+      if (preferences.purchaseConfirmed !== true || !selectedNumbersConfigured() ||
+        !/^\+1[2-9]\d{9}$/.test(selectedNumber)) {
+        return new Response(JSON.stringify({ error: 'Confirm the selected-number purchase and its charges before Checkout.' }), { status: 400 })
+      }
+      const { data: owned, error: ownedError } = await supabaseAdmin.from('agent_phone_numbers').select('phone_number').eq('client_id', user.id)
+      if (ownedError) throw ownedError
+      const ownedNumbers = new Set([...(owned ?? []).map(row => row.phone_number), assignedAgent?.phone_number].filter(Boolean))
+      const newCount = extraPhoneNumbers + 1 - ownedNumbers.size
+      if (newCount !== 1) return new Response(JSON.stringify({ error: 'Select one new number per Checkout. Keep your existing number quantity and add one when ordering another.' }), { status: 400 })
+      const assignedNumbers = await Promise.all([
+        supabaseAdmin.from('agent_phone_numbers').select('client_id').eq('phone_number', selectedNumber).limit(1),
+        supabaseAdmin.from('agents').select('client_id').eq('phone_number', selectedNumber).limit(1),
+      ])
+      if (assignedNumbers.some(result => result.error || result.data?.length)) return new Response(JSON.stringify({ error: 'That number is already assigned or its ownership could not be verified.' }), { status: 409 })
+      const available = await searchTwilioNumbers(preferences.country, '', selectedNumber)
+      if (!available.some(row => row.number === selectedNumber)) return new Response(JSON.stringify({ error: 'That number is no longer available. Search again before paying.' }), { status: 409 })
+    }
+
 
     if (
       !Number.isInteger(extraPhoneNumbers) ||
@@ -311,8 +340,8 @@ export default async (request: Request) => {
     try {
       phonePurchase = normalizePhonePurchase({
         count: extraPhoneNumbers + 1,
-        countryCode: configuration.phone_number_country ?? 'CA',
-        areaCode: configuration.phone_number_area_code ?? null,
+        countryCode: preferences?.country ?? configuration.phone_number_country ?? 'CA',
+        areaCode: preferences?.areaCode ?? configuration.phone_number_area_code ?? null,
       })
     } catch (error) {
       return new Response(
@@ -378,11 +407,10 @@ export default async (request: Request) => {
       new Stripe(stripeSecretKey)
 
     const origin =
-      request.headers.get('origin') ||
-      process.env.URL ||
-      'http://localhost:5173'
+      new URL(process.env.RECEPTA_APP_URL || process.env.URL || request.url).origin
 
     const metadata = {
+      selected_phone_number: selectedNumber,
       quote_revision: String(currentSubscription.configuration_revision ?? 0),
       client_id: user.id,
       plan_name: planName,
@@ -439,10 +467,11 @@ export default async (request: Request) => {
         : null,
     ].filter(Boolean)
 
+    const checkoutKey = createHash('sha256').update(JSON.stringify([metadata, origin, currentSubscription.stripe_customer_id ?? user.email])).digest('hex')
     const checkoutSession =
       await stripe.checkout.sessions.create({
         mode: 'subscription',
-        integration_identifier: `recepta_checkout_${Array.from(randomBytes(8), (byte) => String.fromCharCode(97 + byte % 26)).join('')}`,
+        integration_identifier: `recepta_checkout_${checkoutKey.slice(0, 8).replace(/[0-9]/g, digit => String.fromCharCode(97 + Number(digit)))}`,
         customer:
           currentSubscription.stripe_customer_id || undefined,
         customer_email:
@@ -480,7 +509,7 @@ export default async (request: Request) => {
         subscription_data: {
           metadata,
         },
-      })
+      }, { idempotencyKey: 'recepta-checkout-' + checkoutKey })
 
     if (!checkoutSession.url) {
       return new Response(

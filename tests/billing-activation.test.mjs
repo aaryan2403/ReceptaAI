@@ -8,7 +8,7 @@ import { build } from 'esbuild'
 // These tests never charge a card, buy a number, send mail or change live data.
 const client = '00000000-0000-0000-0000-000000000001'
 const newClient = '00000000-0000-0000-0000-000000000002'
-let db, checkoutBody, event, stripeCalls
+let db, checkoutBody, checkoutOptions, event, stripeCalls, stripeApiKeys
 const period = { start: Math.floor(Date.now() / 1000) - 3600, end: Math.floor(Date.now() / 1000) + 29 * 86400 }
 const quote = name => '"' + name.replaceAll('"', '""') + '"'
 const query = table => {
@@ -22,7 +22,7 @@ const query = table => {
         rows = []
         for (const row of entries) {
           const keys = Object.keys(row)
-          const sql = `insert into ${quote(table)} (${keys.map(quote).join(',')}) values (${keys.map((_, i) => '$' + (i + 1)).join(',')}) ${conflict ? `on conflict (${quote(conflict)}) do nothing` : ''} returning *`
+          const sql = `insert into ${quote(table)} (${keys.map(quote).join(',')}) values (${keys.map((_, i) => '$' + (i + 1)).join(',')}) ${conflict ? `on conflict (${quote(conflict)}) ${table==='phone_provisioning'?'do update set '+keys.map(key=>quote(key)+'=excluded.'+quote(key)).join(','):'do nothing'}` : ''} returning *`
           rows.push(...(await db.query(sql, keys.map(key => row[key]))).rows)
         }
       } else if (action === 'update' || action === 'delete') {
@@ -64,13 +64,15 @@ globalThis.__paymentDb = {
       if (name === 'configure_recepta_subscription') return { data: (await db.query('select * from configure_recepta_subscription($1,$2)', [args.p_client_id, args.p_configuration])).rows, error: null }
       if (name === 'activate_recepta_checkout') return { data: (await db.query('select * from activate_recepta_checkout($1,$2,$3,$4,$5,$6,$7)', [args.p_client_id, args.p_stripe_subscription_id, args.p_customer_id, args.p_period_start, args.p_period_end, args.p_configuration, args.p_replaces_subscription_id])).rows, error: null }
       if (name === 'recepta_period_usage') return { data: (await db.query('select recepta_period_usage($1,$2,$3) used', [args.p_client_id, args.p_period_start, args.p_period_end])).rows[0].used, error: null }
+      if (['acquire_phone_lock','assign_recepta_provisioned_agent','register_recepta_agent_llm'].includes(name)) return { data:(await db.query(`select ${name}(${Object.keys(args).map((key,i)=>key+'=>$'+(i+1)).join(',')}) result`,Object.values(args))).rows[0].result,error:null }
       throw new Error('Unexpected RPC: ' + name)
     } catch (error) { return { data: null, error: { message: error.message } } }
   },
 }
 globalThis.__paymentStripe = class {
+  constructor(apiKey) { stripeApiKeys.push(apiKey) }
   customers = { create: async () => { stripeCalls.push('customer-create'); return { id: 'cus_new' } }, del: async () => {} }
-  checkout = { sessions: { create: async body => { checkoutBody = body; return { url: 'https://checkout.stripe.test/synthetic' } } } }
+  checkout = { sessions: { create: async (body, options) => { checkoutBody = body; checkoutOptions = options; return { url: 'https://checkout.stripe.test/synthetic' } } } }
   webhooks = { constructEvent: () => event }
   subscriptions = {
     retrieve: async id => ({ id, status: 'active' }),
@@ -94,7 +96,7 @@ const compile = async file => {
       export const syncRetellSubscription = async options => { globalThis.__paymentRetell.push({ kind:'subscription', ...options }); return { agentUpdated:options.active } };
       export const syncRetellPhoneBindings = async options => { globalThis.__paymentRetell.push({ kind:'binding', ...options }); return [] };
       export const purchaseRetellPhoneNumber = async options => { globalThis.__paymentRetell.push({ kind:'purchase', ...options }); return '+14165550999' };
-      export const releaseRetellPhoneNumber = async () => {};
+
     ` : 'export const createClient = () => globalThis.__paymentDb' }))
   } }] })
   return (await import('data:text/javascript;base64,' + Buffer.from(output.outputFiles[0].text).toString('base64'))).default
@@ -120,7 +122,7 @@ const editBody = { clientId: client, companyName: 'Synthetic company', email: 'o
 const sub = async id => (await db.query('select * from subscriptions where client_id=$1', [id ?? client])).rows[0]
 const configure = async value => (await db.query('select * from configure_recepta_subscription($1,$2)', [client, value])).rows[0]
 const fixture = async (paid = true) => {
-  stripeCalls = []; checkoutBody = null; globalThis.__paymentRetell = []
+  stripeCalls = []; stripeApiKeys = []; checkoutBody = null; globalThis.__paymentRetell = []
   await db.exec('truncate billing_notifications, call_minute_reservations, calls, agent_phone_numbers, agents, subscriptions, clients cascade')
   await db.query("insert into clients(id,company_name,contact_email,status,role) values($1,'Synthetic company','owner@example.test','live','client')", [client])
   await db.query(`insert into subscriptions(client_id,plan_name,monthly_price,monthly_minutes,ai_model_id,pii_redaction_enabled,safety_guardrails_enabled,extra_phone_numbers,status,stripe_subscription_id,stripe_customer_id,current_period_start,current_period_end)
@@ -133,7 +135,7 @@ test.before(async () => {
   await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
     alter default privileges in schema public grant all on tables to anon,authenticated,service_role;
     alter default privileges in schema public grant execute on functions to anon,authenticated,service_role;
-    create table clients(id uuid primary key,company_name text,contact_email text,status text,role text);
+    create table clients(id uuid primary key,company_name text,contact_email text,status text,role text,deletion_pending boolean default false);
     create table subscriptions(id uuid primary key default gen_random_uuid(),client_id uuid unique references clients,
       plan_name text,monthly_price numeric,monthly_minutes integer default 300,ai_model_id text,
       pii_redaction_enabled boolean default false,safety_guardrails_enabled boolean default false,extra_phone_numbers integer default 0,
@@ -141,11 +143,13 @@ test.before(async () => {
     create table agents(client_id uuid primary key,retell_agent_id text,agent_name text,phone_number text,business_hours text,status text);
     create table agent_phone_numbers(client_id uuid,phone_number text,is_primary boolean,source text,created_at timestamptz default now());
     create table calls(id uuid primary key default gen_random_uuid(),client_id uuid,retell_call_id text,call_status text,duration_seconds integer,started_at timestamptz,ended_at timestamptz);
+    create table callback_requests(id uuid primary key default gen_random_uuid(),client_id uuid,retell_call_id text unique,caller_number text,called_number text,reason text,created_at timestamptz default now());
+    create table service_jobs(job_key text unique,client_id uuid,kind text,payload jsonb);
     create table employees(id uuid,client_id uuid,name text,role text,is_active boolean);
     create table employee_schedules(employee_id uuid,day_of_week integer,is_working boolean,start_time text,end_time text);
     create table ai_models(id text,customer_price_per_minute_cad numeric,is_active boolean,display_name text);
     insert into ai_models values('essential',0.117,true,'Essential'),('premium',0.217,true,'Premium');`)
-  for (const path of ['supabase_add_minute_enforcement.sql','supabase_add_billing_notifications.sql','supabase/migrations/20261014192813_align_minute_enforcement.sql','supabase/migrations/20261014201359_demo_only_call_limit.sql','supabase/migrations/20261016145008_payment_controlled_activation.sql']) await db.exec(await readFile(path,'utf8'))
+  for (const path of ['supabase_add_minute_enforcement.sql','supabase_add_billing_notifications.sql','supabase/migrations/20261014192813_align_minute_enforcement.sql','supabase/migrations/20261014201359_demo_only_call_limit.sql','supabase/migrations/20261016145008_payment_controlled_activation.sql','supabase/migrations/20261102183345_phone_setup_verified_transfers.sql','supabase/migrations/20261105025833_phone_transfer_schedules_and_call_tests.sql','supabase/migrations/20261105030353_paid_reception_provisioning.sql','supabase/migrations/20261107051800_selected_twilio_numbers.sql']) await db.exec(await readFile(path,'utf8'))
 })
 test.after(async () => { await db.close() })
 
@@ -175,6 +179,23 @@ test('admin upgrades are quotes: paid allowance, period, subscription and live A
   const sync = globalThis.__paymentRetell.find(call => call.kind === 'subscription')
   assert.equal(sync.aiModelId, 'essential'); assert.equal(sync.piiRedactionEnabled, false)
   assert.equal((await db.query("select * from reserve_recepta_agent_call($1,'before_upgrade','agent_test')",[client])).rows[0].reserved_seconds, 3600)
+})
+
+test('all admin assignment routes reject an agent already assigned to another customer before side effects',async()=>{
+ await fixture()
+ const before=await sub()
+ const createResponse=await create(request({companyName:'Second customer',email:'second@example.test',password:'synthetic-only-password',planName:'Recepta Standard',monthlyMinutes:300,aiModelId:'essential',retellAgentId:'agent_test'}))
+ assert.equal(createResponse.status,400)
+ assert.match((await createResponse.json()).error,/already assigned/)
+ assert.equal((await db.query('select count(*)::int n from clients')).rows[0].n,1)
+ assert.equal(stripeCalls.length,0)
+ await db.query("insert into agents(client_id,retell_agent_id,status) values($1,'agent_other','setup')",[newClient])
+ for(const response of [await edit(request({...editBody,retellAgentId:'agent_other'})),await assignAgent(request({clientId:client,retellAgentId:'agent_other'}))]) {
+  assert.equal(response.status,400);assert.match((await response.json()).error,/already assigned/)
+ }
+ assert.deepEqual(await sub(),before)
+ assert.equal((await db.query('select retell_agent_id from agents where client_id=$1',[client])).rows[0].retell_agent_id,'agent_test')
+ assert.equal(globalThis.__paymentRetell.length,0)
 })
 
 test('reactivation and legacy plan updates cannot grant unpaid access', async () => {
@@ -223,7 +244,7 @@ test('unpaid Checkout stays pending; verified paid Checkout applies exactly once
   await fixture(false)
   await configure({ ...configuration, plan_name: 'Recepta Pro', monthly_price: 306.02 })
   assert.equal((await checkout(request({ monthlyMinutes: 60 }, false))).status, 200)
-  event = { type: 'checkout.session.completed', data: { object: { mode: 'subscription', payment_status: 'unpaid', subscription: 'sub_after_payment', customer: 'cus_original', invoice: 'in_synthetic', metadata: checkoutBody.metadata } } }
+  event = { type: 'checkout.session.completed', livemode: true, data: { object: { mode: 'subscription', payment_status: 'unpaid', subscription: 'sub_after_payment', customer: 'cus_original', invoice: 'in_synthetic', metadata: checkoutBody.metadata } } }
   assert.equal((await webhook(request({}))).status, 200)
   assert.equal((await sub()).status, 'pending')
   event.data.object.payment_status = 'paid'
@@ -245,6 +266,84 @@ test('a newer quote survives an older paid Checkout and payment replay cannot er
   assert.equal((await sub()).pending_configuration.monthly_minutes, 300)
   await activate()
   assert.equal((await sub()).pending_configuration.monthly_minutes, 300)
+})
+
+test('a future customer receives the included first number only after verified payment, without creating an agent',async()=>{
+ await fixture(false)
+ await db.exec('delete from agent_phone_numbers;update agents set phone_number=null')
+ await configure(configuration)
+ assert.equal((await checkout(request({monthlyMinutes:60},false))).status,200)
+ assert.equal(checkoutBody.metadata.extra_phone_numbers,'0')
+ event={type:'checkout.session.completed',livemode:true,data:{object:{mode:'subscription',payment_status:'unpaid',subscription:'sub_after_payment',customer:'cus_original',invoice:'in_synthetic',metadata:checkoutBody.metadata}}}
+ assert.equal((await webhook(request({}))).status,200)
+ assert.equal(globalThis.__paymentRetell.filter(op=>op.kind==='purchase').length,0)
+ event.data.object.payment_status='paid'
+ assert.equal((await webhook(request({}))).status,200)
+ assert.equal((await webhook(request({}))).status,200)
+ assert.equal(globalThis.__paymentRetell.filter(op=>op.kind==='purchase').length,1)
+ assert.equal((await db.query('select phone_number from agent_phone_numbers where client_id=$1',[client])).rows[0].phone_number,'+14165550999')
+ assert.equal((await db.query('select retell_agent_id from agents where client_id=$1',[client])).rows[0].retell_agent_id,'agent_test')
+ assert.equal((await sub()).status,'active')
+})
+
+test('live subscription cancellation pauses service and preserves the paid number assignment', async () => {
+  await fixture()
+  await db.exec("update agent_phone_numbers set source='retell'")
+  event = { type: 'customer.subscription.deleted', livemode: true, data: { object: { id: 'sub_original' } } }
+  const response = await webhook(request({}))
+  assert.equal(response.status, 200, await response.text())
+  assert.equal((await sub()).status, 'cancelled')
+  assert.deepEqual((await db.query('select phone_number, source from agent_phone_numbers where client_id=$1', [client])).rows,
+    [{ phone_number: '+14165550100', source: 'retell' }])
+  assert.equal(globalThis.__paymentRetell.some(operation => operation.kind === 'subscription' && operation.active === false), true)
+})
+
+test('staging Checkout and webhooks use the sandbox key and preserve Retell numbers', async (t) => {
+  const stagingEnvironment = {
+    RECEPTA_REQUIRE_STRIPE_TEST_MODE: 'true',
+    STRIPE_SECRET_KEY: 'sk_live_synthetic',
+    STRIPE_STAGING_SECRET_KEY: 'sk_test_synthetic_staging',
+    RETELL_STAGING_API_KEY: 'synthetic-staging-retell',
+  }
+  const previous = Object.fromEntries(Object.keys(stagingEnvironment).map(key => [key, process.env[key]]))
+  Object.assign(process.env, stagingEnvironment)
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
+
+  await fixture(false)
+  await db.exec("update agent_phone_numbers set source='retell'")
+  await configure({ ...configuration, monthly_price: 227.02, extra_phone_numbers: 1 })
+  assert.equal((await checkout(request({ monthlyMinutes: 60 }, false))).status, 200)
+  assert.equal(checkoutBody.metadata.extra_phone_numbers, '1')
+  event = {
+    type: 'checkout.session.completed',
+    livemode: false,
+    data: { object: {
+      mode: 'subscription', payment_status: 'paid', subscription: 'sub_after_payment',
+      customer: 'cus_original', invoice: 'in_synthetic', metadata: checkoutBody.metadata,
+    } },
+  }
+  assert.equal((await webhook(request({}))).status, 200)
+  assert.equal((await sub()).status, 'active')
+  assert.equal(globalThis.__paymentRetell.some(operation => operation.kind === 'purchase'), false)
+
+  event = {
+    type: 'customer.subscription.deleted',
+    livemode: false,
+    data: { object: { id: 'sub_after_payment' } },
+  }
+  assert.equal((await webhook(request({}))).status, 200)
+  assert.equal((await sub()).status, 'cancelled')
+  assert.equal(globalThis.__paymentRetell.some(operation => operation.kind === 'release'), false)
+  const retained = await db.query('select phone_number, source from agent_phone_numbers where client_id=$1', [client])
+  assert.deepEqual(retained.rows, [{ phone_number: '+14165550100', source: 'retell' }])
+  const agent = await db.query('select phone_number, status from agents where client_id=$1', [client])
+  assert.deepEqual(agent.rows, [{ phone_number: '+14165550100', status: 'paused' }])
+  assert.deepEqual(stripeApiKeys, Array(3).fill(stagingEnvironment.STRIPE_STAGING_SECRET_KEY))
 })
 
 test('a regular paid renewal preserves the pending quote and renews only the paid configuration', async () => {
@@ -281,4 +380,86 @@ test('quotes cannot set payment fields; public roles cannot configure; active ac
   }
   assert.equal((await edit(request(editBody,false))).status, 403)
   assert.equal((await phones(request({ clientId: client, quantity: 1 },false))).status, 403)
+})
+
+
+test('approved paid workflow creates a dedicated agent and one first number, then safely replays',async()=>{
+ await fixture(false)
+ await db.exec('delete from agent_phone_numbers;delete from agents')
+ await configure(configuration)
+ process.env.RECEPTA_PHONE_SETUP_ENABLED='true';process.env.RECEPTA_AUTO_PROVISION_ENABLED='true';process.env.RETELL_ONBOARDING_TEMPLATE_AGENT_ID='agent_template'
+ const originalFetch=globalThis.fetch,requests=[]
+ globalThis.fetch=async(url,options={})=>{
+  const path=new URL(url).pathname;requests.push(path)
+  const response=path.startsWith('/get-agent/')?{agent_id:decodeURIComponent(path.split('/').at(-1)),voice_id:'voice_fixture',response_engine:{type:'retell-llm',llm_id:'llm_template',version:1}}
+   :path.startsWith('/get-retell-llm/')?{model:'gpt-4.1',general_prompt:'You are a receptionist for {{recepta_company_name}}.',general_tools:[{type:'end_call',name:'end_call'}]}
+   :path.startsWith('/get-phone-number/')?{phone_number:decodeURIComponent(path.split('/').at(-1)),inbound_agents:[]}
+   :path==='/create-retell-llm'?{llm_id:'llm_new_fixture'}:{agent_id:'agent_new_fixture'}
+  return new Response(JSON.stringify(response))
+ }
+ try{
+  assert.equal((await checkout(request({monthlyMinutes:60},false))).status,200)
+  assert.equal(requests.length,0)
+  event={type:'checkout.session.completed',livemode:true,data:{object:{mode:'subscription',payment_status:'unpaid',subscription:'sub_after_payment',customer:'cus_original',invoice:'in_synthetic',metadata:checkoutBody.metadata}}}
+  assert.equal((await webhook(request({}))).status,200);assert.equal(requests.length,0)
+  event.data.object.payment_status='paid'
+  const response=await webhook(request({}))
+  assert.equal(response.status,200,await response.text())
+  assert.equal((await webhook(request({}))).status,200)
+  assert.equal(requests.filter(path=>path==='/create-agent').length,1)
+  assert.equal(requests.filter(path=>path==='/create-retell-llm').length,1)
+  assert.equal(globalThis.__paymentRetell.filter(op=>op.kind==='purchase').length,1)
+  assert.equal((await db.query('select retell_agent_id from agents')).rows[0].retell_agent_id,'agent_new_fixture')
+  assert.equal((await db.query('select number_state from phone_provisioning')).rows[0].number_state,'idle')
+ }finally{globalThis.fetch=originalFetch;delete process.env.RECEPTA_PHONE_SETUP_ENABLED;delete process.env.RECEPTA_AUTO_PROVISION_ENABLED;delete process.env.RETELL_ONBOARDING_TEMPLATE_AGENT_ID}
+})
+
+
+test('exact-number Checkout checks inventory, confirms price and resumes paid fulfillment without duplicate purchases', async (t) => {
+  await fixture(false)
+  await db.exec('delete from agent_phone_numbers;update agents set phone_number=null')
+  await configure(configuration)
+  const settings = {
+    RECEPTA_PHONE_SETUP_ENABLED: 'true', RECEPTA_TWILIO_NUMBERS_ENABLED: 'true',
+    TWILIO_ACCOUNT_SID: 'AC'+'a'.repeat(32), TWILIO_AUTH_TOKEN: 'synthetic',
+    TWILIO_TRUNK_SID: 'TK'+'b'.repeat(32), TWILIO_TERMINATION_URI: 'fixture.pstn.twilio.com',
+    TWILIO_TRUNK_USERNAME: 'synthetic', TWILIO_TRUNK_PASSWORD: 'synthetic', RECEPTA_APP_URL: 'https://recepta.test',
+  }
+  const before = Object.fromEntries(Object.keys(settings).map(key => [key, process.env[key]]))
+  Object.assign(process.env, settings)
+  const originalFetch = globalThis.fetch
+  let imported = false
+  const providerRequests = []
+  const number = '+12125550101'
+  globalThis.fetch = async (url, options = {}) => {
+    providerRequests.push({ url, method: options.method ?? 'GET' })
+    if (url.includes('AvailablePhoneNumbers')) return new Response(JSON.stringify({ available_phone_numbers: [{ phone_number: number, capabilities: { voice: true } }] }))
+    if (url.includes('IncomingPhoneNumbers')) return new Response(JSON.stringify({ sid:'PN'+'c'.repeat(32),phone_number:number,account_sid:settings.TWILIO_ACCOUNT_SID,trunk_sid:settings.TWILIO_TRUNK_SID }))
+    if (url.includes('/get-phone-number/')) return imported ? new Response(JSON.stringify({ phone_number:number,inbound_webhook_url:'https://recepta.test/.netlify/functions/retell-inbound',sip_outbound_trunk_config:{ termination_uri:settings.TWILIO_TERMINATION_URI },outbound_agents:[{ agent_id:'agent_test' }] })) : new Response('{}',{status:404})
+    if (url.endsWith('/import-phone-number')) { imported=true;return new Response(JSON.stringify({phone_number:number})) }
+    throw new Error('Unexpected provider request')
+  }
+  t.after(() => {
+    globalThis.fetch = originalFetch
+    for (const [key,value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
+  const body = { monthlyMinutes:60, phonePreferences:{country:'US',extraNumbers:0,selectedNumber:number,purchaseConfirmed:true} }
+  assert.equal((await checkout(request(body,false))).status,200)
+  const firstIdempotency = checkoutOptions.idempotencyKey
+  assert.equal(checkoutBody.metadata.selected_phone_number,number)
+  assert.equal(checkoutBody.line_items[0].price_data.unit_amount,20602)
+  assert.equal(providerRequests.every(row => row.method==='GET'),true)
+  assert.equal((await checkout(request(body,false))).status,200)
+  assert.equal(checkoutOptions.idempotencyKey,firstIdempotency)
+  event={type:'checkout.session.completed',livemode:true,data:{object:{mode:'subscription',payment_status:'paid',subscription:'sub_after_payment',customer:'cus_original',invoice:'in_synthetic',metadata:checkoutBody.metadata}}}
+  const paid=await webhook(request({}))
+  assert.equal(paid.status,200,await paid.text())
+  assert.equal((await webhook(request({}))).status,200)
+  assert.equal(providerRequests.filter(row => row.method==='POST' && row.url.includes('IncomingPhoneNumbers')).length,1)
+  assert.equal(providerRequests.filter(row => row.url.endsWith('/import-phone-number')).length,1)
+  assert.deepEqual((await db.query('select phone_number,source from agent_phone_numbers where client_id=$1',[client])).rows,[{phone_number:number,source:'manual'}])
+  assert.equal(globalThis.__paymentRetell.some(row=>row.kind==='purchase'),false)
 })

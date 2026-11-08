@@ -1,3 +1,4 @@
+import { configuredEmailApiKey, assertEmailRecipients, emailProviderError } from './emailEnvironment'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isDeletingClient } from './requestAuth'
 import { calculateMinuteBalance, formatMinuteSeconds } from '../../src/lib/minuteBalance'
@@ -110,7 +111,7 @@ export const queueUsageNotice = async (db: SupabaseClient, subscription: Billing
 // Failed deliveries remain in the outbox for the next scheduled retry. A database
 // lease plus Resend's idempotency key protects concurrent webhook/scheduler runs.
 export const deliverBillingNotices = async (db: SupabaseClient, limit = 5) => {
-  const apiKey = process.env.RESEND_API_KEY
+  const apiKey = configuredEmailApiKey()
   if (!apiKey) { console.error('Billing notices are queued; RESEND_API_KEY is missing.'); return }
   const { data, error } = await db.rpc('claim_recepta_billing_notifications', { p_limit: limit })
   if (error) throw error
@@ -140,12 +141,13 @@ export const deliverBillingNotices = async (db: SupabaseClient, limit = 5) => {
         const prepared = await db.from('billing_notifications').update({ mail_payload:mail,first_send_at:new Date().toISOString() }).eq('notification_key',notice.notification_key)
         if (prepared.error) throw new Error('Could not preserve the billing email before sending.')
       }
+      assertEmailRecipients(mail.to as string[])
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': notice.notification_key },
         signal: AbortSignal.timeout(3000), body: JSON.stringify(mail),
       })
-      if (!response.ok) throw new Error(`Billing email delivery failed (${response.status}).`)
+      if (!response.ok) throw new Error(emailProviderError(response.status))
       const receipt = await response.json() as { id?:string }
       if (!receipt.id) throw new Error('Billing email acceptance was not confirmed.')
       const { error: saveError } = await db.from('billing_notifications')

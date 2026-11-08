@@ -1,5 +1,8 @@
+import { emailApiKey, assertEmailRecipients, emailProviderError } from './emailEnvironment'
+import { getRetellApiKey } from './retellEnvironment'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { stripeSecretKey } from './stripeEnvironment'
 import { billingOrigin } from './billingNotifications'
 
 export type ServiceJob = {
@@ -10,10 +13,15 @@ class ContinueWork extends Error {}
 const check = (error: unknown) => { if (error) throw error }
 const missing = (error: unknown) => typeof error === 'object' && error !== null && 'code' in error && error.code === 'resource_missing'
 
-export const providerDelete = async (path:string, init:RequestInit = { method:'DELETE' }) => {
-  if (!process.env.RETELL_API_KEY) throw new Error('Retell cleanup configuration is missing.')
+type RetellCleanupPath =
+  | '/v3/list-calls'
+  | `/v2/delete-call/${string}`
+  | `/update-phone-number/${string}`
+
+const cleanupRetell = async (path:RetellCleanupPath, init:RequestInit = { method:'DELETE' }) => {
+  if (!getRetellApiKey()) throw new Error('Retell cleanup configuration is missing.')
   const response = await fetch('https://api.retellai.com'+path, {
-    ...init, signal:AbortSignal.timeout(4000), headers:{ Authorization:`Bearer ${process.env.RETELL_API_KEY}`, 'Content-Type':'application/json' },
+    ...init, signal:AbortSignal.timeout(4000), headers:{ Authorization:`Bearer ${getRetellApiKey()}`, 'Content-Type':'application/json' },
   })
   if (!response.ok && (response.status!==404 || init.method==='POST')) throw new Error(`Retell cleanup failed (${response.status}).`)
   return response.status===404 || response.status===204 ? null : await response.json()
@@ -26,12 +34,11 @@ const checkpoint = async (db:SupabaseClient, job:ServiceJob, values:Record<strin
 }
 
 const callbackEmail = async (db:SupabaseClient, job:ServiceJob) => {
-  const key=process.env.RESEND_API_KEY
-  if (!key) throw new Error('Callback email configuration is missing.')
+  const key=emailApiKey()
   let mail=job.mail_payload
   if (!mail) {
     const [callback,client] = await Promise.all([
-      db.from('callback_requests').select('caller_number,reason,created_at').eq('id',job.payload.callback_id).eq('client_id',job.client_id).maybeSingle(),
+      db.from('callback_requests').select('caller_number,reason,created_at,caller_name,request_details,preferred_callback_time,answered_call').eq('id',job.payload.callback_id).eq('client_id',job.client_id).maybeSingle(),
       db.from('clients').select('contact_email,company_name,deletion_pending').eq('id',job.client_id).maybeSingle(),
     ])
     check(callback.error);check(client.error)
@@ -39,21 +46,25 @@ const callbackEmail = async (db:SupabaseClient, job:ServiceJob) => {
     const email=client.data.contact_email?.trim()
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Business callback email is missing or invalid.')
     mail={ from:process.env.CALL_NOTIFICATION_FROM_EMAIL?.trim() || process.env.APPOINTMENT_FROM_EMAIL?.trim() || 'Recepta <notifications@mail.recepta.ca>', to:[email],
-      subject:`Missed call — ${client.data.company_name || 'your business'} needs a callback`,
-      text:`Your AI could not accept a call at ${callback.data.created_at}.\nCaller: ${callback.data.caller_number || 'Caller ID unavailable'}\nReason: ${callback.data.reason.replaceAll('_',' ')}\nNo AI minutes were used.\nReview and track the follow-up: ${billingOrigin()}/dashboard/calls`,
+      subject:`Callback requested — ${client.data.company_name || 'your business'} needs a callback`,
+      text:`${callback.data.answered_call ? 'A caller asked for human follow-up' : 'Your AI could not accept a call'} at ${callback.data.created_at}.\nCaller: ${callback.data.caller_number || 'Caller ID unavailable'}\nReason: ${callback.data.answered_call ? 'Human callback requested' : callback.data.reason.replaceAll('_',' ')}\n${callback.data.answered_call ? 'Name: '+(callback.data.caller_name || 'Not provided')+'\nRequest: '+(callback.data.request_details || 'Not provided')+'\nPreferred callback: '+(callback.data.preferred_callback_time || 'No preference') : 'No AI minutes were used.'}\nReview and track the follow-up: ${billingOrigin()}/dashboard/calls`,
     }
     await checkpoint(db,job,{ mail_payload:mail,first_send_at:new Date().toISOString() })
   }
+  assertEmailRecipients(mail.to as string[])
   const response=await fetch('https://api.resend.com/emails',{
     method:'POST',signal:AbortSignal.timeout(3000),headers:{ Authorization:`Bearer ${key}`,'Content-Type':'application/json','Idempotency-Key':job.job_key },body:JSON.stringify(mail),
   })
-  if (!response.ok) throw new Error(`Callback email rejected (${response.status}).`)
+  if (!response.ok) throw new Error(emailProviderError(response.status))
   const receipt=await response.json() as { id?:string }
   if (!receipt.id) throw new Error('Callback email acceptance was not confirmed.')
   await checkpoint(db,job,{ provider_message_id:receipt.id,delivery_status:'accepted' })
 }
 
 const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) => {
+  if (job.job_key !== 'delete-client:' + job.client_id) {
+    throw new Error('Legacy number reconciliation requires operator review. Customer records and provider assets are preserved.')
+  }
   const payload={ ...job.payload }
   const continueBeforeDeadline = () => { if (Date.now()>deadline-4500) throw new ContinueWork() }
   const progress=async (values:Record<string,unknown>) => {
@@ -64,8 +75,9 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
   if (!payload.billing_done) {
     const customer=payload.stripe_customer_id as string|null, subscription=payload.stripe_subscription_id as string|null
     if (customer || subscription) {
-      if (!process.env.STRIPE_SECRET_KEY) throw new Error('Stripe cleanup configuration is missing.')
-      const stripe=new Stripe(process.env.STRIPE_SECRET_KEY,{ timeout:4000,maxNetworkRetries:0 })
+      const key = stripeSecretKey()
+      if (!key) throw new Error('Stripe cleanup configuration is missing.')
+      const stripe=new Stripe(key,{ timeout:4000,maxNetworkRetries:0 })
       if (subscription) {
         try {
           const current=await stripe.subscriptions.retrieve(subscription)
@@ -93,8 +105,7 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
   for (const number of numbers) {
     if (done.includes(number.number)) continue
     continueBeforeDeadline()
-    if (number.source==='retell') await providerDelete('/delete-phone-number/'+encodeURIComponent(number.number))
-    else await providerDelete('/update-phone-number/'+encodeURIComponent(number.number), { method:'PATCH',body:JSON.stringify({ inbound_agents:null,outbound_agents:null,inbound_webhook_url:null }) })
+    await cleanupRetell(`/update-phone-number/${encodeURIComponent(number.number)}`, { method:'PATCH',body:JSON.stringify({ inbound_agents:null,outbound_agents:null,inbound_webhook_url:null }) })
     done.push(number.number)
     await progress({ numbers_done:done })
   }
@@ -103,14 +114,14 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
   if (agentId && !payload.calls_done) {
     while (true) {
       continueBeforeDeadline()
-      const result=await providerDelete('/v3/list-calls',{ method:'POST',body:JSON.stringify({ filter_criteria:{ agent:[{ agent_id:agentId }] },limit:10,sort_order:'ascending' }) })
+      const result=await cleanupRetell('/v3/list-calls',{ method:'POST',body:JSON.stringify({ filter_criteria:{ agent:[{ agent_id:agentId }] },limit:10,sort_order:'ascending' }) })
       if (!Array.isArray(result?.items)) throw new Error('Retell did not confirm the call list; cleanup is paused.')
       const calls=result.items as Array<{ call_id:string; call_status?:string }>
       if (!calls.length) break
       for (const call of calls) {
         if (['ongoing','registered'].includes(call.call_status ?? '')) throw new ContinueWork('Waiting for the current call to finish.')
         continueBeforeDeadline()
-        await providerDelete('/v2/delete-call/'+encodeURIComponent(call.call_id))
+        await cleanupRetell(`/v2/delete-call/${encodeURIComponent(call.call_id)}`)
       }
     }
     await progress({ calls_done:true })
@@ -121,15 +132,10 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
     for (const call of saved.data ?? []) {
       if (!call.retell_call_id || call.provider_erased_at) continue
       continueBeforeDeadline()
-      await providerDelete('/v2/delete-call/'+encodeURIComponent(call.retell_call_id))
+      await cleanupRetell(`/v2/delete-call/${encodeURIComponent(call.retell_call_id)}`)
       const erased=await db.rpc('erase_recepta_call_content',{ p_call_id:call.id,p_client_id:job.client_id })
       check(erased.error)
     }
-  }
-  if (agentId && !payload.agent_done) {
-    continueBeforeDeadline()
-    await providerDelete('/delete-agent/'+encodeURIComponent(agentId))
-    await progress({ agent_done:true })
   }
   continueBeforeDeadline()
   const user=await db.auth.admin.getUserById(job.client_id)
@@ -140,7 +146,7 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
     const removed=await db.auth.admin.deleteUser(job.client_id)
     if (removed.error && removed.error.code!=='user_not_found') throw removed.error
   }
-  // Auth FK cascade clears tenant records; jobs deliberately survive that.
+  // The Auth FK cascade removes the Recepta agent assignment. The Retell agent stays in its workspace.
   const removed=await db.from('clients').delete().eq('id',job.client_id)
   check(removed.error)
   const jobs=await db.from('service_jobs').delete().eq('client_id',job.client_id).neq('job_key',job.job_key)
@@ -149,7 +155,7 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
 
 const eraseRetainedCall = async (db:SupabaseClient,job:ServiceJob) => {
   const callId=job.payload.retell_call_id as string|null
-  if (callId) await providerDelete('/v2/delete-call/'+encodeURIComponent(callId))
+  if (callId) await cleanupRetell(`/v2/delete-call/${encodeURIComponent(callId)}`)
   const erased=await db.rpc('erase_recepta_call_content',{ p_call_id:job.payload.call_id,p_client_id:job.client_id })
   check(erased.error)
 }

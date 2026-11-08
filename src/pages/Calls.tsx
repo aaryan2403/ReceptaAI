@@ -583,6 +583,15 @@ export default function Calls() {
                   </span>
                 </div>
 
+                <div className="callsIntegrationWarning" role="status">
+                  <strong>Human handoff: </strong>
+                  {selectedCall.transfer_tracking_available === false ? 'Tracking unavailable'
+                    : selectedCall.transfer_events?.some(event => event.event === 'transfer_bridged') ? 'Connection to a worker confirmed by Retell'
+                    : selectedCall.transfer_events?.some(event => event.event === 'transfer_cancelled') ? 'Transfer did not connect — callback follow-up may be needed'
+                    : selectedCall.transfer_events?.length ? 'Transfer activity recorded; connection not confirmed'
+                    : 'No confirmed transfer recorded'}
+                </div>
+
                 <div className="callsDetailGrid">
                   <div>
                     <span>
@@ -641,6 +650,15 @@ export default function Calls() {
                         : 'Not queued yet'}
                     </strong>
                     {selectedCall.notification_last_error && <small>{selectedCall.notification_last_error}</small>}
+                  </div>
+                  <div>
+                    <span>Caller receipt</span>
+                    <strong>{selectedCall.caller_email_status === 'delivered' ? 'Delivered to receiving mail server'
+                      : selectedCall.caller_email_status === 'accepted' ? 'Accepted by email service; delivery not confirmed'
+                      : selectedCall.caller_email_status === 'needs_attention' ? 'Skipped / needs attention'
+                      : selectedCall.caller_email_status ? selectedCall.caller_email_status.replaceAll('_', ' ')
+                      : 'Not requested'}</strong>
+                    {selectedCall.caller_email_error && <small>{selectedCall.caller_email_error}</small>}
                   </div>
 
                   <div>

@@ -1,3 +1,4 @@
+import { emailApiKey, assertEmailRecipients } from '../lib/emailEnvironment'
 import { createClient } from '@supabase/supabase-js'
 
 const REQUEST_TYPES = new Set([
@@ -61,11 +62,8 @@ const sendRequestNotification = async ({
   title: string
   details: string
 }) => {
-  const resendApiKey = process.env.RESEND_API_KEY
-
-  if (!resendApiKey) {
-    throw new Error('RESEND_API_KEY is missing.')
-  }
+  const resendApiKey = emailApiKey()
+  assertEmailRecipients([NOTIFICATION_EMAIL])
 
   const from =
     process.env.REQUEST_NOTIFICATION_FROM_EMAIL?.trim() ||

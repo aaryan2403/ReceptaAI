@@ -1,3 +1,4 @@
+import { configuredEmailApiKey, assertEmailRecipients, callEmailSender } from './emailEnvironment'
 type AppointmentEmailDetails = {
   sendCustomerEmail?: boolean
   includeFullDetails?: boolean
@@ -50,6 +51,7 @@ const sendEmail = async ({
   subject: string
   text: string
 }) => {
+  assertEmailRecipients([to])
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -79,7 +81,7 @@ const sendEmail = async ({
 export const sendAppointmentConfirmations = async (
   details: AppointmentEmailDetails
 ) => {
-  const apiKey = process.env.RESEND_API_KEY
+  const apiKey = configuredEmailApiKey()
 
   if (!apiKey) {
     return {
@@ -90,10 +92,7 @@ export const sendAppointmentConfirmations = async (
     }
   }
 
-  const from =
-    process.env.APPOINTMENT_FROM_EMAIL?.trim() ||
-    process.env.REQUEST_NOTIFICATION_FROM_EMAIL?.trim() ||
-    'Recepta Appointments <onboarding@resend.dev>'
+  const from = callEmailSender()
   const supportEmail =
     process.env.RECEPTA_SUPPORT_EMAIL?.trim() ||
     'receptahelp02@gmail.com'

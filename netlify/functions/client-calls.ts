@@ -1,3 +1,4 @@
+import { getRetellApiKey } from '../lib/retellEnvironment'
 import { appointmentCallId, isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 import { createClient } from '@supabase/supabase-js'
 import { isDeletingClient } from '../lib/requestAuth'
@@ -297,7 +298,7 @@ export default async (request: Request) => {
 
   const supabaseUrl = process.env.SUPABASE_URL
   const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY
-  const retellApiKey = process.env.RETELL_API_KEY
+  const retellApiKey = getRetellApiKey()
 
   if (!supabaseUrl || !supabaseSecretKey || !retellApiKey) {
     return json(500, {
@@ -356,14 +357,25 @@ export default async (request: Request) => {
         .eq('client_id', user.id)
         .in('status', ['booked', 'completed']),
       supabaseAdmin.from('call_notifications')
-        .select('retell_call_id, status, attempts, last_error, accepted_at, delivery_status')
+        .select('notification_key, retell_call_id, status, attempts, last_error, accepted_at, delivery_status')
         .eq('client_id', user.id).order('created_at', { ascending: false }),
     ])
 
-  const notifications = new Map((notificationResult.data ?? []).map((notice) => [notice.retell_call_id, notice]))
+  const transferResult = await supabaseAdmin.from('call_transfer_events')
+    .select('retell_call_id,event,received_at').eq('client_id', user.id).order('received_at', { ascending: false }).limit(1000)
+  const transfers = new Map<string, Array<{ event: string; received_at: string }>>()
+  for (const event of transferResult.data ?? []) {
+    const history = transfers.get(event.retell_call_id) ?? []
+    history.push({ event: event.event, received_at: event.received_at })
+    transfers.set(event.retell_call_id, history)
+  }
+
+  const notifications = new Map((notificationResult.data ?? []).filter(notice => notice.notification_key.startsWith('owner-call:')).map((notice) => [notice.retell_call_id, notice]))
+  const callerNotices = new Map((notificationResult.data ?? []).filter(notice => notice.notification_key.startsWith('caller-call:')).map(notice => [notice.retell_call_id, notice]))
   const enrichNotifications = <T extends { retell_call_id?: string | null }>(records: T[]) => records.map((record) => {
     const notice = notifications.get(record.retell_call_id)
-    return { ...record, notification_status: notice?.delivery_status ?? notice?.status ?? (notificationResult.error ? 'unavailable' : null),
+    const callerNotice = callerNotices.get(record.retell_call_id)
+    return { ...record, caller_email_status: callerNotice?.delivery_status ?? callerNotice?.status ?? null, caller_email_error: callerNotice?.last_error ?? null, transfer_events: transfers.get(record.retell_call_id ?? '') ?? [], transfer_tracking_available: !transferResult.error, notification_status: notice?.delivery_status ?? notice?.status ?? (notificationResult.error ? 'unavailable' : null),
       notification_attempts: notice?.attempts ?? 0, notification_last_error: notice?.last_error ?? null }
   })
 

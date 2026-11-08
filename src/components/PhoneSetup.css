@@ -1,0 +1,51 @@
+.phoneSetup{--phoneGreen:#00e676;--phoneMuted:#a1b3a9;color:#edf6f0;min-width:0}
+.phoneSetup .phoneHeading{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;margin-bottom:26px}
+.phoneSetup .phoneHeading h2{font-size:clamp(25px,3vw,34px);letter-spacing:-.8px;margin:10px 0}
+.phoneSetup p{line-height:1.65;color:var(--phoneMuted);font-size:14px}
+.phoneSetup .phoneHeadingIcon{padding:16px;border:1px solid #164e32;background:#082819;border-radius:16px;color:var(--phoneGreen)}
+.phoneSetup .phoneNumberCard{display:flex;align-items:center;justify-content:space-between;gap:18px;border:1px solid #205135;border-radius:16px;background:linear-gradient(120deg,#0b2618,#0a140f);padding:24px;margin:20px 0 30px}
+.phoneSetup .phoneNumberCard span:first-child{display:block;font-size:11px;letter-spacing:1.6px;color:var(--phoneMuted);font-weight:700}
+.phoneSetup .phoneNumberCard strong{display:block;font-size:clamp(21px,3vw,30px);letter-spacing:-.5px;margin-top:10px;overflow-wrap:anywhere}
+.phoneSetup .phoneStatus{color:#f7c65e;background:#2b2614;border:1px solid #5a4a20;border-radius:30px;padding:9px 13px;font-size:12px;white-space:nowrap}
+.phoneSetup .phoneStatusGood{color:#84eab4;border-color:#1b6141;background:#082b1b}
+.phoneSetup fieldset{border:0;padding:0;margin:0 0 30px;min-width:0}
+.phoneSetup fieldset:disabled{opacity:.64}
+.phoneSetup legend{font-size:18px;font-weight:700;margin-bottom:20px;padding:0}
+.phoneSetup .phoneStep{display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;margin-right:10px;border:1px solid #24503a;border-radius:9px;color:var(--phoneGreen);font-size:12px;vertical-align:middle}
+.phoneSetup .phoneOptions{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px}
+.phoneSetup .phoneOption{display:grid;grid-template-columns:20px 1fr;gap:8px 10px;border:1px solid #293b30;padding:20px;border-radius:14px;cursor:pointer;background:#0b1710}
+.phoneSetup .phoneOption.selected{border-color:#00b960;background:#092519;box-shadow:inset 0 0 0 1px #00b96030}
+.phoneSetup .phoneOption span{grid-column:2;color:var(--phoneMuted);font-size:13px;line-height:1.6}
+.phoneSetup input[type=radio],.phoneSetup input[type=checkbox]{accent-color:var(--phoneGreen);width:17px;height:17px;flex:0 0 auto;margin:2px 0 0}
+.phoneSetup .phoneLabel{display:grid;gap:9px;font-size:13px;font-weight:600;margin-top:18px}
+.phoneSetup input:not([type=radio]):not([type=checkbox]),.phoneSetup select{font:inherit;box-sizing:border-box;min-width:0;width:100%;padding:13px 14px;border:1px solid #33473a;background:#0c1a12;color:#eff9f2;border-radius:10px;outline:none;min-height:47px}
+.phoneSetup input:focus-visible,.phoneSetup select:focus-visible,.phoneSetup button:focus-visible{outline:2px solid var(--phoneGreen);outline-offset:3px}
+.phoneSetup .phoneGrid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.phoneSetup .phoneCheck{display:flex;align-items:flex-start;gap:10px;font-size:13px;line-height:1.6;color:#b9c9bf;cursor:pointer}
+.phoneSetup .phoneToggle{align-items:center;color:#edf6f0;font-size:15px;margin-bottom:12px}
+.phoneSetup .phoneInline,.phoneSetup .phoneActions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:14px}
+.phoneSetup .phoneInline>*{flex:1 1 180px}
+.phoneSetup .phoneInline button{flex:0 1 auto}
+.phoneSetup .phoneVerification{padding-top:14px}
+.phoneSetup .phoneVerified{display:flex;align-items:center;gap:7px;color:#80dda6;font-size:12px}
+.phoneSetup .phoneGuide,.phoneSetup .phoneTest{padding:20px;background:#0c1b12;border:1px solid #223e2b;border-radius:14px;margin-top:20px}
+.phoneSetup li{padding:4px 0;color:#bbcdc0;font-size:14px;line-height:1.7}
+.phoneSetup ol{padding-left:22px}
+.phoneSetup a{color:#88e6af;text-underline-offset:4px}
+.phoneSetup a svg{vertical-align:middle}
+.phoneSetup .phoneWarning{display:flex;gap:10px;align-items:flex-start;background:#2b231140;border:1px solid #5f4b2460;color:#f3ce84;padding:15px 17px;border-radius:12px;margin:17px 0;font-size:13px;line-height:1.6}
+.phoneSetup .phoneWarning svg,.phoneSetup .phoneAlert svg{flex-shrink:0;margin-top:2px}
+.phoneSetup .phoneMuted{font-size:12px;color:#8ea697}
+.phoneSetup .phoneAlert{display:flex;gap:10px;align-items:flex-start;padding:16px;border-radius:12px;margin:14px 0;line-height:1.65;font-size:14px}
+.phoneSetup .phoneError{border:1px solid #a3413c;background:#40191470;color:#ffaaa2}
+.phoneSetup .phoneSuccess{border:1px solid #256d45;background:#10352270;color:#9befbe}
+.phoneSetup .phoneActions .btn{font-size:13px;min-height:45px;padding:12px 18px}
+.phoneSetup .phoneTest{margin-top:30px}
+.phoneSetup .phoneTest h3{font-size:17px;margin:0 0 12px}
+.phoneSetup .phoneDisconnect{border-top:1px solid #28402f;padding-top:22px;margin-top:28px}
+.phoneSetup summary{cursor:pointer;color:#c6d8cd;font-size:14px}
+@media(max-width:680px){.phoneSetup .phoneOptions,.phoneSetup .phoneGrid{grid-template-columns:1fr}.phoneSetup .phoneNumberCard{align-items:flex-start;flex-direction:column;padding:19px}.phoneSetup .phoneHeadingIcon{display:none}.phoneSetup .phoneActions .btn{width:100%}.phoneSetup .phoneInline>*{flex-basis:100%}.phoneSetup .phoneInline button{width:100%}.phoneSetup .phoneGuide,.phoneSetup .phoneTest{padding:16px}.phoneSetup .phoneHeading{gap:12px}.phoneSetup .phoneStatus{white-space:normal}}
+.phoneHours { display: grid; gap: 12px; margin-block: 16px; }
+.phoneHoursRow { display: grid; grid-template-columns: minmax(110px,1fr) minmax(90px,1fr) auto minmax(90px,1fr); align-items: center; gap: 10px; }
+.phoneHoursRow input[type=time] { min-width: 0; width: 100%; }
+@media(max-width: 560px) { .phoneHoursRow { grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); } .phoneHoursRow .phoneCheck { grid-column: 1 / -1; } }

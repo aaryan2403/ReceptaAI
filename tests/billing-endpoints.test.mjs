@@ -196,3 +196,30 @@ test('billing usage is aggregated only for the authenticated client and its paid
   assert.equal(usage.args.p_client_id, 'customer_a')
   assert.equal(usage.args.p_period_end, base.current_period_end)
 })
+
+test('staging rejects signed live billing events before changing tenant records', async () => {
+  reset()
+  const previous = process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE
+  const previousStagingKey = process.env.STRIPE_STAGING_SECRET_KEY
+  process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE = 'true'
+  process.env.STRIPE_STAGING_SECRET_KEY = 'sk_test_synthetic_staging'
+  try {
+    for (const livemode of [true, undefined]) {
+      state.event = { ...invoiceEvent('invoice.paid'), livemode }
+      const response = await webhook(signedRequest())
+      assert.equal(response.status, 400)
+      assert.match((await response.json()).error, /test events/)
+      assert.equal(state.updates.length, 0)
+      assert.equal(state.rpcs.length, 0)
+      assert.equal(state.notices.length, 0)
+    }
+    state.event = { ...invoiceEvent('invoice.paid'), livemode: false }
+    assert.equal((await webhook(signedRequest())).status, 200)
+    assert.ok(state.rpcs.some(call => call.name === 'renew_recepta_subscription'))
+  } finally {
+    if (previous === undefined) delete process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE
+    else process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE = previous
+    if (previousStagingKey === undefined) delete process.env.STRIPE_STAGING_SECRET_KEY
+    else process.env.STRIPE_STAGING_SECRET_KEY = previousStagingKey
+  }
+})
