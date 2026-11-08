@@ -28,6 +28,7 @@ test.before(async () => {
   await db.exec(phone)
   await db.exec(singleAgent)
   await db.exec(await readFile('supabase/migrations/20261105025833_phone_transfer_schedules_and_call_tests.sql', 'utf8'))
+  await db.exec(await readFile('supabase/migrations/20261108033150_client_call_email_preferences.sql', 'utf8'))
   await db.exec(catalog)
   await db.exec(await readFile('supabase/migrations/20261105030353_paid_reception_provisioning.sql', 'utf8'))
  await db.exec(await readFile('supabase/migrations/20261107051800_selected_twilio_numbers.sql', 'utf8'))

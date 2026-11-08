@@ -1,3 +1,5 @@
+import { normalizeCallEmailSettings, isEmailAddress, type CallEmailSettings } from '../../src/lib/callEmailSettings'
+import { callEmailSender } from './emailEnvironment'
 import { formatAppointmentPreference, isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 type PlanName = 'Recepta Standard' | 'Recepta Pro'
 
@@ -31,6 +33,11 @@ export type CallNotificationDetails = {
   outcome?: string | null
   summary?: string | null
   appointment?: AppointmentDetails | null
+  recipient?: 'owner' | 'caller'
+  callerEmail?: string | null
+  callerSummary?: string | null
+  settings?: CallEmailSettings
+  customDetails?: Array<{ label: string; value: string }>
 }
 
 const isEmail = (value?: string | null) =>
@@ -68,12 +75,14 @@ export type CallEmailPayload = {
 }
 
 export const buildCallNotification = (details: CallNotificationDetails): CallEmailPayload => {
-  if (!isEmail(details.ownerEmail)) throw new Error('Owner email is missing or invalid.')
-  const ownerEmail = details.ownerEmail!.trim()
-  const from =
-    process.env.APPOINTMENT_FROM_EMAIL?.trim() ||
-    process.env.REQUEST_NOTIFICATION_FROM_EMAIL?.trim() ||
-    'Recepta Calls <onboarding@resend.dev>'
+  const caller = details.recipient === 'caller'
+  const recipientEmail = caller ? details.callerEmail : details.ownerEmail
+  if (!isEmailAddress(recipientEmail)) throw new Error('Recipient email is missing or invalid.')
+  const ownerEmail = isEmail(details.ownerEmail) ? details.ownerEmail!.trim() : null
+  const settings = normalizeCallEmailSettings(details.settings)
+  const fields = caller ? settings.callerFields : settings.ownerFields
+  const include = (field: keyof typeof import('../../src/lib/callEmailSettings').EMAIL_FIELDS) => fields.includes(field)
+  const from = callEmailSender()
   const supportEmail =
     process.env.RECEPTA_SUPPORT_EMAIL?.trim() ||
     'receptahelp02@gmail.com'
@@ -82,21 +91,22 @@ export const buildCallNotification = (details: CallNotificationDetails): CallEma
   const timeZone = details.timeZone
   const basicLines = [
     `Business: ${details.businessName}`,
-    `Caller: ${details.callerName || 'Not provided'}`,
-    `Caller phone: ${details.callerNumber || 'Not available'}`,
-    `Call started: ${formatDateTime(details.startedAt, timeZone)}`,
-    `Call duration: ${formatDuration(details.durationSeconds)}`,
-    `Outcome: ${details.outcome || 'Completed'}`,
-  ]
+    include('callerName') ? `Caller: ${details.callerName || 'Not provided'}` : null,
+    include('callerNumber') ? `Caller phone: ${details.callerNumber || 'Not available'}` : null,
+    include('callerEmail') ? `Caller email: ${details.callerEmail || 'Not provided'}` : null,
+    include('startedAt') ? `Call started: ${formatDateTime(details.startedAt, timeZone)}` : null,
+    include('duration') ? `Call duration: ${formatDuration(details.durationSeconds)}` : null,
+    include('outcome') ? `Outcome: ${details.outcome || 'Completed'}` : null,
+  ].filter((line): line is string => line !== null)
   const appointmentLines = appointment
     ? [
         `Status: ${confirmed ? 'Confirmed booking' : appointment.status === 'pending' ? 'Pending — follow-up required' : appointment.status}`,
         `Caller’s preferred date/time: ${formatAppointmentPreference({ requested_date: appointment.requestedDate, requested_time: appointment.requestedTime, requested_timezone: appointment.requestedTimezone })}`,
-        `Customer: ${appointment.customerName || 'Not provided'}`,
-        `Customer company: ${appointment.customerCompany || 'Not provided'}`,
-        `Customer phone: ${appointment.customerPhone || 'Not provided'}`,
-        `Customer email: ${appointment.customerEmail || 'Not provided'}`,
-        `Employee: ${appointment.employeeName || 'Unassigned'}`,
+        include('callerName') ? `Customer: ${appointment.customerName || 'Not provided'}` : null,
+        !caller ? `Customer company: ${appointment.customerCompany || 'Not provided'}` : null,
+        !caller && include('callerNumber') ? `Customer phone: ${appointment.customerPhone || 'Not provided'}` : null,
+        !caller && include('callerEmail') ? `Customer email: ${appointment.customerEmail || 'Not provided'}` : null,
+        !caller ? `Employee: ${appointment.employeeName || 'Unassigned'}` : null,
         `Service: ${appointment.service || 'Appointment'}`,
         confirmed && appointment.start
           ? `Starts: ${formatDateTime(appointment.start, appointment.timeZone)}`
@@ -107,32 +117,25 @@ export const buildCallNotification = (details: CallNotificationDetails): CallEma
         confirmed && typeof appointment.durationMinutes === 'number'
           ? `Duration: ${appointment.durationMinutes} minutes`
           : null,
-        `Appointment details: ${appointment.notes || 'None provided'}`,
+        !caller ? `Appointment details: ${appointment.notes || 'None provided'}` : null,
       ].filter((line): line is string => Boolean(line))
     : []
-  const proLines =
-    details.planName === 'Recepta Pro'
-      ? [
-          '',
-          'Call summary',
-          details.summary || 'No AI summary was returned for this call.',
-          ...(appointment
-            ? ['', confirmed ? 'Confirmed appointment' : 'Appointment request / follow-up', ...appointmentLines]
-            : ['', 'Appointment details', 'No appointment request or confirmed booking was recorded during this call.']),
-        ]
-      : []
+  const proLines = details.planName === 'Recepta Pro' ? [
+    ...(include('summary') ? ['', 'Call summary', (caller ? details.callerSummary : details.summary) || 'No AI summary was returned for this call.'] : []),
+    ...(include('appointment') ? appointment
+      ? ['', confirmed ? 'Confirmed appointment' : 'Appointment request / follow-up', ...appointmentLines]
+      : ['', 'Appointment details', 'No appointment request or confirmed booking was recorded during this call.'] : []),
+    ...(include('custom') && details.customDetails?.length ? ['', 'Details you provided', ...details.customDetails.map(item => `${item.label}: ${item.value}`)] : []),
+  ] : []
   return {
     from,
-    to: [ownerEmail],
-    reply_to: supportEmail,
-    subject:
-      details.planName === 'Recepta Pro'
-        ? `Recepta call details: ${details.callerName || details.callerNumber || 'New caller'}`
-        : `New Recepta call for ${details.businessName}`,
+    to: [recipientEmail.trim()],
+    reply_to: caller ? ownerEmail || supportEmail : supportEmail,
+    subject: caller ? `Your call with ${details.businessName}`
+      : details.planName === 'Recepta Pro' ? `Recepta call details for ${details.businessName}` : `New Recepta call for ${details.businessName}`,
     text: [
-      details.planName === 'Recepta Pro'
-        ? 'Your Recepta call is complete. Full details are below.'
-        : 'Your Recepta call is complete.',
+      caller ? `Thank you for calling ${details.businessName}. Here is a receipt of your call.` : 'Your Recepta call is complete.',
+      ...(caller ? ['An appointment request is not a confirmed booking. The business will follow up to confirm any requested arrangements.'] : []),
       '',
       ...basicLines,
       ...proLines,

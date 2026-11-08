@@ -651,6 +651,15 @@ export default function Calls() {
                     </strong>
                     {selectedCall.notification_last_error && <small>{selectedCall.notification_last_error}</small>}
                   </div>
+                  <div>
+                    <span>Caller receipt</span>
+                    <strong>{selectedCall.caller_email_status === 'delivered' ? 'Delivered to receiving mail server'
+                      : selectedCall.caller_email_status === 'accepted' ? 'Accepted by email service; delivery not confirmed'
+                      : selectedCall.caller_email_status === 'needs_attention' ? 'Skipped / needs attention'
+                      : selectedCall.caller_email_status ? selectedCall.caller_email_status.replaceAll('_', ' ')
+                      : 'Not requested'}</strong>
+                    {selectedCall.caller_email_error && <small>{selectedCall.caller_email_error}</small>}
+                  </div>
 
                   <div>
                     <span>

@@ -1,3 +1,4 @@
+import { emailApiKey, assertEmailRecipients, emailProviderError } from './emailEnvironment'
 import { getRetellApiKey } from './retellEnvironment'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
@@ -33,8 +34,7 @@ const checkpoint = async (db:SupabaseClient, job:ServiceJob, values:Record<strin
 }
 
 const callbackEmail = async (db:SupabaseClient, job:ServiceJob) => {
-  const key=process.env.RESEND_API_KEY
-  if (!key) throw new Error('Callback email configuration is missing.')
+  const key=emailApiKey()
   let mail=job.mail_payload
   if (!mail) {
     const [callback,client] = await Promise.all([
@@ -51,10 +51,11 @@ const callbackEmail = async (db:SupabaseClient, job:ServiceJob) => {
     }
     await checkpoint(db,job,{ mail_payload:mail,first_send_at:new Date().toISOString() })
   }
+  assertEmailRecipients(mail.to as string[])
   const response=await fetch('https://api.resend.com/emails',{
     method:'POST',signal:AbortSignal.timeout(3000),headers:{ Authorization:`Bearer ${key}`,'Content-Type':'application/json','Idempotency-Key':job.job_key },body:JSON.stringify(mail),
   })
-  if (!response.ok) throw new Error(`Callback email rejected (${response.status}).`)
+  if (!response.ok) throw new Error(emailProviderError(response.status))
   const receipt=await response.json() as { id?:string }
   if (!receipt.id) throw new Error('Callback email acceptance was not confirmed.')
   await checkpoint(db,job,{ provider_message_id:receipt.id,delivery_status:'accepted' })

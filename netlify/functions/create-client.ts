@@ -1,3 +1,4 @@
+import { normalizeCallEmailSettings } from '../../src/lib/callEmailSettings'
 import { getRetellApiKey } from '../lib/retellEnvironment'
 import { createClient } from '@supabase/supabase-js'
 import { assertAgentAssignable } from '../lib/agentOwnership'
@@ -434,6 +435,7 @@ export default async (request: Request) => {
           email: normalizedEmail,
           password,
           email_confirm: true,
+          app_metadata: { recepta_call_email: normalizeCallEmailSettings({ callerEnabled: buyerEmailEnabled }) },
           user_metadata: {
             appointment_email_notifications_enabled:
               buyerEmailEnabled,
@@ -720,6 +722,7 @@ export default async (request: Request) => {
           apiKey: retellApiKey,
           agentId: normalizedRetellId,
           ...scheduleContext,
+          callEmailSettings: normalizeCallEmailSettings({ callerEnabled: buyerEmailEnabled }),
           emailNotificationsEnabled:
             buyerEmailEnabled,
           smsNotificationsEnabled:

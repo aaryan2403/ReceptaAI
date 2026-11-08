@@ -100,7 +100,7 @@ const setup=async()=>{
   if(path==='/create-agent'){if(state.unknownCreation)throw new Error('Synthetic lost response');result={agent_id:'agent_provisioned'}}
   if(path.startsWith('/get-phone-number/'))result={phone_number:decodeURIComponent(path.split('/').at(-1)),inbound_agents:state.conflictBinding?[{agent_id:'agent_other'}]:null,inbound_webhook_url:'https://recepta.test/.netlify/functions/retell-inbound'}
   if(path.startsWith('/list-agent-versions/'))result={items:[{version:4,is_published:true}]}
-  if(path.startsWith('/create-agent-version/'))result={version:5,response_engine:{type:'retell-llm',llm_id:path.endsWith('/agent_other')?'llm_other':'llm_test',version:5},webhook_events:['call_started','call_ended','call_analyzed','transcript_updated']}
+  if(path.startsWith('/create-agent-version/'))result={post_call_analysis_data:[{type:'string',name:'keep_existing_analysis',description:'Custom business analysis'},{type:'string',name:'recepta_detail_obsolete',description:'Old managed field'}],version:5,response_engine:{type:'retell-llm',llm_id:path.endsWith('/agent_other')?'llm_other':'llm_test',version:5},webhook_events:['call_started','call_ended','call_analyzed','transcript_updated']}
   if(path.startsWith('/get-retell-llm/'))result=state.llms[path.split('/').at(-1)]
   if(path.startsWith('/update-retell-llm/')){const id=path.split('/').at(-1);state.llms[id]={...state.llms[id],...JSON.parse(body)};if(id==='llm_test')state.llm=state.llms[id];result={llm_id:id}}
   if(path.startsWith('/v2/get-call/'))result=state.canonicalCall??{call_id:path.split('/').at(-1),agent_id:'agent_test'}
@@ -430,4 +430,23 @@ test('different customer agents cannot share a provider LLM when syncing transfe
  assert.equal(result.status,502)
  assert.equal(state.provider.some(row=>row.path.startsWith('/update-retell-llm/')||row.path.startsWith('/update-agent/')||row.path.startsWith('/publish-agent-version/')),false)
  assert.equal((await runtime.resolveInboundTransfer(globalThis.__phoneDb,one,'agent_test')).recepta_transfer_allowed,'disabled')
+})
+
+
+test('email settings sync preserves unrelated analysis, requires analyzed events, and survives later schedule sync',async()=>{
+ await setup();process.env.RECEPTA_CALL_EMAIL_ENABLED='true'
+ const settings={callerEnabled:true,ownerFields:['custom'],callerFields:['summary','custom'],customFields:['Number of windows']}
+ await retell.syncRetellSchedule({apiKey:'synthetic',agentId:'agent_test',schedule:{mode:'24/7',timeZone:'America/Toronto',hours:[]},callEmailSettings:settings})
+ let writes=state.provider.filter(row=>row.path.startsWith('/update-agent/')&&JSON.parse(row.body).post_call_analysis_data)
+ let payload=JSON.parse(writes.at(-1).body)
+ assert.ok(payload.post_call_analysis_data.some(item=>item.name==='keep_existing_analysis'))
+ assert.ok(!payload.post_call_analysis_data.some(item=>item.name==='recepta_detail_obsolete'))
+ assert.ok(payload.post_call_analysis_data.some(item=>item.name==='recepta_caller_email_confirmed'&&item.type==='boolean'))
+ assert.ok(payload.webhook_events.includes('call_analyzed'));assert.ok(payload.webhook_events.includes('transcript_updated'))
+ assert.match(state.llm.general_prompt,/read it back carefully/);assert.match(state.llm.general_prompt,/one at a time/)
+ await retell.syncRetellSchedule({apiKey:'synthetic',agentId:'agent_test',schedule:{mode:'24/7',timeZone:'America/Toronto',hours:[]}})
+ assert.equal(JSON.parse(state.llm.default_dynamic_variables.recepta_call_email_settings).callerEnabled,true)
+ assert.match(state.llm.general_prompt,/Number of windows/)
+ assert.equal((state.llm.general_prompt.match(/\[RECEPTA MANAGED CALL EMAIL\]/g)??[]).length,1)
+ delete process.env.RECEPTA_CALL_EMAIL_ENABLED
 })

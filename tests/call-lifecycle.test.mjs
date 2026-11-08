@@ -88,7 +88,7 @@ const setup = async (legacy = false) => {
       duration_seconds integer not null default 0,call_status text,outcome text,disconnection_reason text,
       transcript text,recording_url text,summary text,user_sentiment text,call_successful boolean,
       appointment_booked boolean not null default false,retell_agent_id text,ended_at timestamptz,
-      updated_at timestamptz not null default now());
+      updated_at timestamptz not null default now(),notification_details jsonb,content_erased_at timestamptz);
     insert into clients values('${client}'),('${otherClient}');
     insert into subscriptions(client_id,plan_name,status) values('${client}','Recepta Pro','cancelled');
     insert into agents values('${client}','agent_test',null,null);`)

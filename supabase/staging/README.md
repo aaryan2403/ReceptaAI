@@ -125,3 +125,12 @@ After the existing feature migrations, apply:
 Preview Retell operations now require `RETELL_STAGING_API_KEY`; an inherited production key is excluded. Verification sends in staging require the destination in `RECEPTA_STAGING_VERIFY_TARGETS`. Admin Operations offers a read-only phone-provider check.
 
 Exact-number selection additionally requires the dedicated Twilio trunk configuration documented in [the completion update](../../docs/phone-setup-and-transfers.md#self-service-completion-update). Keep this gate disabled until infrastructure and real-call tests are approved.
+
+## Call email preferences
+
+Apply `supabase/migrations/20261108033150_client_call_email_preferences.sql` before
+enabling `RECEPTA_CALL_EMAIL_ENABLED=true` and redeploying the per-client email
+changes. Leave this flag off before the migration. Configure `RESEND_STAGING_API_KEY`,
+`RECEPTA_STAGING_EMAIL_TARGETS` and, if supplied explicitly,
+`RESEND_STAGING_WEBHOOK_SECRET` only for this preview. Use
+[the email implementation and acceptance guide](../../docs/client-call-email.md).
