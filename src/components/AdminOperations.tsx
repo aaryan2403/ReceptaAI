@@ -96,7 +96,7 @@ export default function AdminOperations({ hideWhenClear=false }: { hideWhenClear
       {visibleActionError && <p className="adminFormMessage adminFormMessage--error" role="alert">{visibleActionError}</p>}
       {!rows.length && <p>No queued cleanup jobs or recorded delivery failures.</p>}
       {rows.map(row=><article key={row.job_key ?? row.notification_key} style={{ padding:'16px 0',borderTop:'1px solid #333' }}>
-        <strong>{data.clients.find(client=>client.id===row.client_id)?.company_name || 'Removed client'} · {row.kind?.replaceAll('_',' ')}</strong>
+        <strong>{data.clients.find(client=>client.id===row.client_id)?.company_name || 'Removed client'} · {row.notification_key?.startsWith('caller-call:') ? 'Caller receipt' : row.notification_key?.startsWith('owner-call:') ? 'Owner call email' : row.kind?.replaceAll('_',' ')}</strong>
         <p>{row.kind==='delete_client' && row.status==='queued' && row.attempts===0 ? 'Scheduled for secure cleanup. The worker checks every five minutes.' : row.status==='running' && row.kind==='delete_client' ? 'Secure cleanup is running. This account stays paused until it finishes.' : `${row.delivery_status || row.status || 'Delivery pending'} · ${row.attempts} attempts`}</p>
         {row.last_error && <p role="status">{row.last_error}</p>}
         {row.status==='needs_attention' && ['delete_client','retention_call'].includes(row.kind ?? '') && <button type="button" className="btn btnOutline" disabled={busy} onClick={()=>void action({ action:'retry_cleanup',jobKey:row.job_key })}>Resume Cleanup</button>}

@@ -8,11 +8,11 @@ import { build } from 'esbuild'
 // Real signed handler, worker and PostgreSQL queue; all external boundaries are
 // synthetic. No production records, paid calls or actual emails are created.
 const client='00000000-0000-0000-0000-000000000001'
-let db, mode, requests, accepted, failReceipt
+let db, mode, requests, accepted, failReceipt, emailSettings = null
 const identifiers = (name) => '"'+name.replaceAll('"','""')+'"'
 const query = (table) => {
   assert.ok(['calls','clients','subscriptions','agents','appointments','employees','call_notifications'].includes(table))
-  let values, single=false
+  let values, single=false, schemaProbe=false
   const filters=[]
   const execute=async () => {
     try {
@@ -24,12 +24,13 @@ const query = (table) => {
         const result=await db.query(`insert into ${identifiers(table)} (${columns}) values (${params}) on conflict(retell_call_id) do update set ${updates} returning *`,keys.map((k)=>values[k]))
         return {data:single?result.rows[0]??null:result.rows,error:null}
       }
+      if(schemaProbe) { await db.query('select notification_details from calls limit 0'); return {data:[],error:null} }
       let rows=(await db.query(`select * from ${identifiers(table)}`)).rows
       for(const [op,col,value] of filters) rows=rows.filter((row)=>op==='in'?value.includes(row[col]):row[col]===value)
       return {data:single?rows[0]??null:rows,error:null}
     } catch(error) { return {data:null,error:{message:error.message}} }
   }
-  const api={select:()=>api,order:()=>api,limit:()=>api,
+  const api={select:columns=>{schemaProbe=columns==='notification_details';return api},order:()=>api,limit:()=>api,
     eq:(col,value)=>{filters.push(['eq',col,value]);return api},
     in:(col,value)=>{filters.push(['in',col,value]);return api},
     upsert:(value)=>{values=value;return api},
@@ -38,7 +39,7 @@ const query = (table) => {
 }
 globalThis.__callNoticeDb={
   from:query,
-  auth:{admin:{getUserById:async()=>({data:{user:{email:'owner@example.test'}},error:null})}},
+  auth:{admin:{getUserById:async()=>({data:{user:{email:'owner@example.test',app_metadata:{recepta_call_email:emailSettings}}},error:null})}},
   rpc:async(name,args)=>{
     if(name==='finish_recepta_call_notification' && args.p_provider_id && failReceipt) {
       failReceipt=false
@@ -89,7 +90,9 @@ const provider=async(url,options)=>{
   if(mode==='accepted-timeout') throw new TypeError('synthetic lost response')
   return new Response(JSON.stringify({id}),{status:200})
 }
-const setup=async(plan='Recepta Pro',legacy=false)=>{
+const setup=async(plan='Recepta Pro',legacy=false,legacySchema=false)=>{
+  process.env.RECEPTA_CALL_EMAIL_ENABLED='true'
+  emailSettings=null
   db=new PGlite();mode='success';requests=[];accepted=new Map();failReceipt=false
   process.env.RESEND_API_KEY='synthetic-only';globalThis.fetch=provider
   await db.exec(`create role anon;create role authenticated;create role service_role;
@@ -105,17 +108,18 @@ const setup=async(plan='Recepta Pro',legacy=false)=>{
     create table calls(id uuid primary key default gen_random_uuid(),client_id uuid references clients(id),retell_call_id text unique,
       caller_name text,caller_number text,started_at timestamptz not null default now(),duration_seconds integer default 0,
       call_status text,outcome text,disconnection_reason text,transcript text,recording_url text,summary text,
-      user_sentiment text,call_successful boolean,appointment_booked boolean default false,retell_agent_id text,ended_at timestamptz,updated_at timestamptz);
+      user_sentiment text,call_successful boolean,appointment_booked boolean default false,retell_agent_id text,ended_at timestamptz,updated_at timestamptz,content_erased_at timestamptz);
     insert into clients values('${client}','Synthetic business','owner@example.test');
     insert into subscriptions(client_id,plan_name,status) values('${client}','${plan}','active');
     insert into agents values('${client}','agent_test',null);`)
   if(legacy) await db.exec(`insert into calls(client_id,retell_call_id,call_status) values('${client}','legacy','ended')`)
   await db.exec(await readFile('supabase/migrations/20261014064906_call_notification_outbox.sql','utf8'))
   await db.exec(await readFile('supabase/migrations/20261014174126_protect_call_lifecycle.sql','utf8'))
+  if(!legacySchema)await db.exec(await readFile('supabase/migrations/20261108033150_client_call_email_preferences.sql','utf8'))
 }
-const signed=(event='call_analyzed',callId='call_test')=>{
+const signed=(event='call_analyzed',callId='call_test',extra={})=>{
   const body=JSON.stringify({event,call:{call_id:callId,agent_id:'agent_test',call_status:'ended',start_timestamp:Date.now(),duration_ms:60000,
-    call_analysis:{call_summary:'Synthetic summary',call_successful:true}}})
+    call_analysis:{call_summary:'Synthetic summary',call_successful:true},...extra}})
   const t=Date.now();const digest=createHmac('sha256',process.env.RETELL_API_KEY).update(`${body}${t}`).digest('hex')
   return new Request('https://synthetic.test',{method:'POST',headers:{'x-retell-signature':`v=${t},d=${digest}`},body})
 }
@@ -201,4 +205,127 @@ test('expired ambiguous sends need attention, legacy sends are not resent, and c
     assert.equal((await db.query("select has_table_privilege('authenticated','call_notifications','select') as ok")).rows[0].ok,false)
     assert.equal((await db.query("select has_function_privilege('anon','claim_recepta_call_notifications(integer,text)','execute') as ok")).rows[0].ok,false)
   }finally{await close()}
+})
+
+const captureModule=await compile('netlify/lib/callEmailCapture.ts','captureCallEmailDetails')
+const detailKey=await compile('netlify/lib/callEmailCapture.ts','emailFieldKey')
+const emailBuilder=await compile('netlify/lib/callNotificationEmail.ts','buildCallNotification')
+
+test('owner and caller deliveries have independent keys and custom fields survive failed sends and replay',async()=>{
+  await setup()
+  try {
+    emailSettings={callerEnabled:true,ownerFields:['summary','custom'],callerFields:['summary','custom'],customFields:['Number of windows','Preferred callback']}
+    const analysis={call_summary:'Internal staff assessment',call_successful:true,custom_analysis_data:{
+      recepta_caller_name:'Jane',recepta_caller_email:'jane@example.test',recepta_caller_email_confirmed:true,
+      recepta_caller_summary:'You requested a quote for six windows.',[detailKey('Number of windows')]:'6',
+    }}
+    mode='reject';assert.equal((await webhook(signed('call_analyzed','two_recipients',{call_analysis:analysis}))).status,204)
+    const queued=(await db.query('select * from call_notifications order by notification_key')).rows
+    assert.equal(queued.length,2);assert.ok(queued.every(row=>row.status==='queued'))
+    emailSettings={callerEnabled:false,customFields:[]}
+    await webhook(signed('call_analyzed','two_recipients',{call_analysis:{call_summary:'Changed'}}))
+    await due();mode='success';await schedule()
+    assert.equal(accepted.size,2)
+    const mails=[...accepted.entries()].map(([key,value])=>({key,mail:JSON.parse(value.body)}))
+    const caller=mails.find(item=>item.key.startsWith('caller-call:')).mail
+    const owner=mails.find(item=>item.key.startsWith('owner-call:')).mail
+    assert.deepEqual(owner.to,['owner@example.test']);assert.deepEqual(caller.to,['jane@example.test'])
+    assert.match(owner.text,/Internal staff assessment/);assert.doesNotMatch(caller.text,/Internal staff assessment/)
+    assert.match(caller.text,/six windows/);assert.match(caller.text,/Number of windows: 6/)
+    assert.match(caller.text,/Preferred callback: Not provided/)
+    await webhook(signed('call_analyzed','two_recipients',{call_analysis:analysis}));await schedule()
+    assert.equal(accepted.size,2)
+  }finally{await close()}
+})
+
+test('unconfirmed email is explicitly skipped, caller receipts default off, and historical calls are not backfilled',async()=>{
+  await setup()
+  try {
+    await webhook(signed('call_analyzed','default_off'))
+    assert.equal((await db.query('select count(*)::int as n from call_notifications')).rows[0].n,1)
+    emailSettings={callerEnabled:true}
+    await webhook(signed('call_analyzed','default_off'))
+    assert.equal((await db.query('select count(*)::int as n from call_notifications')).rows[0].n,1)
+    await webhook(signed('call_analyzed','unconfirmed',{call_analysis:{custom_analysis_data:{recepta_caller_email:'wrong@example.test',recepta_caller_email_confirmed:false}}}))
+    const skipped=(await db.query("select * from call_notifications where notification_key like 'caller-call:%'")).rows[0]
+    assert.equal(skipped.status,'needs_attention');assert.match(skipped.last_error,/confirmed/)
+    assert.ok(requests.every(request=>!JSON.parse(request.body).to.includes('wrong@example.test')))
+  }finally{await close()}
+})
+
+test('PII redaction drops captured identifiers and prevents caller delivery',()=>{
+  const details=captureModule({callerEnabled:true,customFields:['Address']},{recepta_caller_email:'private@example.test',recepta_caller_email_confirmed:true,recepta_caller_name:'Private',recepta_caller_summary:'Private summary',[detailKey('Address')]:'Private address'},true)
+  assert.equal(details.callerEmail,null);assert.equal(details.callerName,'');assert.equal(details.callerSummary,'');assert.deepEqual(details.customDetails,[])
+  assert.match(details.callerSkipReason,/redaction/)
+})
+
+test('selected email fields control the body, Standard remains basic, and caller copy cannot expose internal notes',()=>{
+  const input={planName:'Recepta Pro',businessName:'Business',ownerEmail:'owner@example.test',callerEmail:'caller@example.test',callerName:'Hidden name',callerNumber:'Hidden phone',startedAt:new Date().toISOString(),durationSeconds:80,timeZone:'America/Toronto',summary:'Internal assessment',callerSummary:'Customer-facing recap',settings:{callerEnabled:true,ownerFields:['summary'],callerFields:['summary','appointment'],customFields:[]},appointment:{status:'pending',timeZone:'America/Toronto',notes:'Private staff notes',employeeName:'Private employee',customerPhone:'Private phone'}}
+  const owner=emailBuilder(input),caller=emailBuilder({...input,recipient:'caller'}),standard=emailBuilder({...input,planName:'Recepta Standard'})
+  assert.match(owner.text,/Internal assessment/);assert.doesNotMatch(owner.text,/Hidden name|Hidden phone|Call duration/)
+  assert.match(caller.text,/Customer-facing recap/);assert.doesNotMatch(caller.text,/Internal assessment|Private staff|Private employee|Private phone/)
+  assert.match(caller.text,/Pending — follow-up required/);assert.doesNotMatch(caller.text,/Your appointment is confirmed/)
+  assert.doesNotMatch(standard.text,/Internal assessment/)
+})
+
+test('preview email requires its staging key and approved destinations even when production credentials exist',async()=>{
+  await setup('Recepta Standard')
+  try {
+    process.env.CONTEXT='deploy-preview';process.env.RETELL_STAGING_API_KEY=process.env.RETELL_API_KEY
+    await webhook(signed('call_ended'))
+    assert.equal(requests.length,0);assert.match((await notice()).last_error,/RESEND_STAGING_API_KEY/)
+    process.env.RESEND_STAGING_API_KEY='synthetic-staging';await due();await schedule()
+    assert.equal(requests.length,0);assert.match((await notice()).last_error,/RECEPTA_STAGING_EMAIL_TARGETS/)
+    process.env.RECEPTA_STAGING_EMAIL_TARGETS='owner@example.test';await due();await schedule()
+    assert.equal(requests.length,1);assert.equal((await notice()).status,'accepted')
+  }finally{delete process.env.CONTEXT;delete process.env.RETELL_STAGING_API_KEY;delete process.env.RESEND_STAGING_API_KEY;delete process.env.RECEPTA_STAGING_EMAIL_TARGETS;await close()}
+})
+
+test('erasing a call also erases email captures and late replays cannot restore them',async()=>{
+  await setup()
+  try {
+    emailSettings={callerEnabled:true,customFields:['Address']}
+    await webhook(signed())
+    await db.exec("update calls set content_erased_at=now();update calls set notification_details='{\"callerEmail\":\"private@example.test\"}'")
+    assert.equal((await db.query('select notification_details from calls')).rows[0].notification_details,null)
+  }finally{await close()}
+})
+
+
+test('disabled rollout continues owner email on the original database schema',async()=>{
+ await setup('Recepta Standard',false,true)
+ try {
+  process.env.RECEPTA_CALL_EMAIL_ENABLED='false'
+  assert.equal((await webhook(signed('call_ended'))).status,204)
+  assert.equal((await notice()).status,'accepted');assert.equal(requests.length,1)
+ }finally{await close()}
+})
+
+test('normal production automatically preserves owner email while its schema update is pending',async()=>{
+ await setup('Recepta Standard',false,true)
+ try {
+  delete process.env.RECEPTA_CALL_EMAIL_ENABLED
+  emailSettings={callerEnabled:true}
+  assert.equal((await webhook(signed('call_ended'))).status,204)
+  assert.equal((await notice()).status,'accepted');assert.equal(requests.length,1)
+  assert.equal((await db.query('select count(*)::int as n from call_notifications')).rows[0].n,1)
+ }finally{await close()}
+})
+
+
+test('caller receipt can recover independently while the owner address lookup is failing',async()=>{
+ await setup()
+ const originalLookup=globalThis.__callNoticeDb.auth.admin.getUserById
+ try {
+  emailSettings={callerEnabled:true,ownerFields:['summary'],callerFields:['summary']}
+  delete process.env.RESEND_API_KEY
+  await webhook(signed('call_analyzed','independent',{call_analysis:{call_summary:'Staff summary',custom_analysis_data:{recepta_caller_email:'caller@example.test',recepta_caller_email_confirmed:true,recepta_caller_summary:'Your request was recorded.'}}}))
+  await db.exec("update clients set contact_email='invalid'")
+  globalThis.__callNoticeDb.auth.admin.getUserById=async()=>({data:{user:null},error:{message:'Synthetic Auth outage'}})
+  process.env.RESEND_API_KEY='synthetic';await due();await schedule()
+  const rows=(await db.query('select notification_key,status from call_notifications')).rows
+  assert.equal(rows.find(row=>row.notification_key.startsWith('owner-call:')).status,'queued')
+  assert.equal(rows.find(row=>row.notification_key.startsWith('caller-call:')).status,'accepted')
+  assert.equal(accepted.size,1);assert.deepEqual(JSON.parse([...accepted.values()][0].body).to,['caller@example.test'])
+ }finally{globalThis.__callNoticeDb.auth.admin.getUserById=originalLookup;await close()}
 })

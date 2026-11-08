@@ -1,3 +1,4 @@
+import { emailApiKey } from './emailEnvironment'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { billingOrigin } from './billingNotifications'
@@ -19,8 +20,7 @@ export const verifyEmailWebhook = (body:string,headers:Headers,secret:string,now
 }
 
 const resend = async (path:string,init:RequestInit = {}) => {
-  const key=process.env.RESEND_API_KEY
-  if (!key) throw new Error('Email service is not configured.')
+  const key=emailApiKey()
   const response=await fetch('https://api.resend.com'+path,{ ...init,signal:AbortSignal.timeout(4000),headers:{ Authorization:`Bearer ${key}`,'Content-Type':'application/json' } })
   if (response.status===401 || response.status===403) throw new Error(`Resend rejected delivery tracking setup (${response.status}). Check that RESEND_API_KEY in Netlify is a valid Resend key with Full access (webhook access is required). Update the key if needed, redeploy Recepta, then try connecting again.`)
   if (!response.ok) throw new Error(`Resend could not connect email delivery tracking (${response.status}). Please try again later.`)

@@ -13,6 +13,8 @@ export type ClientCallRecord = {
   call_status: string | null
   transcript: string | null
   recording_url: string | null
+  caller_email_status?: string | null
+  caller_email_error?: string | null
   notification_status?: string | null
   notification_attempts?: number
   notification_last_error?: string | null
