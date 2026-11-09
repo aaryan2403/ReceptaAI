@@ -80,3 +80,17 @@ test('existing Retell fields are loaded read-only from the assigned client agent
  assert.equal(syncs.length,0);assert.equal(users.get(one).app_metadata.recepta_call_email,undefined)
  assert.equal((await handler(request('POST',{action:'load_agent_fields'},'customer'))).status,403)
 })
+
+test('manual messages and fields save without automatic details; empty enabled messages are rejected',async()=>{
+ reset();const fresh=await(await handler(request('GET'))).json()
+ assert.deepEqual(fresh.settings.customFields,[])
+ const config={contentMode:'custom',ownerMessage:'Business introduction',callerMessage:'Caller introduction',callerEnabled:true,ownerFields:[],callerFields:[],customFields:[]}
+ const response=await handler(request('PUT',{settings:config}));assert.equal(response.status,200)
+ assert.equal(syncs[0].emailOnly,true)
+ assert.equal(users.get(one).app_metadata.recepta_call_email_active.callerMessage,'Caller introduction')
+ const preview=await(await handler(request('POST',{action:'preview',settings:config}))).json()
+ assert.equal(preview.owner.text,'Business introduction');assert.equal(preview.caller.text,'Caller introduction')
+ assert.equal((await handler(request('PUT',{settings:{...config,callerMessage:''}}))).status,400)
+ assert.equal((await handler(request('PUT',{settings:{...config,ownerMessage:''}}))).status,400)
+ assert.equal(syncs.length,1)
+})

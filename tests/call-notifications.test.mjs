@@ -253,6 +253,21 @@ test('unconfirmed email is explicitly skipped, caller receipts default off, and 
   }finally{await close()}
 })
 
+test('queued manual emails preserve the written openings and chosen fields through retries and later edits',async()=>{
+ await setup()
+ try {
+  emailSettings={contentMode:'custom',ownerMessage:'Business opening',callerMessage:'Caller opening',callerEnabled:true,ownerFields:['custom'],callerFields:['custom'],customFields:['Postcode','Address'],
+   customFieldOptions:[{label:'Postcode',analysisKey:'postcode',owner:true,caller:true},{label:'Address',analysisKey:'address',owner:true,caller:false}]}
+  mode='reject';await webhook(signed('call_analyzed','manual_layout',{call_analysis:{call_summary:'Hidden default summary',custom_analysis_data:{
+   recepta_caller_email:'caller@example.test',recepta_caller_email_confirmed:true,postcode:'M4P 0A1',address:'12 Example Street'}}}))
+  emailSettings={contentMode:'custom',ownerMessage:'Changed later',callerEnabled:false,customFields:[]}
+  await due();mode='success';await schedule()
+  const mails=[...accepted.entries()].map(([key,value])=>({key,mail:JSON.parse(value.body)}))
+  assert.equal(mails.find(item=>item.key.startsWith('owner-call:')).mail.text,'Business opening\n\nPostcode: M4P 0A1\nAddress: 12 Example Street')
+  assert.equal(mails.find(item=>item.key.startsWith('caller-call:')).mail.text,'Caller opening\n\nPostcode: M4P 0A1')
+ }finally{await close()}
+})
+
 test('PII redaction drops captured identifiers and prevents caller delivery',()=>{
   const details=captureModule({callerEnabled:true,customFields:['Address']},{recepta_caller_email:'private@example.test',recepta_caller_email_confirmed:true,recepta_caller_name:'Private',recepta_caller_summary:'Private summary',[detailKey('Address')]:'Private address'},true)
   assert.equal(details.callerEmail,null);assert.equal(details.callerName,'');assert.equal(details.callerSummary,'');assert.deepEqual(details.customDetails,[])

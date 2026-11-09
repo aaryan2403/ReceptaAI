@@ -7,6 +7,9 @@ export const EMAIL_FIELDS = {
 export type EmailField = keyof typeof EMAIL_FIELDS
 export type CustomCallField = { label: string; analysisKey: string; owner: boolean; caller: boolean }
 export type CallEmailSettings = {
+  contentMode?: 'custom' | 'legacy'
+  ownerMessage?: string
+  callerMessage?: string
   callerEnabled: boolean
   ownerFields: EmailField[]
   callerFields: EmailField[]
@@ -15,6 +18,7 @@ export type CallEmailSettings = {
 }
 export const normalizeCallEmailSettings = (value: unknown): CallEmailSettings => {
   const input = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const manual = input.contentMode === 'custom'
   const fields = (key: string, defaults: EmailField[]) => Array.isArray(input[key])
     ? [...new Set((input[key] as unknown[]).filter((item): item is EmailField => typeof item === 'string' && Object.hasOwn(EMAIL_FIELDS, item)))]
     : defaults
@@ -27,19 +31,28 @@ export const normalizeCallEmailSettings = (value: unknown): CallEmailSettings =>
     .filter(row => typeof row.label === 'string')
     .map(row => [String(row.label).trim().toLowerCase(), row] as const))
   return {
+    contentMode: manual ? 'custom' : 'legacy',
+    ownerMessage: typeof input.ownerMessage === 'string' ? input.ownerMessage.trim().slice(0, 4000) : '',
+    callerMessage: typeof input.callerMessage === 'string' ? input.callerMessage.trim().slice(0, 4000) : '',
     callerEnabled: input.callerEnabled === true,
-    ownerFields: fields('ownerFields', ['callerName', 'callerNumber', 'callerEmail', 'startedAt', 'duration', 'outcome', 'summary', 'appointment', 'custom']),
-    callerFields: fields('callerFields', ['callerName', 'startedAt', 'summary', 'appointment', 'custom']),
+    ownerFields: fields('ownerFields', manual ? [] : ['callerName', 'callerNumber', 'callerEmail', 'startedAt', 'duration', 'outcome', 'summary', 'appointment', 'custom']),
+    callerFields: fields('callerFields', manual ? [] : ['callerName', 'startedAt', 'summary', 'appointment', 'custom']),
     customFields,
     customFieldOptions: customFields.map(label => {
       const option = options.get(label.toLowerCase())
       return { label, analysisKey: typeof option?.analysisKey === 'string' ? option.analysisKey.trim() : '',
-        owner: option ? option.owner !== false : true, caller: option ? option.caller === true : true }
+        owner: option ? option.owner === true || (!manual && option.owner !== false) : !manual, caller: option ? option.caller === true : !manual }
     }),
   }
 }
+export const customEmailContentError = (settings: CallEmailSettings, isPro: boolean, role: 'owner' | 'caller') => {
+  if (settings.contentMode !== 'custom') return null
+  const message = role === 'owner' ? settings.ownerMessage : settings.callerMessage
+  const hasFields = isPro && (role === 'owner' ? settings.ownerFields : settings.callerFields).includes('custom') && customCallFields(settings).some(field => field[role])
+  return message?.trim() || hasFields ? null : `Write an opening message or select at least one field for the ${role === 'owner' ? 'business email' : 'caller email'}.`
+}
 export const customCallFields = (settings: CallEmailSettings): CustomCallField[] => settings.customFieldOptions
-  ?? settings.customFields.map(label => ({ label, analysisKey: '', owner: true, caller: true }))
+  ?? settings.customFields.map(label => ({ label, analysisKey: '', owner: settings.contentMode !== 'custom', caller: settings.contentMode !== 'custom' }))
 export const activeCallEmailSettings = (metadata?: Record<string, unknown>) => metadata?.recepta_call_email_sync_required === true
   ? metadata.recepta_call_email_active : metadata?.recepta_call_email_active ?? metadata?.recepta_call_email
 export const isRetellFieldKey = (key: string) => key.length > 0 && key.length <= 100 && key === key.trim() && !Array.from(key).some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)

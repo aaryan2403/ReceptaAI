@@ -6,7 +6,7 @@ const compile = async path => {
   const result = await build({ entryPoints: [path], bundle: true, platform: 'node', format: 'esm', write: false })
   return import('data:text/javascript;base64,' + Buffer.from(result.outputFiles[0].text).toString('base64'))
 }
-const { normalizeCallEmailSettings, customCallFields, customCallFieldError, capturedCallFields } = await compile('src/lib/callEmailSettings.ts')
+const { normalizeCallEmailSettings, customCallFields, customCallFieldError, customEmailContentError, capturedCallFields } = await compile('src/lib/callEmailSettings.ts')
 const { captureCallEmailDetails, emailFieldKey, mergeEmailAnalysis } = await compile('netlify/lib/callEmailCapture.ts')
 const { buildCallNotification } = await compile('netlify/lib/callNotificationEmail.ts')
 const options = [
@@ -76,4 +76,28 @@ test('field exclusions also apply when appointment notes contain structured answ
     appointment:{status:'pending',timeZone:'America/Toronto',notes:JSON.stringify({version:1,details:[{label:'Private detail',value:'Excluded answer'}]})}})
   assert.doesNotMatch(mail.text,/Excluded answer/)
   assert.equal(customCallFieldError(customCallFields(config)),null)
+})
+
+test('manual email layouts show the written message first and only the fields selected for that audience', () => {
+  const config = normalizeCallEmailSettings({ ...settings(), contentMode: 'custom',
+    ownerMessage: 'Please follow up on this request.\nKeep this second line.', callerMessage: 'Thank you. We received your request.' })
+  const snapshot = captureCallEmailDetails(config, { postcode: 'M4P 0A1', customer_address: '12 Example Street', windows: 6, callback_required: false })
+  const input = { planName: 'Recepta Pro', businessName: 'Do not insert this', ownerEmail: 'owner@example.test', callerEmail: 'caller@example.test',
+    callerName: 'Hidden name', callerNumber: 'Hidden phone', startedAt: '2026-11-08T12:00:00Z', durationSeconds: 90,
+    timeZone: 'America/Toronto', summary: 'Do not insert this summary', settings: config, customDetails: snapshot.customDetails,
+    appointment: { status: 'pending', timeZone: 'America/Toronto', notes: 'Do not insert appointment notes' } }
+  assert.equal(buildCallNotification(input).text, 'Please follow up on this request.\nKeep this second line.\n\nPostcode: M4P 0A1\nCustomer address: 12 Example Street\nWindows requested: 6\nCallback required: false')
+  assert.equal(buildCallNotification({ ...input, recipient: 'caller' }).text, 'Thank you. We received your request.\n\nPostcode: M4P 0A1\nWindows requested: 6')
+  assert.equal(buildCallNotification({ ...input, planName: 'Recepta Standard' }).text, config.ownerMessage)
+  assert.equal(buildCallNotification({ ...input, settings: { ...config, ownerMessage: '' } }).text, 'Postcode: M4P 0A1\nCustomer address: 12 Example Street\nWindows requested: 6\nCallback required: false')
+})
+
+test('manual layouts never create default fields or select recipients and empty enabled emails cannot be saved', () => {
+  const blank = normalizeCallEmailSettings({ contentMode: 'custom', customFields: ['My field'] })
+  assert.deepEqual(blank.ownerFields, []); assert.deepEqual(blank.callerFields, [])
+  assert.deepEqual(blank.customFieldOptions, [{ label: 'My field', analysisKey: '', owner: false, caller: false }])
+  assert.equal(blank.ownerMessage, ''); assert.equal(blank.callerMessage, '')
+  assert.match(customEmailContentError(blank, true, 'owner'), /opening message/)
+  assert.equal(customEmailContentError({ ...blank, ownerMessage: 'My exact message' }, false, 'owner'), null)
+  assert.equal(normalizeCallEmailSettings({ ownerMessage: 'x'.repeat(4001) }).ownerMessage.length, 4000)
 })
