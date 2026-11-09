@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { requestAuth, json, isDeletingClient } from '../lib/requestAuth'
-import { normalizeCallEmailSettings, customCallFields, customCallFieldError, activeCallEmailSettings } from '../../src/lib/callEmailSettings'
-import { syncRetellSchedule, normalizeAppointmentFields, getRetellAnalysisFields } from '../lib/retell'
+import { normalizeCallEmailSettings, customCallFields, customCallFieldError, customEmailContentError, activeCallEmailSettings } from '../../src/lib/callEmailSettings'
+import { syncRetellSchedule, getRetellAnalysisFields } from '../lib/retell'
 import { loadClientScheduleContext } from '../lib/employeeSchedule'
 import { buildCallNotification } from '../lib/callNotificationEmail'
 import { configuredCallEmailRetellKey, emailApiKey, callEmailSender, assertEmailRecipients, emailProviderError, callEmailPreferencesEnabled, callEmailPreferencesReady } from '../lib/emailEnvironment'
@@ -25,12 +25,14 @@ export default async (request: Request) => {
     ])
     if (account.error || !account.data.user || client.error || !client.data || subscription.error || agent.error) return json(404, { error: 'Client email configuration could not be loaded.' })
     const targetUser = account.data.user
-    const saved = normalizeCallEmailSettings(targetUser.app_metadata?.recepta_call_email ?? { customFields: normalizeAppointmentFields(targetUser.user_metadata?.appointment_custom_fields) })
+    const saved = normalizeCallEmailSettings(targetUser.app_metadata?.recepta_call_email)
     const settings = body?.settings ? normalizeCallEmailSettings(body.settings) : saved
     const planName: 'Recepta Standard' | 'Recepta Pro' = subscription.data?.plan_name === 'Recepta Pro' ? 'Recepta Pro' : 'Recepta Standard'
     if (request.method === 'GET') return json(200, { enabled: await callEmailPreferencesReady(db), settings: saved, needsSync: targetUser.app_metadata?.recepta_call_email_sync_required === true, planName, ownerEmail: client.data.contact_email, agentAssigned: Boolean(agent.data?.retell_agent_id) })
     if (request.method === 'PUT') {
       const problem = customCallFieldError(customCallFields(settings))
+        || customEmailContentError(settings, planName === 'Recepta Pro', 'owner')
+        || (settings.callerEnabled && customEmailContentError(settings, planName === 'Recepta Pro', 'caller'))
       if (problem) return json(400, { error: problem })
       const metadata = { ...targetUser.app_metadata, recepta_call_email: settings, recepta_call_email_sync_required: true,
         recepta_call_email_active: activeCallEmailSettings(targetUser.app_metadata) ?? null }
@@ -43,7 +45,7 @@ export default async (request: Request) => {
         const key = configuredCallEmailRetellKey()
         if (!key) throw new Error('The Retell workspace key is missing.')
         const context = await loadClientScheduleContext({ supabase: db, clientId })
-        await syncRetellSchedule({ apiKey: key, agentId, ...context, callEmailSettings: settings,
+        await syncRetellSchedule({ apiKey: key, agentId, ...context, callEmailSettings: settings, emailOnly: true,
           appointmentFields: settings.customFields,
           emailNotificationsEnabled: targetUser.user_metadata?.appointment_email_notifications_enabled !== false,
           smsNotificationsEnabled: targetUser.user_metadata?.appointment_sms_notifications_enabled === true })
@@ -83,6 +85,8 @@ export default async (request: Request) => {
     if (body?.action === 'preview') return json(200, { owner, caller })
     if (body?.action !== 'send_test') return json(400, { error: 'Unknown email action.' })
     // Test destination is the authenticated admin, never an arbitrary supplied recipient.
+    const contentProblem = customEmailContentError(settings, planName === 'Recepta Pro', body.role === 'caller' ? 'caller' : 'owner')
+    if (contentProblem) return json(400, { error: contentProblem })
     const mail = { ...(body.role === 'caller' ? caller : owner), to: [admin.email!], reply_to: admin.email!, subject: '[RECEPTA TEST] ' + (body.role === 'caller' ? caller.subject : owner.subject) }
     assertEmailRecipients(mail.to)
     const response = await fetch('https://api.resend.com/emails', { method: 'POST', signal: AbortSignal.timeout(4000),

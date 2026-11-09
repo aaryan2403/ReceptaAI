@@ -800,6 +800,8 @@ export const syncRetellSchedule = async ({
   employeeScheduleTimeZone,
   appointmentFields,
   callEmailSettings,
+  emailOnly = false,
+  preserveAvailability = false,
   emailNotificationsEnabled = true,
   smsNotificationsEnabled = false,
 }: {
@@ -810,6 +812,8 @@ export const syncRetellSchedule = async ({
   employeeScheduleTimeZone?: string
   appointmentFields?: string[]
   callEmailSettings?: CallEmailSettings
+  emailOnly?: boolean
+  preserveAvailability?: boolean
   emailNotificationsEnabled?: boolean
   smsNotificationsEnabled?: boolean
 }) => {
@@ -871,7 +875,10 @@ export const syncRetellSchedule = async ({
   const emailSettings = normalizeCallEmailSettings(callEmailSettings ?? storedEmailSettings)
   const collectionFields = emailConfigured ? emailSettings.customFields : appointmentFields
   if (emailConfigured && draftAgent.webhook_url && draftAgent.webhook_url !== eventWebhook) throw new Error('This agent has a different call-event webhook. Review its ownership before changing email settings.')
-  let generalPrompt = appendManagedPrompt(
+  let generalPrompt = currentLlm.general_prompt ?? ''
+  if (!emailOnly) {
+  if (!preserveAvailability) {
+  generalPrompt = appendManagedPrompt(
     currentLlm.general_prompt ?? '',
     BUSINESS_HOURS_PROMPT_MARKER,
     [
@@ -901,6 +908,8 @@ export const syncRetellSchedule = async ({
     )
   }
 
+  }
+
   generalPrompt = appendManagedPrompt(
     generalPrompt,
     APPOINTMENT_FIELDS_PROMPT_MARKER,
@@ -927,6 +936,8 @@ export const syncRetellSchedule = async ({
     ]
   )
 
+  }
+
   if (emailConfigured) {
   generalPrompt = replaceManagedPrompt(generalPrompt, '[RECEPTA MANAGED CALL EMAIL]', [
     'Call receipt policy: ' + (emailSettings.callerEnabled ? 'enabled' : 'disabled') + '.',
@@ -949,7 +960,7 @@ export const syncRetellSchedule = async ({
   const existingTools = currentLlm.general_tools ?? []
   let generalTools = existingTools
 
-  if (siteUrl) {
+  if (siteUrl && !emailOnly) {
     generalPrompt = replaceManagedPrompt(
       generalPrompt,
       APPOINTMENT_BOOKING_PROMPT_MARKER,
@@ -983,23 +994,20 @@ export const syncRetellSchedule = async ({
         default_dynamic_variables: {
           ...(currentLlm.default_dynamic_variables ?? {}),
           ...(emailConfigured ? { recepta_call_email_settings: JSON.stringify(emailSettings) } : {}),
-          recepta_answering_mode: schedule.answeringMode ?? '24/7',
-          recepta_schedule_mode: schedule.mode,
-          recepta_business_hours: formatBusinessHours(schedule),
-          recepta_business_timezone: schedule.timeZone,
-          recepta_email_confirmations: emailNotificationsEnabled
-            ? 'enabled'
-            : 'disabled',
-          recepta_sms_confirmations: smsNotificationsEnabled
-            ? 'enabled'
-            : 'disabled',
-          ...(employeeSchedule
-            ? {
-                recepta_employee_schedule: employeeSchedule,
-                recepta_employee_schedule_timezone:
-                  employeeScheduleTimeZone ?? schedule.timeZone,
-              }
-            : {}),
+          ...(!emailOnly && !preserveAvailability ? {
+            recepta_answering_mode: schedule.answeringMode ?? '24/7',
+            recepta_schedule_mode: schedule.mode,
+            recepta_business_hours: formatBusinessHours(schedule),
+            recepta_business_timezone: schedule.timeZone,
+            ...(employeeSchedule ? {
+              recepta_employee_schedule: employeeSchedule,
+              recepta_employee_schedule_timezone: employeeScheduleTimeZone ?? schedule.timeZone,
+            } : {}),
+          } : {}),
+          ...(!emailOnly ? {
+            recepta_email_confirmations: emailNotificationsEnabled ? 'enabled' : 'disabled',
+            recepta_sms_confirmations: smsNotificationsEnabled ? 'enabled' : 'disabled',
+          } : {}),
           ...(collectionFields
             ? {
                 recepta_appointment_fields:
@@ -1018,9 +1026,9 @@ export const syncRetellSchedule = async ({
       method: 'POST',
       body: JSON.stringify({
         version: draftAgent.version,
-        version_title: 'Recepta schedule sync',
+        version_title: emailOnly ? 'Recepta email sync' : preserveAvailability ? 'Recepta preferences sync' : 'Recepta schedule sync',
         version_description:
-          schedule.mode === '24/7'
+          emailOnly ? 'Updated the selected call fields and email receipt policy.' : preserveAvailability ? 'Updated call preferences without changing agent availability.' : schedule.mode === '24/7'
             ? 'Set Recepta availability to 24/7.'
             : `Updated Recepta custom hours (${schedule.timeZone}).`,
       }),

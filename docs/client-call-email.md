@@ -9,49 +9,50 @@ numbers are preserved. Automated tests use only synthetic providers and data.
 ## Admin workflow
 
 Open **Admin → Clients → Edit Client → Email notifications after each call**.
-The owner destination is the client's saved contact email (account email fallback).
-Select owner and caller fields individually; save the client separately if changing
-its contact email. Under **Call detail fields**, add up to 20 named fields, one at a
-time. For each field select Business email, Caller receipt, both or neither.
-New fields start in the business email only. Save Email Settings & Update Agent
-publishes the same question list and extraction configuration to the dedicated
-client agent. Appointment requests use that same list, replacing the separate
-appointment-field editor.
+Write the business and caller opening messages in the blank text boxes. Each
+message appears first, followed by only the fields selected for that audience.
+There are no preset field checkboxes and no automatically inserted business name,
+caller name, phone, timestamp, summary, section headings or introductory copy in
+this manual layout. The email subject is the neutral `Call update`. Messages are
+plain text, preserve internal line breaks and are limited to 4,000 characters.
+
+The business destination is the client's saved contact email (account email
+fallback). Save the client separately to change that destination. Under **Call
+detail fields**, add up to 20 named fields in the desired order. New fields have
+neither destination selected: explicitly choose Business email, Caller receipt,
+both or neither. A message-only email is supported. Field details retain the Pro
+plan requirement. An enabled email must contain a written message or an eligible
+selected field; empty configurations cannot be activated or sent as test samples.
 
 If extraction already exists in Retell, choose **Load existing Retell fields**,
-then **Add existing field** or map a row to the desired extraction key. Loading is
-read-only and uses only the agent assigned to the selected client. Publishing
-preserves mapped field types, descriptions, examples and required/optional rules,
-as well as unrelated analysis fields and tools. Missing or ambiguous mapped keys
-stop publication instead of silently creating or replacing a definition.
+then **Add existing field** or map a row to the desired extraction key. This is
+read-only and uses only the assigned agent. Nothing is added automatically when
+loading. Mapped types, descriptions, examples and required/optional rules are
+preserved. Missing or ambiguous mapped keys stop publication. New configurations
+do not preload the old appointment field list.
+
+**Save Email Settings & Update Agent** publishes the selected questions and email
+receipt policy. It preserves the agent's availability, other business instructions
+and tools. The general **Save Client** action also preserves availability managed
+in Retell. The edit panel no longer contains store-hours/AI-answering controls or
+the additional-number quote form. Existing numbers remain editable.
 
 Saved drafts become active only after successful agent synchronization. A failed
-sync leaves call capture using the previously synchronized configuration. Retry
-the save after fixing the reported cause. Legacy label-only configurations remain
-compatible with their existing generated extraction keys.
+sync leaves capture using the previous active settings. Existing configured
+custom fields remain editable. Legacy email configurations and already captured
+calls retain their original format until a newly saved configuration becomes
+active. There is no historical rewrite or backfill.
 
-Owner mail remains enabled. Existing accounts have caller receipts off until an
-admin enables them. New accounts use the default until an admin configures them. The new independent email save does not change
-billing, phone assignments, transfer destinations or subscription entitlements.
+Owner delivery remains enabled. Caller delivery is opt-in and still requires the
+agent to ask permission, read the caller's email back and obtain confirmation.
+No guessed, invalid or unconfirmed address is mailed. PII redaction suppresses
+captured custom/contact data and blocks caller receipts. The same captured field
+answers appear in Pro call history. Missing answers say “Not provided”; finite
+numbers and booleans are retained as text. Selected fields cannot pull unrelated
+appointment notes or an internal summary into a manual email.
 
-Standard emails contain selected basic call information. Pro adds the selected
-AI summary, appointment details and custom answers. Unknown custom answers say
-“Not provided”. A caller-facing summary is extracted separately from the owner’s
-internal summary. Caller copies omit staff notes, employee names/contact details,
-and raw transcripts/recordings. Each custom answer is included only for its selected email audience. The same
-stored answers appear in Pro call history. Missing values say Not provided; finite
-numbers and booleans are retained as text. Caller summaries describe general
-requests and next steps, with selected structured answers appended separately.
-Structured appointment answers cannot leak through the raw notes section.
-
-The agent offers a receipt, asks permission, reads the caller's email back, and
-asks for confirmation. No guessed, invalid, unconfirmed or nonconsenting address
-is mailed. A skipped caller receipt is visible with its reason. PII redaction
-suppresses captured custom/contact data and blocks caller receipts. Do not turn
-redaction off just to obtain an email address.
-
-Pending requests say pending/follow-up required. They do not claim a booked slot.
-Actual confirmed historical appointments retain their confirmed status.
+The opening text is written by the admin; it does not establish a booked slot.
+Retell still treats an appointment request as pending until actually confirmed.
 
 ## Email checks
 

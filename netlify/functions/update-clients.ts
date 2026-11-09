@@ -561,6 +561,7 @@ export default async (request: Request) => {
         apiKey: retellApiKey,
         agentId: retellAgentId,
         ...scheduleContext,
+        preserveAvailability: true,
         appointmentFields,
         emailNotificationsEnabled:
           normalizeEmailNotificationsEnabled(

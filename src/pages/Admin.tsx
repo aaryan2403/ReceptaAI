@@ -15,7 +15,6 @@ import { supabase } from '../lib/supabase'
 import AdminRequestsNavItem from '../components/AdminRequestsNavItem'
 import AdminDemoLinks from '../components/AdminDemoLinks'
 import AdminOperations from '../components/AdminOperations'
-import AdminStoreHours from '../components/AdminStoreHours'
 import AdminRetellAgentPicker from '../components/AdminRetellAgentPicker'
 
 const ADMIN_EMAIL = 'aaryansmg24@gmail.com'
@@ -342,14 +341,6 @@ export default function Admin() {
   ] = useState(false)
   const [editPassword, setEditPassword] =
     useState('')
-  const [editPurchaseQuantity, setEditPurchaseQuantity] =
-    useState('1')
-  const [editPhoneCountry, setEditPhoneCountry] =
-    useState<'CA' | 'US'>('CA')
-  const [editPhoneAreaCode, setEditPhoneAreaCode] =
-    useState('')
-  const [purchasingPhoneNumbers, setPurchasingPhoneNumbers] =
-    useState(false)
   const [savingEdit, setSavingEdit] =
     useState(false)
   const [editError, setEditError] =
@@ -829,9 +820,6 @@ export default function Admin() {
       (client.appointment_custom_fields || []).join('\n')
     )
     setEditPassword('')
-    setEditPurchaseQuantity('1')
-    setEditPhoneCountry('CA')
-    setEditPhoneAreaCode('')
     setEditError('')
   }
 
@@ -842,7 +830,7 @@ export default function Admin() {
 
     window.setTimeout(() => {
       document
-        .getElementById('adminPhonePurchasePanel')
+        .getElementById('adminPhoneNumbersField')
         ?.scrollIntoView({
           behavior: 'smooth',
           block: 'center',
@@ -988,90 +976,6 @@ export default function Admin() {
   ) => {
     event.preventDefault()
     await updateClient(false)
-  }
-
-  const handlePurchasePhoneNumbers = async () => {
-    if (!editingClient) return
-
-    const quantity = Number(editPurchaseQuantity)
-    const currentPhoneCount =
-      editingClient.agent?.phone_numbers?.length ||
-      (editingClient.agent?.phone_number ? 1 : 0)
-
-    if (
-      !Number.isInteger(quantity) ||
-      quantity < 1 ||
-      currentPhoneCount + quantity > 21
-    ) {
-      setEditError(
-        'Choose a valid quantity without exceeding 21 total phone numbers.'
-      )
-      return
-    }
-
-    if (
-      !window.confirm(
-        `Prepare a paid quote for ${quantity} additional phone ${
-          quantity === 1 ? 'number' : 'numbers'
-        }? Numbers are assigned only after successful payment.`
-      )
-    ) {
-      return
-    }
-
-    setPurchasingPhoneNumbers(true)
-    setEditError('')
-
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-
-      if (!session?.access_token) {
-        throw new Error('Admin session expired. Sign in again.')
-      }
-
-      const response = await fetch(
-        '/.netlify/functions/admin-purchase-phone-numbers',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            clientId: editingClient.id,
-            quantity,
-            countryCode: editPhoneCountry,
-            areaCode:
-              editPhoneCountry === 'US'
-                ? editPhoneAreaCode.trim() || null
-                : null,
-          }),
-        }
-      )
-      const result = await response.json().catch(() => ({}))
-
-      if (!response.ok) {
-        throw new Error(
-          result?.error || 'Could not purchase phone numbers.'
-        )
-      }
-
-      setActionSuccess(
-        `Phone-number quote prepared for ${editingClient.company_name || 'the client'}. They must pay from Billing before numbers are provisioned.`
-      )
-      setEditingClient(null)
-      await loadData()
-    } catch (error) {
-      setEditError(
-        error instanceof Error
-          ? error.message
-          : 'Could not purchase phone numbers.'
-      )
-    } finally {
-      setPurchasingPhoneNumbers(false)
-    }
   }
 
   const handleDeleteClient = async (
@@ -1975,7 +1879,7 @@ export default function Admin() {
                           openPhoneNumberManager(client)
                         }
                       >
-                        Add Phone Numbers
+                        Edit Phone Numbers
                       </button>
 
                       <button
@@ -2267,7 +2171,7 @@ export default function Admin() {
                 </label>
 
                 <label>
-                  <span>Recepta phone numbers</span>
+                  <span id="adminPhoneNumbersField">Recepta phone numbers</span>
                   <textarea
                     value={editPhoneNumber}
                     onChange={(event) =>
@@ -2281,110 +2185,6 @@ export default function Admin() {
                     One E.164 number per line. The first number is primary.
                   </small>
                 </label>
-
-                <div
-                  id="adminPhonePurchasePanel"
-                  style={{
-                    gridColumn: '1 / -1',
-                    display: 'grid',
-                    gridTemplateColumns:
-                      'repeat(auto-fit, minmax(180px, 1fr))',
-                    gap: '14px',
-                    padding: '16px',
-                    border: '1px solid rgba(0,230,118,0.18)',
-                    borderRadius: '14px',
-                    background: 'rgba(0,230,118,0.035)',
-                  }}
-                >
-                  <div style={{ gridColumn: '1 / -1' }}>
-                    <strong>Prepare additional-number quote</strong>
-                    <p style={{ margin: '6px 0 0', opacity: 0.65 }}>
-                      Admin only. Prepare numbers for payment before assigning
-                      them to this client’s connected Retell agent.
-                    </p>
-                  </div>
-
-                  <label>
-                    <span>Additional numbers requested</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max={Math.max(
-                        1,
-                        21 -
-                          (editingClient.agent?.phone_numbers?.length ||
-                            (editingClient.agent?.phone_number ? 1 : 0))
-                      )}
-                      step="1"
-                      value={editPurchaseQuantity}
-                      onChange={(event) =>
-                        setEditPurchaseQuantity(event.target.value)
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    <span>Number country</span>
-                    <select
-                      value={editPhoneCountry}
-                      onChange={(event) =>
-                        setEditPhoneCountry(
-                          event.target.value === 'US' ? 'US' : 'CA'
-                        )
-                      }
-                    >
-                      <option value="CA">Canada</option>
-                      <option value="US">United States</option>
-                    </select>
-                  </label>
-
-                  {editPhoneCountry === 'US' && (
-                    <label>
-                      <span>Preferred US area code</span>
-                      <input
-                        inputMode="numeric"
-                        maxLength={3}
-                        value={editPhoneAreaCode}
-                        onChange={(event) =>
-                          setEditPhoneAreaCode(event.target.value)
-                        }
-                        placeholder="415"
-                      />
-                    </label>
-                  )}
-
-                  <button
-                    type="button"
-                    className="btn btnPrimary"
-                    disabled={
-                      purchasingPhoneNumbers ||
-                      !editingClient.agent?.retell_agent_id
-                    }
-                    onClick={handlePurchasePhoneNumbers}
-                  >
-                    {purchasingPhoneNumbers
-                      ? 'Preparing quote...'
-                      : 'Prepare Paid Quote'}
-                  </button>
-
-                  <small style={{ gridColumn: '1 / -1' }}>
-                    Numbers are provisioned after the client pays from Billing. The first account number
-                    is included; every additional number adds C$20/month to the
-                    Recepta bill.
-                  </small>
-                </div>
-
-                <AdminStoreHours
-                  key={editingClient.id}
-                  clientId={editingClient.id}
-                  businessHours={editingClient.agent?.business_hours}
-                  onSaved={hours => {
-                    const update = (client: ClientWithSubscription) => client.id === editingClient.id && client.agent
-                      ? { ...client, agent: { ...client.agent, business_hours: hours } } : client
-                    setClients(current => current.map(update))
-                    setEditingClient(current => current ? update(current) : current)
-                  }}
-                />
 
                 <AdminCallEmailSettings key={editingClient.id} clientId={editingClient.id} />
 

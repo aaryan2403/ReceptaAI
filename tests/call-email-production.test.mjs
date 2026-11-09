@@ -95,3 +95,32 @@ test('a mapped existing extraction is reused by both post-call analysis and appo
   assert.match(state.llm().default_dynamic_variables.recepta_appointment_fields,/Postcode/)
   assert.doesNotMatch(state.llm().default_dynamic_variables.recepta_appointment_fields,/Old appointment question/)
 })
+
+test('email-only saves preserve the agent business hours, tools and unrelated dynamic variables', async () => {
+  const state = fixture()
+  const before = structuredClone(state.llm())
+  before.default_dynamic_variables.recepta_business_hours = 'Keep agent-managed hours'
+  state.llm().default_dynamic_variables.recepta_business_hours = before.default_dynamic_variables.recepta_business_hours
+  await syncRetellSchedule({ apiKey: 'synthetic', agentId: 'synthetic_agent', schedule, emailOnly: true,
+    callEmailSettings: { contentMode: 'custom', ownerMessage: 'My message', callerEnabled: false, ownerFields: [], callerFields: [], customFields: [] } })
+  const after = state.llm()
+  assert.deepEqual(after.general_tools, before.general_tools)
+  assert.ok(after.general_prompt.startsWith(before.general_prompt))
+  assert.doesNotMatch(after.general_prompt, /RECEPTA MANAGED BUSINESS HOURS|recepta_save_appointment_details|authoritative source for store hours/)
+  assert.equal(after.default_dynamic_variables.recepta_business_hours, 'Keep agent-managed hours')
+  assert.equal(after.default_dynamic_variables.recepta_schedule_mode, undefined)
+  assert.equal(after.default_dynamic_variables.recepta_answering_mode, undefined)
+  assert.equal(after.default_dynamic_variables.recepta_email_confirmations, undefined)
+  assert.equal(JSON.parse(after.default_dynamic_variables.recepta_call_email_settings).ownerMessage, 'My message')
+})
+
+test('general client edits preserve availability managed directly in Retell', async () => {
+  const state = fixture()
+  state.llm().default_dynamic_variables.recepta_business_hours = 'Existing Retell hours'
+  await syncRetellSchedule({ apiKey: 'synthetic', agentId: 'synthetic_agent', schedule,
+    preserveAvailability: true, appointmentFields: [] })
+  assert.equal(state.llm().default_dynamic_variables.recepta_business_hours, 'Existing Retell hours')
+  assert.equal(state.llm().default_dynamic_variables.recepta_schedule_mode, undefined)
+  assert.doesNotMatch(state.llm().general_prompt, /authoritative source for store hours/)
+  assert.equal(state.llm().default_dynamic_variables.recepta_email_confirmations, 'enabled')
+})

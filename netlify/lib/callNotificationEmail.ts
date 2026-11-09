@@ -99,6 +99,15 @@ export const buildCallNotification = (details: CallNotificationDetails): CallEma
   const supportEmail =
     process.env.RECEPTA_SUPPORT_EMAIL?.trim() ||
     'receptahelp02@gmail.com'
+  if (settings.contentMode === 'custom') {
+    const message = caller ? settings.callerMessage : settings.ownerMessage
+    const rows = details.planName === 'Recepta Pro' && include('custom') ? customDetails : []
+    return {
+      from, to: [recipientEmail.trim()], reply_to: caller ? ownerEmail || supportEmail : supportEmail,
+      subject: 'Call update',
+      text: [message?.trim(), rows.map(item => `${item.label}: ${item.value}`).join('\n')].filter(Boolean).join('\n\n'),
+    }
+  }
   const appointment = details.appointment
   const confirmed = appointment && isConfirmedAppointment({ status: appointment.status, appointment_time: appointment.start ?? null })
   const timeZone = details.timeZone
