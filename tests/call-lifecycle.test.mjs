@@ -244,3 +244,21 @@ test('migration protects historical calls, older writers and tenant identity whi
     assert.deepEqual(privileges, { anon: false, customer: false, server: true })
   } finally { await close() }
 })
+
+test('call detail history stays with its owner and respects redaction, erasure and plan access', async () => {
+  await setup()
+  try {
+    await db.query("insert into calls(client_id,retell_call_id,retell_agent_id,call_status,notification_details) values($1,'own-fields','agent_test','ended',$2),($3,'other-fields','other-agent','ended',$4)",
+      [client, JSON.stringify({customDetails:[{label:'Postcode',value:'M4P 0A1'}]}), otherClient, JSON.stringify({customDetails:[{label:'Address',value:'Another tenant'}]})])
+    globalThis.fetch = async () => Response.json({items:[]})
+    let response = await (await refresh(dashboardRequest())).json()
+    assert.equal(response.calls.length,1);assert.deepEqual(response.calls[0].custom_details,[{label:'Postcode',value:'M4P 0A1'}])
+    assert.doesNotMatch(JSON.stringify(response), /Another tenant/)
+    await db.exec('update subscriptions set pii_redaction_enabled=true')
+    response = await (await refresh(dashboardRequest())).json();assert.deepEqual(response.calls[0].custom_details,[])
+    await db.exec("update subscriptions set pii_redaction_enabled=false,plan_name='Recepta Standard'")
+    response = await (await refresh(dashboardRequest())).json();assert.deepEqual(response.calls[0].custom_details,[])
+    await db.exec("update subscriptions set plan_name='Recepta Pro';update calls set content_erased_at=now() where retell_call_id='own-fields'")
+    response = await (await refresh(dashboardRequest())).json();assert.deepEqual(response.calls[0].custom_details,[])
+  } finally { await close() }
+})

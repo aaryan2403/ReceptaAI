@@ -94,8 +94,24 @@
 .adminCallEmailActions .btn { min-width: 0; max-width: 100%; white-space: normal; }
 .adminCallEmailPreview pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 12px; }
 
+.adminCustomFields { display: grid; gap: 16px; min-width: 0; padding-top: 6px; }
+.adminCustomFieldsHeading { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
+.adminCustomFieldsHeading > div { min-width: 0; }
+.adminCustomFieldsHeading p { color: #a1b4a8; font-size: 12px; margin-top: 6px; }
+.adminCustomFieldsHeading > span { color: #9ce1b7; font-size: 12px; flex-shrink: 0; }
+.adminCustomFieldAdd { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
+.adminCustomFieldImport { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.adminCustomFieldImport small { flex: 1 1 220px; }
+.adminCustomFieldRow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 16px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 12px; min-width: 0; background: rgba(0,0,0,.12); }
+.adminCustomFieldRow > * { min-width: 0; }
+.adminCustomFieldRow > .btn { justify-self: end; align-self: center; }
+.adminCustomFieldRecipients { display: flex; align-items: start; flex-wrap: wrap; gap: 12px 20px; }
+.adminCustomFields > small, .adminCallFieldsNote { color: #a1b4a8; font-size: 12px; line-height: 1.55; }
+
 @media (max-width: 640px) {
   .adminCallEmailColumns { grid-template-columns: minmax(0, 1fr); }
   .adminCallEmailColumn, .adminCallEmailPreview { padding: 14px; }
   .adminCallEmailActions .btn { width: 100%; }
+  .adminCustomFieldRow, .adminCustomFieldAdd { grid-template-columns: minmax(0, 1fr); }
+  .adminCustomFieldRow > .btn, .adminCustomFieldAdd > .btn { width: 100%; }
 }

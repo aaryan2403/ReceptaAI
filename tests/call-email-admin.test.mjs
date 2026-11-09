@@ -13,7 +13,7 @@ const bundled=await build({entryPoints:['netlify/functions/admin-call-email.ts']
   b.onResolve({filter:/^@supabase\/supabase-js$/},()=>({path:'db',namespace:'mock'}))
   b.onResolve({filter:/^\.\.\/lib\/retell$/},()=>({path:'retell',namespace:'mock'}))
   b.onResolve({filter:/^\.\.\/lib\/employeeSchedule$/},()=>({path:'schedule',namespace:'mock'}))
-  b.onLoad({filter:/.*/,namespace:'mock'},({path})=>({loader:'js',contents:path==='db'?'export const createClient=()=>globalThis.__emailAdminDb':path==='retell'?'export const syncRetellSchedule=input=>globalThis.__emailAdminSync(input);export const normalizeAppointmentFields=input=>input??[]':'export const loadClientScheduleContext=async()=>({schedule:{mode:"24/7",timeZone:"America/Toronto",hours:[]}})'}))
+  b.onLoad({filter:/.*/,namespace:'mock'},({path})=>({loader:'js',contents:path==='db'?'export const createClient=()=>globalThis.__emailAdminDb':path==='retell'?'export const syncRetellSchedule=input=>globalThis.__emailAdminSync(input);export const normalizeAppointmentFields=input=>input??[];export const getRetellAnalysisFields=async(key,id)=>{globalThis.__emailAdminImportedAgent=id;return[{key:"postcode",label:"postcode",type:"string"}]}':'export const loadClientScheduleContext=async()=>({schedule:{mode:"24/7",timeZone:"America/Toronto",hours:[]}})'}))
 }}]})
 const handler=(await import('data:text/javascript;base64,'+Buffer.from(bundled.outputFiles[0].text).toString('base64'))).default
 process.env.RECEPTA_CALL_EMAIL_ENABLED='true';process.env.SUPABASE_URL='https://synthetic.test';process.env.SUPABASE_SECRET_KEY='synthetic';process.env.ADMIN_EMAIL='admin@example.test';process.env.RETELL_API_KEY='synthetic';process.env.RESEND_API_KEY='synthetic'
@@ -28,8 +28,10 @@ test('only admins can read or change email settings and saving one tenant preser
  assert.equal((await(await handler(request('GET'))).json()).settings.callerEnabled,true)
 })
 test('AI publication failure reports that settings were saved without claiming synchronization',async()=>{
- reset();failSync=true;const response=await handler(request('PUT',{settings:{callerEnabled:true}})),body=await response.json()
+ reset();const previous={callerEnabled:false,customFields:['Previously synced']};users.get(one).app_metadata.recepta_call_email=previous
+ failSync=true;const response=await handler(request('PUT',{settings:{callerEnabled:true}})),body=await response.json()
  assert.equal(response.status,502);assert.equal(body.saved,true);assert.match(body.error,/sync failed/);assert.equal(users.get(one).app_metadata.recepta_call_email.callerEnabled,true)
+ assert.deepEqual(users.get(one).app_metadata.recepta_call_email_active,previous);assert.equal(users.get(one).app_metadata.recepta_call_email_sync_required,true)
 })
 test('preview sends nothing, test samples go only to authenticated admin, and provider failure is not success',async()=>{
  reset();globalThis.fetch=async(url,options)=>{requests.push({url,mail:JSON.parse(options.body)});return Response.json({id:'synthetic_test'})}
@@ -69,4 +71,12 @@ test('normal admin saves preferences without publishing an agent when the schema
  missingSchema=false
  const retry=await(await handler(request('PUT',{settings:result.settings}))).json()
  assert.equal(retry.synced,true);assert.equal(syncs.length,1)
+})
+
+test('existing Retell fields are loaded read-only from the assigned client agent',async()=>{
+ reset();const result=await(await handler(request('POST',{action:'load_agent_fields',agentId:'agent_other'}))).json()
+ assert.equal(globalThis.__emailAdminImportedAgent,'agent_'+one)
+ assert.deepEqual(result.availableFields,[{key:'postcode',label:'postcode',type:'string'}])
+ assert.equal(syncs.length,0);assert.equal(users.get(one).app_metadata.recepta_call_email,undefined)
+ assert.equal((await handler(request('POST',{action:'load_agent_fields'},'customer'))).status,403)
 })

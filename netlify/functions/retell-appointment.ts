@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { normalizeCallEmailSettings, activeCallEmailSettings } from '../../src/lib/callEmailSettings'
 import {
   normalizeAppointmentFields,
   verifyRetellSignature,
@@ -89,9 +90,10 @@ export default async (request: Request) => {
     await supabaseAdmin.auth.admin.getUserById(clientId)
   if (userError) return json(500, { error: 'Could not load appointment fields.' })
 
-  const configuredFields = normalizeAppointmentFields(
-    userResult.user?.user_metadata?.appointment_custom_fields
-  )
+  const activeFields = activeCallEmailSettings(userResult.user?.app_metadata)
+  const configuredFields = activeFields
+    ? normalizeCallEmailSettings(activeFields).customFields
+    : normalizeAppointmentFields(userResult.user?.user_metadata?.appointment_custom_fields)
   const configuredByName = new Map(
     configuredFields.map((field) => [field.toLowerCase(), field])
   )
