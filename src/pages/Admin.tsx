@@ -2394,22 +2394,7 @@ export default function Admin() {
                   <small>Requires explicit buyer consent and Twilio. Save the client below to update this SMS preference.</small>
                 </label>
 
-                <label style={{ gridColumn: '1 / -1' }}>
-                  <span>AI appointment fields</span>
-                  <textarea
-                    value={editAppointmentFields}
-                    onChange={(event) =>
-                      setEditAppointmentFields(event.target.value)
-                    }
-                    rows={7}
-                    placeholder={"Customer name\nNumber of windows\nWindow measurements\nPreferred installation date\nProperty address"}
-                  />
-                  <small>
-                    Admin controlled. Enter one field per line. The AI will ask
-                    the caller for these details and save the answers in the
-                    customer’s Calls page. Maximum 20 fields.
-                  </small>
-                </label>
+                <p className="adminEditFullWidth adminCallFieldsNote">Configure call detail fields in the email section above. The same list is used for appointment requests, Retell extraction and email details.</p>
 
                 <div
                   style={{

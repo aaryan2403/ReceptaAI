@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { requestAuth, json, isDeletingClient } from '../lib/requestAuth'
-import { normalizeCallEmailSettings } from '../../src/lib/callEmailSettings'
-import { syncRetellSchedule, normalizeAppointmentFields } from '../lib/retell'
+import { normalizeCallEmailSettings, customCallFields, customCallFieldError, activeCallEmailSettings } from '../../src/lib/callEmailSettings'
+import { syncRetellSchedule, normalizeAppointmentFields, getRetellAnalysisFields } from '../lib/retell'
 import { loadClientScheduleContext } from '../lib/employeeSchedule'
 import { buildCallNotification } from '../lib/callNotificationEmail'
 import { configuredCallEmailRetellKey, emailApiKey, callEmailSender, assertEmailRecipients, emailProviderError, callEmailPreferencesEnabled, callEmailPreferencesReady } from '../lib/emailEnvironment'
@@ -25,12 +25,16 @@ export default async (request: Request) => {
     ])
     if (account.error || !account.data.user || client.error || !client.data || subscription.error || agent.error) return json(404, { error: 'Client email configuration could not be loaded.' })
     const targetUser = account.data.user
-    const saved = normalizeCallEmailSettings(targetUser.app_metadata?.recepta_call_email)
+    const saved = normalizeCallEmailSettings(targetUser.app_metadata?.recepta_call_email ?? { customFields: normalizeAppointmentFields(targetUser.user_metadata?.appointment_custom_fields) })
     const settings = body?.settings ? normalizeCallEmailSettings(body.settings) : saved
     const planName: 'Recepta Standard' | 'Recepta Pro' = subscription.data?.plan_name === 'Recepta Pro' ? 'Recepta Pro' : 'Recepta Standard'
-    if (request.method === 'GET') return json(200, { enabled: await callEmailPreferencesReady(db), settings: saved, planName, ownerEmail: client.data.contact_email, agentAssigned: Boolean(agent.data?.retell_agent_id) })
+    if (request.method === 'GET') return json(200, { enabled: await callEmailPreferencesReady(db), settings: saved, needsSync: targetUser.app_metadata?.recepta_call_email_sync_required === true, planName, ownerEmail: client.data.contact_email, agentAssigned: Boolean(agent.data?.retell_agent_id) })
     if (request.method === 'PUT') {
-      const updated = await db.auth.admin.updateUserById(clientId, { app_metadata: { ...targetUser.app_metadata, recepta_call_email: settings } })
+      const problem = customCallFieldError(customCallFields(settings))
+      if (problem) return json(400, { error: problem })
+      const metadata = { ...targetUser.app_metadata, recepta_call_email: settings, recepta_call_email_sync_required: true,
+        recepta_call_email_active: activeCallEmailSettings(targetUser.app_metadata) ?? null }
+      const updated = await db.auth.admin.updateUserById(clientId, { app_metadata: metadata })
       if (updated.error) throw new Error('Could not save client email preferences.')
       if (!await callEmailPreferencesReady(db)) return json(200, { settings, synced: false, activationPending: true, message: 'Email preferences saved. Automatic call email customization awaits the database update. Save again after activation to update the AI agent.' })
       const agentId = agent.data?.retell_agent_id
@@ -40,13 +44,23 @@ export default async (request: Request) => {
         if (!key) throw new Error('The Retell workspace key is missing.')
         const context = await loadClientScheduleContext({ supabase: db, clientId })
         await syncRetellSchedule({ apiKey: key, agentId, ...context, callEmailSettings: settings,
-          appointmentFields: normalizeAppointmentFields(targetUser.user_metadata?.appointment_custom_fields),
+          appointmentFields: settings.customFields,
           emailNotificationsEnabled: targetUser.user_metadata?.appointment_email_notifications_enabled !== false,
           smsNotificationsEnabled: targetUser.user_metadata?.appointment_sms_notifications_enabled === true })
+        const activated = await db.auth.admin.updateUserById(clientId, { app_metadata: { ...metadata, recepta_call_email_active: settings, recepta_call_email_sync_required: false } })
+        if (activated.error) throw new Error('The agent was updated, but recording its active settings failed. Retry the save to complete synchronization.')
         return json(200, { settings, synced: true, message: 'Email settings saved and synced with the AI agent.' })
       } catch (failure) {
         return json(502, { saved: true, settings, error: `Email settings saved, but AI sync failed: ${failure instanceof Error ? failure.message : 'Please retry.'}` })
       }
+    }
+    if (body?.action === 'load_agent_fields') {
+      const agentId = agent.data?.retell_agent_id
+      if (!agentId) return json(409, { error: 'Assign this client’s Retell agent before loading extraction fields.' })
+      const key = configuredCallEmailRetellKey()
+      if (!key) return json(503, { error: 'The Retell workspace key is missing.' })
+      const availableFields = await getRetellAnalysisFields(key, agentId)
+      return json(200, { availableFields, message: availableFields.length ? 'Published Retell fields loaded. Choose the ones to use below, then save.' : 'This agent has no reusable custom extraction fields. Add new call fields below.' })
     }
     if (body?.action === 'check_provider') {
       const key = emailApiKey()

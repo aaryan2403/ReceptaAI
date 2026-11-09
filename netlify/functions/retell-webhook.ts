@@ -1,5 +1,6 @@
 import { callEmailPreferencesReady } from '../lib/emailEnvironment'
 import { captureCallEmailDetails } from '../lib/callEmailCapture'
+import { activeCallEmailSettings } from '../../src/lib/callEmailSettings'
 import { isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 import { createClient } from '@supabase/supabase-js'
 import {
@@ -397,7 +398,7 @@ export default async (
     if (emailPreferencesReady) {
     const account = await supabaseAdmin.auth.admin.getUserById(agent.client_id)
     if (account.error || !account.data.user) return json(500, { error: 'Could not load call email preferences; retry this event.' })
-    const capture = captureCallEmailDetails(account.data.user.app_metadata?.recepta_call_email, analysis?.custom_analysis_data, piiRedactionEnabled)
+    const capture = captureCallEmailDetails(activeCallEmailSettings(account.data.user.app_metadata), analysis?.custom_analysis_data, piiRedactionEnabled)
     record.notification_details = capture
     if (!record.caller_name && capture.callerName) record.caller_name = capture.callerName
     }

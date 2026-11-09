@@ -1,6 +1,8 @@
 import { appointmentCallId, isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 import { createClient } from '@supabase/supabase-js'
 import { isDeletingClient } from '../lib/requestAuth'
+import { callEmailPreferencesReady } from '../lib/emailEnvironment'
+import { capturedCallFields } from '../../src/lib/callEmailSettings'
 
 type RetellCall = {
   call_id?: string
@@ -343,7 +345,7 @@ export default async (request: Request) => {
         .maybeSingle(),
       supabaseAdmin
         .from('subscriptions')
-        .select('pii_redaction_enabled')
+        .select('pii_redaction_enabled,plan_name')
         .eq('client_id', user.id)
         .maybeSingle(),
       supabaseAdmin
@@ -360,17 +362,21 @@ export default async (request: Request) => {
         .eq('client_id', user.id).order('created_at', { ascending: false }),
     ])
 
+  const piiRedactionEnabled = subscriptionResult.data?.pii_redaction_enabled === true
+  const detailAccess = subscriptionResult.data?.plan_name === 'Recepta Pro' && !piiRedactionEnabled && await callEmailPreferencesReady(supabaseAdmin)
+  const detailResult = detailAccess ? await supabaseAdmin.from('calls').select('retell_call_id,notification_details,content_erased_at')
+    .eq('client_id', user.id).order('started_at', { ascending: false }) : { data: [], error: null }
+  const callDetails = new Map((detailResult.data ?? []).map(row => [row.retell_call_id, row.content_erased_at ? [] : capturedCallFields(row.notification_details)]))
   const notifications = new Map((notificationResult.data ?? []).filter(notice => notice.notification_key.startsWith('owner-call:')).map((notice) => [notice.retell_call_id, notice]))
   const callerNotices = new Map((notificationResult.data ?? []).filter(notice => notice.notification_key.startsWith('caller-call:')).map(notice => [notice.retell_call_id, notice]))
   const enrichNotifications = <T extends { retell_call_id?: string | null }>(records: T[]) => records.map((record) => {
     const notice = notifications.get(record.retell_call_id)
     const callerNotice = callerNotices.get(record.retell_call_id)
-    return { ...record, caller_email_status: callerNotice?.delivery_status ?? callerNotice?.status ?? null, caller_email_error: callerNotice?.last_error ?? null, notification_status: notice?.delivery_status ?? notice?.status ?? (notificationResult.error ? 'unavailable' : null),
+    return { ...record, custom_details: callDetails.get(record.retell_call_id) ?? [], custom_details_unavailable: Boolean(detailResult.error), caller_email_status: callerNotice?.delivery_status ?? callerNotice?.status ?? null, caller_email_error: callerNotice?.last_error ?? null, notification_status: notice?.delivery_status ?? notice?.status ?? (notificationResult.error ? 'unavailable' : null),
       notification_attempts: notice?.attempts ?? 0, notification_last_error: notice?.last_error ?? null }
   })
 
   if (appointmentResult.error) return json(500, { error: 'Could not verify appointment confirmations.' })
-  const piiRedactionEnabled = subscriptionResult.data?.pii_redaction_enabled === true
   const confirmedCallIds = new Set((appointmentResult.data ?? [])
     .filter(isConfirmedAppointment)
     .map((appointment) => appointmentCallId(appointment.retell_call_id)))

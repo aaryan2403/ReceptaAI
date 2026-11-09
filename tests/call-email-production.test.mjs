@@ -83,3 +83,15 @@ test('email publication refuses to replace another webhook; existing schedule-on
   assert.equal(legacy.writes.some(item => item.path.startsWith('/update-agent/')), false)
   assert.doesNotMatch(legacy.llm().general_prompt, /\[RECEPTA MANAGED CALL EMAIL\]/)
 })
+
+test('a mapped existing extraction is reused by both post-call analysis and appointment questions', async () => {
+  const state = fixture()
+  const settings = {callerEnabled:true,ownerFields:['custom'],callerFields:['custom'],customFields:['Postcode'],
+    customFieldOptions:[{label:'Postcode',analysisKey:'business_field',owner:true,caller:false}]}
+  await syncRetellSchedule({apiKey:'synthetic',agentId:'synthetic_agent',schedule,appointmentFields:['Old appointment question'],callEmailSettings:settings})
+  const fields=state.writes.find(item=>item.path.startsWith('/update-agent/')).body.post_call_analysis_data
+  assert.deepEqual(fields.find(item=>item.name==='business_field'),{type:'string',name:'business_field',description:'Existing field'})
+  assert.equal(fields.filter(item=>item.name==='business_field').length,1)
+  assert.match(state.llm().default_dynamic_variables.recepta_appointment_fields,/Postcode/)
+  assert.doesNotMatch(state.llm().default_dynamic_variables.recepta_appointment_fields,/Old appointment question/)
+})

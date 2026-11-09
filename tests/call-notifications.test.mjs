@@ -329,3 +329,22 @@ test('caller receipt can recover independently while the owner address lookup is
   assert.equal(accepted.size,1);assert.deepEqual(JSON.parse([...accepted.values()][0].body).to,['caller@example.test'])
  }finally{globalThis.__callNoticeDb.auth.admin.getUserById=originalLookup;await close()}
 })
+
+test('unsynchronized edits cannot expand recipients or field visibility in actual call emails',async()=>{
+ await setup()
+ const originalLookup=globalThis.__callNoticeDb.auth.admin.getUserById
+ try {
+  globalThis.__callNoticeDb.auth.admin.getUserById=async()=>({data:{user:{email:'owner@example.test',app_metadata:{
+   recepta_call_email:{callerEnabled:true,customFields:['New private answer']},recepta_call_email_sync_required:true,
+   recepta_call_email_active:{callerEnabled:false,ownerFields:['custom'],customFields:['Prior field']},
+  }}},error:null})
+  await webhook(signed('call_analyzed','pending-configuration',{call_analysis:{custom_analysis_data:{
+   [detailKey('Prior field')]:'Confirmed extraction',[detailKey('New private answer')]:'Do not expose',
+   recepta_caller_email:'caller@example.test',recepta_caller_email_confirmed:true,
+  }}}))
+  assert.equal(accepted.size,1)
+  const mail=JSON.parse([...accepted.values()][0].body)
+  assert.match(mail.text,/Prior field: Confirmed extraction/);assert.doesNotMatch(mail.text,/Do not expose/)
+  assert.deepEqual(mail.to,['owner@example.test'])
+ }finally{globalThis.__callNoticeDb.auth.admin.getUserById=originalLookup;await close()}
+})

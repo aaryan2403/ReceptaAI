@@ -1,4 +1,4 @@
-import { normalizeCallEmailSettings, isEmailAddress, type CallEmailSettings } from '../../src/lib/callEmailSettings'
+import { normalizeCallEmailSettings, customCallFields, isEmailAddress, type CallEmailSettings } from '../../src/lib/callEmailSettings'
 import { callEmailSender } from './emailEnvironment'
 import { formatAppointmentPreference, isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 type PlanName = 'Recepta Standard' | 'Recepta Pro'
@@ -65,6 +65,14 @@ const formatDuration = (seconds: number) => {
 
   return `${minutes}m ${remainder}s`
 }
+const appointmentNote = (notes?: string | null) => {
+  if (!notes) return 'None provided'
+  try {
+    const parsed = JSON.parse(notes)
+    if (parsed?.version === 1 && Array.isArray(parsed.details)) return 'Structured answers are included only in the selected call detail fields.'
+  } catch { /* Preserve ordinary appointment notes. */ }
+  return notes
+}
 
 export type CallEmailPayload = {
   from: string
@@ -81,6 +89,11 @@ export const buildCallNotification = (details: CallNotificationDetails): CallEma
   const ownerEmail = isEmail(details.ownerEmail) ? details.ownerEmail!.trim() : null
   const settings = normalizeCallEmailSettings(details.settings)
   const fields = caller ? settings.callerFields : settings.ownerFields
+  const customFields = customCallFields(settings)
+  const customDetails = details.customDetails?.filter(detail => {
+    const field = customFields.find(field => field.label.toLowerCase() === detail.label.toLowerCase())
+    return field && (caller ? field.caller : field.owner)
+  }) ?? []
   const include = (field: keyof typeof import('../../src/lib/callEmailSettings').EMAIL_FIELDS) => fields.includes(field)
   const from = callEmailSender()
   const supportEmail =
@@ -117,7 +130,7 @@ export const buildCallNotification = (details: CallNotificationDetails): CallEma
         confirmed && typeof appointment.durationMinutes === 'number'
           ? `Duration: ${appointment.durationMinutes} minutes`
           : null,
-        !caller ? `Appointment details: ${appointment.notes || 'None provided'}` : null,
+        !caller ? `Appointment details: ${appointmentNote(appointment.notes)}` : null,
       ].filter((line): line is string => Boolean(line))
     : []
   const proLines = details.planName === 'Recepta Pro' ? [
@@ -125,7 +138,7 @@ export const buildCallNotification = (details: CallNotificationDetails): CallEma
     ...(include('appointment') ? appointment
       ? ['', confirmed ? 'Confirmed appointment' : 'Appointment request / follow-up', ...appointmentLines]
       : ['', 'Appointment details', 'No appointment request or confirmed booking was recorded during this call.'] : []),
-    ...(include('custom') && details.customDetails?.length ? ['', 'Details you provided', ...details.customDetails.map(item => `${item.label}: ${item.value}`)] : []),
+    ...(include('custom') && customDetails.length ? ['', caller ? 'Details you provided' : 'Captured call details', ...customDetails.map(item => `${item.label}: ${item.value}`)] : []),
   ] : []
   return {
     from,

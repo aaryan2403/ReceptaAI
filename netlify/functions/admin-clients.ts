@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { isMissingAgentPhoneNumbersTable } from '../lib/phoneNumbers'
 import { normalizeAppointmentFields } from '../lib/retell'
+import { normalizeCallEmailSettings } from '../../src/lib/callEmailSettings'
 
 const ADMIN_EMAIL =
   (process.env.ADMIN_EMAIL || '')
@@ -239,9 +240,9 @@ export default async (request: Request) => {
           appointment_sms_notifications_enabled:
             clientUserResult.user?.user_metadata
               ?.appointment_sms_notifications_enabled === true,
-          appointment_custom_fields: normalizeAppointmentFields(
-            clientUserResult.user?.user_metadata?.appointment_custom_fields
-          ),
+          appointment_custom_fields: clientUserResult.user?.app_metadata?.recepta_call_email
+            ? normalizeCallEmailSettings(clientUserResult.user.app_metadata.recepta_call_email).customFields
+            : normalizeAppointmentFields(clientUserResult.user?.user_metadata?.appointment_custom_fields),
         }
       })
     )

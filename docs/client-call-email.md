@@ -11,10 +11,24 @@ numbers are preserved. Automated tests use only synthetic providers and data.
 Open **Admin → Clients → Edit Client → Email notifications after each call**.
 The owner destination is the client's saved contact email (account email fallback).
 Select owner and caller fields individually; save the client separately if changing
-its contact email. Enter up to 20 custom questions/labels, one per line. Save Email
-Settings & Update Agent publishes receipt collection and post-call extraction for
-that dedicated client agent. A failed publication explicitly reports that settings
-were saved but agent sync failed. Retry that save after fixing the reported cause.
+its contact email. Under **Call detail fields**, add up to 20 named fields, one at a
+time. For each field select Business email, Caller receipt, both or neither.
+New fields start in the business email only. Save Email Settings & Update Agent
+publishes the same question list and extraction configuration to the dedicated
+client agent. Appointment requests use that same list, replacing the separate
+appointment-field editor.
+
+If extraction already exists in Retell, choose **Load existing Retell fields**,
+then **Add existing field** or map a row to the desired extraction key. Loading is
+read-only and uses only the agent assigned to the selected client. Publishing
+preserves mapped field types, descriptions, examples and required/optional rules,
+as well as unrelated analysis fields and tools. Missing or ambiguous mapped keys
+stop publication instead of silently creating or replacing a definition.
+
+Saved drafts become active only after successful agent synchronization. A failed
+sync leaves call capture using the previously synchronized configuration. Retry
+the save after fixing the reported cause. Legacy label-only configurations remain
+compatible with their existing generated extraction keys.
 
 Owner mail remains enabled. Existing accounts have caller receipts off until an
 admin enables them. New accounts use the default until an admin configures them. The new independent email save does not change
@@ -24,8 +38,11 @@ Standard emails contain selected basic call information. Pro adds the selected
 AI summary, appointment details and custom answers. Unknown custom answers say
 “Not provided”. A caller-facing summary is extracted separately from the owner’s
 internal summary. Caller copies omit staff notes, employee names/contact details,
-and raw transcripts/recordings. Admin-selected custom answers are included only
-when the corresponding custom-details checkbox is selected.
+and raw transcripts/recordings. Each custom answer is included only for its selected email audience. The same
+stored answers appear in Pro call history. Missing values say Not provided; finite
+numbers and booleans are retained as text. Caller summaries describe general
+requests and next steps, with selected structured answers appended separately.
+Structured appointment answers cannot leak through the raw notes section.
 
 The agent offers a receipt, asks permission, reads the caller's email back, and
 asks for confirmation. No guessed, invalid, unconfirmed or nonconsenting address
@@ -49,10 +66,11 @@ Actual confirmed historical appointments retain their confirmed status.
 4. Connect delivery tracking in Admin Operations. Call history shows owner and
    caller status independently. Admin Operations labels each role and shows
    failures, skipped receipts and provider bounce/delay events.
-5. Run an authorized staging call with a staging client: collect an address and
-   custom answers, confirm a pending appointment request, then check both receiving
-   inboxes plus the signed `email.delivered` events. Repeat with a missing address,
-   provider rejection/retry, duplicate Retell event, and an unmatched client agent.
+5. For end-to-end acceptance, configure an authorized test client and agent from
+   the normal admin. Place a call, collect custom answers, confirm receipt consent
+   and the email address, then check both inboxes and the signed `email.delivered`
+   events. Automated tests separately cover missing addresses, provider retries,
+   duplicate Retell events and unmatched client agents.
 
 ## Configuration
 
@@ -72,7 +90,8 @@ and request senders retain their existing dedicated environment variables.
 Netlify keys must be scoped to Functions and applied to the intended branch/context;
 redeploy after changes. Never put Resend secrets in frontend VITE variables or source.
 Staging Retell updates require `RETELL_STAGING_API_KEY`; never reuse production.
-`RECEPTA_APP_URL` must point to PR #23's deploy preview so call events reach staging.
+For optional preview testing, `RECEPTA_APP_URL` must point to that deployment so
+call events reach the isolated test environment.
 
 Delivery tracking uses a signed Resend webhook. Production can use
 `RESEND_WEBHOOK_SECRET`; preview uses `RESEND_STAGING_WEBHOOK_SECRET`. Alternatively,
@@ -85,8 +104,10 @@ retry. A missing/invalid key cannot be repaired by changing email templates.
 
 ## Schema and reliability
 
-Apply `20261108033150_client_call_email_preferences.sql` to the production database
-before publishing this update. Normal production email controls are enabled by
+`20261108033150_client_call_email_preferences.sql` is applied to production
+`qkdsdaboxkysabnbjmej`. Read-only checks confirmed the capture column, protection
+trigger and restricted function permissions. The earlier production activation
+blocker is cleared. Normal production email controls are enabled by
 default after a runtime schema check; no additional rollout variable is required.
 If the schema update is pending, preferences can be saved and samples can be
 sent from the normal admin, but AI email collection is not changed. Save again
@@ -115,8 +136,9 @@ Automated checks use signed webhooks, real PostgreSQL behavior through PGlite,
 and synthetic providers. They validate independent owner/caller delivery, retries,
 consent, tenant authorization, plan filtering, erasure and existing regressions.
 Production-specific tests additionally verify normal-admin defaults, preview
-credential isolation, persistence through later agent schedule saves and refusal
-to replace another service's webhook.
+credential isolation, persistence through later agent schedule saves, existing-field
+mapping, audience exclusions, last-synchronized configuration, tenant isolation,
+redaction, erasure and refusal to replace another service's webhook.
 
 The production database reports Resend delivery tracking configured. This is not
 proof of delivery to an inbox. After publication, use the normal admin preview,

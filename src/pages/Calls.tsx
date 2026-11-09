@@ -675,6 +675,11 @@ export default function Calls() {
                   </p>
                 </div>
 
+                {isPro && (Boolean(selectedCall.custom_details?.length) || selectedCall.custom_details_unavailable) && <section className="callsSummaryBox" aria-label="Captured call details">
+                  <span>CAPTURED CALL DETAILS</span>
+                  {selectedCall.custom_details_unavailable ? <p>Call details could not be loaded. Refresh to try again.</p> : <div className="callsDetailGrid" style={{ marginTop: 14 }}>{selectedCall.custom_details?.map(detail => <div key={detail.label}><span>{detail.label}</span><strong style={{ overflowWrap: 'anywhere' }}>{detail.value}</strong></div>)}</div>}
+                </section>}
+
                 {isPro && selectedAppointment && (
                   <div className="callsSummaryBox">
                     <span>{selectedAppointment.status === 'pending' ? 'APPOINTMENT REQUEST — FOLLOW-UP REQUIRED' : 'APPOINTMENT DETAILS'}</span>
