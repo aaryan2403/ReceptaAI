@@ -1,3 +1,4 @@
+import './AdminClientEditor.css'
 import AdminCallEmailSettings from '../components/AdminCallEmailSettings'
 import {
   useCallback,
@@ -299,6 +300,19 @@ export default function Admin() {
 
   const [editingClient, setEditingClient] =
     useState<ClientWithSubscription | null>(null)
+  const editDialogRef = useRef<HTMLElement>(null)
+  const editClientOpen = Boolean(editingClient)
+  useEffect(() => {
+    if (!editClientOpen) return
+    const previousFocus = document.activeElement
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    editDialogRef.current?.focus()
+    return () => {
+      document.body.style.overflow = previousOverflow
+      if (previousFocus instanceof HTMLElement) previousFocus.focus()
+    }
+  }, [editClientOpen])
   const [editCompanyName, setEditCompanyName] =
     useState('')
   const [editEmail, setEditEmail] =
@@ -2093,17 +2107,7 @@ export default function Admin() {
         </section>
 
         {editingClient && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 9999,
-              display: 'grid',
-              placeItems: 'center',
-              padding: '24px',
-              background:
-                'rgba(0,0,0,0.72)',
-            }}
+          <div className="adminEditOverlay"
             onMouseDown={(event) => {
               if (
                 event.target ===
@@ -2113,34 +2117,22 @@ export default function Admin() {
               }
             }}
           >
-            <section
-              style={{
-                width: 'min(900px, 100%)',
-                maxHeight: '90vh',
-                overflowY: 'auto',
-                padding: '28px',
-                border:
-                  '1px solid rgba(0,230,118,0.18)',
-                borderRadius: '24px',
-                background: '#07140d',
-                color: '#fff',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent:
-                    'space-between',
-                  gap: '16px',
-                  alignItems: 'center',
-                  marginBottom: '22px',
-                }}
-              >
+            <section ref={editDialogRef} className="adminClientEditor" role="dialog" aria-modal="true" aria-labelledby="admin-edit-client-title" tabIndex={-1}
+              onKeyDown={event => {
+                if (event.key === 'Escape') { event.stopPropagation(); setEditingClient(null) }
+                if (event.key !== 'Tab') return
+                const dialog = event.currentTarget
+                const controls = dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]')
+                const first = controls[0], last = controls[controls.length - 1]
+                if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) { event.preventDefault(); last?.focus() }
+                else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+              }}>
+              <div className="adminEditHeading">
                 <div>
                   <span className="adminEyebrow">
                     EDIT CLIENT
                   </span>
-                  <h2
+                  <h2 id="admin-edit-client-title"
                     style={{
                       margin: '8px 0 0',
                     }}
@@ -2161,17 +2153,7 @@ export default function Admin() {
                 </button>
               </div>
 
-              <form
-                onSubmit={
-                  handleSaveClientEdit
-                }
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns:
-                    'repeat(auto-fit, minmax(230px, 1fr))',
-                  gap: '16px',
-                }}
-              >
+              <form className="adminClientEditForm" onSubmit={handleSaveClientEdit}>
                 <label>
                   <span>Company name</span>
                   <input
@@ -2278,7 +2260,7 @@ export default function Admin() {
                   setEditRetellAgentId(id)
                   if (/retell|agent id/i.test(editError)) setEditError('')
                 }} />
-                <label style={{ display: 'grid', gridTemplateColumns: '18px 1fr', alignItems: 'center', gap: '8px' }}>
+                <label className="adminEditCheck">
                   <input type="checkbox" style={{ width: '18px', minHeight: '18px', padding: 0 }} checked={editDemoMode} onChange={(event) => setEditDemoMode(event.target.checked)} />
                   <span>Demo agent — 3-minute calls</span>
                   <small style={{ gridColumn: '2' }}>Applies to this agent and its calls. Leave off for regular customer calls.</small>
@@ -2406,9 +2388,9 @@ export default function Admin() {
 
                 <AdminCallEmailSettings key={editingClient.id} clientId={editingClient.id} />
 
-                <label style={{ gridColumn: '1 / -1' }}>
-                  <span>Buyer appointment SMS (Pro only)</span>
+                <label className="adminEditCheck adminEditFullWidth">
                   <input type="checkbox" checked={editBuyerSmsEnabled} disabled={editPlanName !== 'Recepta Pro'} onChange={event => setEditBuyerSmsEnabled(event.target.checked)} />
+                  <span>Buyer appointment SMS (Pro only)</span>
                   <small>Requires explicit buyer consent and Twilio. Save the client below to update this SMS preference.</small>
                 </label>
 
@@ -2554,15 +2536,7 @@ export default function Admin() {
                   </p>
                 )}
 
-                <div
-                  style={{
-                    gridColumn: '1 / -1',
-                    display: 'flex',
-                    justifyContent:
-                      'flex-end',
-                    gap: '10px',
-                  }}
-                >
+                <div className="adminEditActions">
                   <button
                     type="button"
                     className="btn btnOutline"

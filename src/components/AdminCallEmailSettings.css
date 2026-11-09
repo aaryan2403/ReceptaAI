@@ -1,0 +1,101 @@
+.adminCallEmail,
+.adminCallEmailControls,
+.adminCallEmailColumns,
+.adminCallEmailColumn {
+  min-width: 0;
+}
+
+.adminCallEmail {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.adminCallEmail p { margin: 0; }
+.adminCallEmail .adminNotificationHeading strong { font-size: 15px; }
+.adminCallEmail .adminNotificationHeading p { font-size: 12px; color: #a1b4a8; }
+
+.adminCallEmailControls {
+  display: grid;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.adminCallEmailColumns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.adminCallEmailColumn,
+.adminCallEmailPreview {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, .16);
+}
+
+.adminCallEmailColumn > strong { margin-bottom: 4px; font-size: 14px; }
+.adminCallEmail .adminCallEmailChoice {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  color: #eaf4ee;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+
+.adminCallEmailChoice > span { min-width: 0; }
+.adminCallEmailChoice input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 1px 0 0;
+  padding: 0;
+  accent-color: #00e676;
+}
+
+.adminCallEmailDestination { overflow-wrap: anywhere; font-size: 13px; }
+.adminCallEmailHelp { font-size: 12px; color: #a1b4a8; }
+.adminCallEmailStatus {
+  padding: 12px 14px;
+  border: 1px solid rgba(239, 187, 73, .35);
+  border-radius: 10px;
+  background: rgba(239, 187, 73, .08);
+  color: #f3d792;
+  font-size: 13px;
+}
+
+.adminCallEmail .adminCallEmailCustom { display: grid; gap: 8px; font-size: 13px; }
+.adminCallEmailCustom textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 130px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 10px;
+  background: #0b1c13;
+  color: #fff;
+  font: inherit;
+  resize: vertical;
+}
+.adminCallEmailCustom small { color: #a1b4a8; font-size: 12px; }
+.adminCallEmailActions { display: flex; flex-wrap: wrap; gap: 10px; }
+.adminCallEmailActions .btn { min-width: 0; max-width: 100%; white-space: normal; }
+.adminCallEmailPreview pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 12px; }
+
+@media (max-width: 640px) {
+  .adminCallEmailColumns { grid-template-columns: minmax(0, 1fr); }
+  .adminCallEmailColumn, .adminCallEmailPreview { padding: 14px; }
+  .adminCallEmailActions .btn { width: 100%; }
+}
