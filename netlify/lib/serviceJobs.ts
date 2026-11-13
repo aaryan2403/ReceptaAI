@@ -1,6 +1,7 @@
 import { emailApiKey, assertEmailRecipients, emailProviderError } from './emailEnvironment'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
+import { loadAppointmentEmail } from './appointmentNotification'
 import { billingOrigin } from './billingNotifications'
 
 export type ServiceJob = {
@@ -26,8 +27,19 @@ const checkpoint = async (db:SupabaseClient, job:ServiceJob, values:Record<strin
   if (result.error || !result.data) throw new Error('Cleanup lease expired; progress will be retried.')
 }
 
+const sendQueuedEmail = async (db: SupabaseClient, job: ServiceJob, mail: Record<string, unknown>) => {
+  const key = emailApiKey()
+  assertEmailRecipients(mail.to as string[])
+  const response=await fetch('https://api.resend.com/emails',{
+    method:'POST',signal:AbortSignal.timeout(3000),headers:{ Authorization:`Bearer ${key}`,'Content-Type':'application/json','Idempotency-Key':job.job_key },body:JSON.stringify(mail),
+  })
+  if (!response.ok) throw new Error(emailProviderError(response.status))
+  const receipt=await response.json() as { id?:string }
+  if (!receipt.id) throw new Error('Email acceptance was not confirmed.')
+  await checkpoint(db,job,{ provider_message_id:receipt.id,delivery_status:'accepted' })
+}
+
 const callbackEmail = async (db:SupabaseClient, job:ServiceJob) => {
-  const key=emailApiKey()
   let mail=job.mail_payload
   if (!mail) {
     const [callback,client] = await Promise.all([
@@ -44,14 +56,19 @@ const callbackEmail = async (db:SupabaseClient, job:ServiceJob) => {
     }
     await checkpoint(db,job,{ mail_payload:mail,first_send_at:new Date().toISOString() })
   }
-  assertEmailRecipients(mail.to as string[])
-  const response=await fetch('https://api.resend.com/emails',{
-    method:'POST',signal:AbortSignal.timeout(3000),headers:{ Authorization:`Bearer ${key}`,'Content-Type':'application/json','Idempotency-Key':job.job_key },body:JSON.stringify(mail),
-  })
-  if (!response.ok) throw new Error(emailProviderError(response.status))
-  const receipt=await response.json() as { id?:string }
-  if (!receipt.id) throw new Error('Callback email acceptance was not confirmed.')
-  await checkpoint(db,job,{ provider_message_id:receipt.id,delivery_status:'accepted' })
+  await sendQueuedEmail(db, job, mail)
+}
+
+const appointmentEmail = async (db: SupabaseClient, job: ServiceJob) => {
+  // Re-check version, consent and retention before sending an earlier event.
+  const current = await loadAppointmentEmail(db, job.client_id, job.payload)
+  if (!current) {
+    if (job.mail_payload) await checkpoint(db, job, { mail_payload: null })
+    return
+  }
+  const mail = job.mail_payload ?? current
+  if (!job.mail_payload) await checkpoint(db, job, { mail_payload: mail, first_send_at: new Date().toISOString() })
+  await sendQueuedEmail(db, job, mail)
 }
 
 const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) => {
@@ -163,6 +180,7 @@ export const processServiceJobs = async (db:SupabaseClient, key?:string) => {
     if (Date.now()>deadline-4500) break
     try {
       if (job.kind==='callback_email') await callbackEmail(db,job)
+      else if (job.kind==='appointment_email') await appointmentEmail(db,job)
       else if (job.kind==='delete_client') await deleteClient(db,job,deadline)
       else if (job.kind==='retention_call') await eraseRetainedCall(db,job)
       else throw new Error('Unknown service job type.')

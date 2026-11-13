@@ -115,7 +115,7 @@ test('signed intake stores raw preferences as pending, has no slot, and deduplic
     await db.exec("update public.appointments set status='cancelled'")
     assert.equal((await (await capture(signed(request))).json()).status, 'cancelled')
     const other = payload(); other.call.metadata.recepta_client_id = otherClient
-    assert.equal((await capture(signed(other))).status, 500)
+    assert.equal((await capture(signed(other))).status, 403)
     const noPreference = payload(); noPreference.call.call_id = 'call_no_preference'
     assert.equal((await capture(signed(noPreference))).status, 200)
     const blank = (await db.query("select * from public.appointments where retell_call_id='call_no_preference'")).rows[0]
