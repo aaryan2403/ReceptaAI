@@ -11,7 +11,13 @@ class ContinueWork extends Error {}
 const check = (error: unknown) => { if (error) throw error }
 const missing = (error: unknown) => typeof error === 'object' && error !== null && 'code' in error && error.code === 'resource_missing'
 
-export const providerDelete = async (path:string, init:RequestInit = { method:'DELETE' }) => {
+type RetellCleanupPath =
+  | '/v3/list-calls'
+  | `/v2/delete-call/${string}`
+  | `/delete-phone-number/${string}`
+  | `/update-phone-number/${string}`
+
+const cleanupRetell = async (path:RetellCleanupPath, init:RequestInit = { method:'DELETE' }) => {
   if (!process.env.RETELL_API_KEY) throw new Error('Retell cleanup configuration is missing.')
   const response = await fetch('https://api.retellai.com'+path, {
     ...init, signal:AbortSignal.timeout(4000), headers:{ Authorization:`Bearer ${process.env.RETELL_API_KEY}`, 'Content-Type':'application/json' },
@@ -94,8 +100,8 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
   for (const number of numbers) {
     if (done.includes(number.number)) continue
     continueBeforeDeadline()
-    if (number.source==='retell') await providerDelete('/delete-phone-number/'+encodeURIComponent(number.number))
-    else await providerDelete('/update-phone-number/'+encodeURIComponent(number.number), { method:'PATCH',body:JSON.stringify({ inbound_agents:null,outbound_agents:null,inbound_webhook_url:null }) })
+    if (number.source==='retell') await cleanupRetell(`/delete-phone-number/${encodeURIComponent(number.number)}`)
+    else await cleanupRetell(`/update-phone-number/${encodeURIComponent(number.number)}`, { method:'PATCH',body:JSON.stringify({ inbound_agents:null,outbound_agents:null,inbound_webhook_url:null }) })
     done.push(number.number)
     await progress({ numbers_done:done })
   }
@@ -104,14 +110,14 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
   if (agentId && !payload.calls_done) {
     while (true) {
       continueBeforeDeadline()
-      const result=await providerDelete('/v3/list-calls',{ method:'POST',body:JSON.stringify({ filter_criteria:{ agent:[{ agent_id:agentId }] },limit:10,sort_order:'ascending' }) })
+      const result=await cleanupRetell('/v3/list-calls',{ method:'POST',body:JSON.stringify({ filter_criteria:{ agent:[{ agent_id:agentId }] },limit:10,sort_order:'ascending' }) })
       if (!Array.isArray(result?.items)) throw new Error('Retell did not confirm the call list; cleanup is paused.')
       const calls=result.items as Array<{ call_id:string; call_status?:string }>
       if (!calls.length) break
       for (const call of calls) {
         if (['ongoing','registered'].includes(call.call_status ?? '')) throw new ContinueWork('Waiting for the current call to finish.')
         continueBeforeDeadline()
-        await providerDelete('/v2/delete-call/'+encodeURIComponent(call.call_id))
+        await cleanupRetell(`/v2/delete-call/${encodeURIComponent(call.call_id)}`)
       }
     }
     await progress({ calls_done:true })
@@ -122,15 +128,10 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
     for (const call of saved.data ?? []) {
       if (!call.retell_call_id || call.provider_erased_at) continue
       continueBeforeDeadline()
-      await providerDelete('/v2/delete-call/'+encodeURIComponent(call.retell_call_id))
+      await cleanupRetell(`/v2/delete-call/${encodeURIComponent(call.retell_call_id)}`)
       const erased=await db.rpc('erase_recepta_call_content',{ p_call_id:call.id,p_client_id:job.client_id })
       check(erased.error)
     }
-  }
-  if (agentId && !payload.agent_done) {
-    continueBeforeDeadline()
-    await providerDelete('/delete-agent/'+encodeURIComponent(agentId))
-    await progress({ agent_done:true })
   }
   continueBeforeDeadline()
   const user=await db.auth.admin.getUserById(job.client_id)
@@ -141,7 +142,7 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
     const removed=await db.auth.admin.deleteUser(job.client_id)
     if (removed.error && removed.error.code!=='user_not_found') throw removed.error
   }
-  // Auth FK cascade clears tenant records; jobs deliberately survive that.
+  // The Auth FK cascade removes the Recepta agent assignment. The Retell agent stays in its workspace.
   const removed=await db.from('clients').delete().eq('id',job.client_id)
   check(removed.error)
   const jobs=await db.from('service_jobs').delete().eq('client_id',job.client_id).neq('job_key',job.job_key)
@@ -150,7 +151,7 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
 
 const eraseRetainedCall = async (db:SupabaseClient,job:ServiceJob) => {
   const callId=job.payload.retell_call_id as string|null
-  if (callId) await providerDelete('/v2/delete-call/'+encodeURIComponent(callId))
+  if (callId) await cleanupRetell(`/v2/delete-call/${encodeURIComponent(callId)}`)
   const erased=await db.rpc('erase_recepta_call_content',{ p_call_id:job.payload.call_id,p_client_id:job.client_id })
   check(erased.error)
 }
