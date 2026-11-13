@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { activeCallEmailSettings, normalizeCallEmailSettings } from '../../src/lib/callEmailSettings'
 import { normalizeAppointmentFields, verifyRetellSignature } from '../lib/retell'
@@ -10,14 +11,28 @@ const BOOK = 'recepta_book_appointment'
 const SAVE = 'recepta_save_appointment_details'
 
 export default async (request: Request) => {
+  const startedAt = Date.now()
   if (request.method !== 'POST') return json(405, { error: 'Method not allowed.' })
   const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env
   const key = configuredCallEmailRetellKey()
-  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !key) return json(503, { error: 'Appointment service is temporarily unavailable.' })
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !key) {
+    const preview = process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE === 'true'
+      || Boolean(process.env.CONTEXT && process.env.CONTEXT !== 'production')
+    console.error('Recepta appointment configuration missing', {
+      missing: [
+        !SUPABASE_URL && 'SUPABASE_URL',
+        !SUPABASE_SECRET_KEY && 'SUPABASE_SECRET_KEY',
+        !key && (preview ? 'RETELL_STAGING_API_KEY' : 'RETELL_API_KEY'),
+      ].filter(Boolean),
+    })
+    return json(503, { success: false, code: 'configuration_missing',
+      error: 'Appointment service is temporarily unavailable.' })
+  }
 
   const raw = await request.text()
   if (!verifyRetellSignature(raw, request.headers.get('x-retell-signature'), key)) {
-    return json(401, { error: 'Invalid Retell signature.' })
+    console.warn('Recepta appointment signature rejected', { code: 'invalid_signature' })
+    return json(401, { success: false, code: 'invalid_signature', error: 'Invalid Retell signature.' })
   }
   let payload: Record<string, unknown>
   try { payload = objectValue(JSON.parse(raw)) } catch { return json(400, { error: 'Invalid JSON payload.' }) }
@@ -27,20 +42,38 @@ export default async (request: Request) => {
   const args = objectValue(payload.args)
   const agentId = textValue(call.agent_id, 200)
   const callId = textValue(call.call_id, 200)
-  if (!agentId || !callId) return json(400, { error: 'A Retell agent and call ID are required.' })
+  if (!agentId || !callId) {
+    console.warn('Recepta appointment identity missing', { tool: name, code: 'missing_call_identity' })
+    return json(400, { success: false, code: 'missing_call_identity',
+      error: 'A Retell agent and call ID are required.' })
+  }
+  // Opaque call fingerprint for tracing without exposing caller details or secrets.
+  const callTrace = createHash('sha256').update(callId).digest('hex').slice(0, 12)
 
   const db = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
   try {
     const agent = await db.from('agents').select('client_id').eq('retell_agent_id', agentId).limit(2)
     if (agent.error) throw agent.error
-    if (agent.data.length !== 1) return json(403, { error: 'This Retell agent does not have a unique Recepta assignment.' })
+    if (agent.data.length !== 1) {
+      console.warn('Recepta appointment rejected', { tool: name, call_trace: callTrace,
+        code: 'agent_mapping_invalid', assignments: agent.data.length })
+      return json(403, { success: false, code: 'agent_mapping_invalid',
+        error: 'This Retell agent does not have a unique Recepta assignment.' })
+    }
     const clientId = agent.data[0].client_id
     const metadataClient = objectValue(call.metadata).recepta_client_id
     if (metadataClient !== undefined && metadataClient !== clientId) {
-      return json(403, { error: 'This call does not match the assigned business.' })
+      console.warn('Recepta appointment rejected', { tool: name, call_trace: callTrace,
+        code: 'tenant_mismatch' })
+      return json(403, { success: false, code: 'tenant_mismatch',
+        error: 'This call does not match the assigned business.' })
     }
     if (!await isActivePro(db, clientId)) {
-      return json(403, { error: 'Appointment capture requires an active Recepta Pro plan.' })
+      console.warn('Recepta appointment rejected', { tool: name, call_trace: callTrace,
+        code: 'inactive_pro_subscription' })
+      return json(403, { success: false, code: 'inactive_pro_subscription',
+        error: 'Appointment capture requires an active Recepta Pro plan.',
+        instruction: 'Do not claim the appointment request was recorded.' })
     }
 
     if (name === CHECK) {
@@ -84,6 +117,9 @@ export default async (request: Request) => {
       p_client_id: clientId, p_call_id: callId, p_details: details,
     })
     if (error || !data) throw error ?? new Error('The intake RPC returned no record.')
+    console.info('Recepta appointment intake completed', {
+      tool: name, call_trace: callTrace, status: data.status, elapsed_ms: Date.now() - startedAt,
+    })
     return json(200, {
       success: data.status === 'pending' || data.status === 'booked',
       appointment_id: data.id, status: data.status, captured_fields: capturedFields,
@@ -93,7 +129,8 @@ export default async (request: Request) => {
     })
   } catch (error) {
     const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : null
-    console.error('Recepta appointment tool failed', { tool: name, code })
+    console.error('Recepta appointment tool failed', { tool: name, code, call_trace: callTrace,
+      elapsed_ms: Date.now() - startedAt })
     if (code === '42501') return json(403, { error: 'Appointment capture requires an active Recepta Pro plan.' })
     return json(503, { success: false, error: name === SAVE ? 'The request could not be recorded. Tell the caller it was not saved.' : 'Scheduling could not be verified. Offer to record a pending request.' })
   }

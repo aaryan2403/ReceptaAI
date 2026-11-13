@@ -412,7 +412,12 @@ test('disabled automatic booking keeps pending intake available and enforces Pro
   assert.equal((await dashboard()).status,403)
   assert.equal((await invoke('recepta_save_appointment_details',detail,'standard')).status,403)
   assert.equal((await call('recepta_change_appointment',[tenant,'book',await localStart(date,'09:00'),null,null,'direct-standard',detail])).reason,'pro_required')
-  await db.query("update subscriptions set plan_name='Recepta Pro' where client_id=$1",[tenant])
+  await db.query("update subscriptions set plan_name='Recepta Pro',status='pending' where client_id=$1",[tenant])
+  const pendingPlan=await invoke('recepta_save_appointment_details',detail,'unpaid-plan')
+  assert.equal(pendingPlan.status,403)
+  assert.equal((await pendingPlan.json()).code,'inactive_pro_subscription')
+  assert.equal((await db.query("select count(*)::int n from appointments where retell_call_id='unpaid-plan'")).rows[0].n,0)
+  await db.query("update subscriptions set status='active' where client_id=$1",[tenant])
 })
 
 test('settings save registers signed Retell tools, preserves other functions and uses live database rules after later edits', async () => {
