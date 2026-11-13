@@ -32,6 +32,14 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --types node --skipLibCheck netlify/functions/*.ts netlify/lib/*.ts
       - run: npm run build
+  appointment-endpoint-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Smoke test deployed appointment endpoint (unsigned, no writes)
         env:
           RECEPTA_APPOINTMENT_SMOKE_URL: https://deploy-preview-${{ github.event.pull_request.number }}--receptaai.netlify.app/.netlify/functions/retell-appointment
