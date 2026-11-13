@@ -44,3 +44,15 @@ jobs:
         env:
           RECEPTA_APPOINTMENT_SMOKE_URL: https://deploy-preview-${{ github.event.pull_request.number }}--receptaai.netlify.app/.netlify/functions/retell-appointment
         run: node scripts/check-retell-appointment-endpoint.mjs
+  production-endpoint-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Probe production appointment endpoint (unsigned, no writes)
+        env:
+          RECEPTA_APPOINTMENT_SMOKE_URL: https://receptaai.netlify.app/.netlify/functions/retell-appointment
+        run: node scripts/check-retell-appointment-endpoint.mjs

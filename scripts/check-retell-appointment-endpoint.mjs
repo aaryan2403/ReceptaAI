@@ -1,7 +1,7 @@
 // Probe the Netlify deployment without credentials, caller data, or database writes.
 const url = process.env.RECEPTA_APPOINTMENT_SMOKE_URL
-if (!url || !/^https:\/\/deploy-preview-\d+--receptaai\.netlify\.app\/\.netlify\/functions\/retell-appointment$/.test(url)) {
-  console.error('Expected the Netlify PR preview appointment-function URL.')
+if (!url || !/^https:\/\/(?:deploy-preview-\d+--)?receptaai\.netlify\.app\/\.netlify\/functions\/retell-appointment$/.test(url)) {
+  console.error('Expected the Netlify preview or production appointment-function URL.')
   process.exit(1)
 }
 
@@ -9,7 +9,7 @@ const request = async (method) => {
   const response = await fetch(url, {
     method,
     ...(method === 'POST' ? { headers: { 'Content-Type': 'application/json' }, body: '{}' } : {}),
-    redirect: 'manual',
+    redirect: 'follow',
     signal: AbortSignal.timeout(8_000),
   })
   // Do not read or log response bodies; never expose environment variable values.
@@ -23,7 +23,7 @@ for (let attempt = 1; attempt <= 6; attempt += 1) {
     const unsignedPostStatus = await request('POST')
     console.log(`Appointment endpoint smoke attempt ${attempt}: GET=${getStatus}, unsigned POST=${unsignedPostStatus}`)
     if (getStatus === 405 && unsignedPostStatus === 401) {
-      console.log('PASS: preview function reachable and required environment variables present. Signed Retell calls not verified.')
+      console.log('PASS: appointment function reachable and required environment variables present in the probed deployment. Signed Retell calls not verified.')
       process.exit(0)
     }
     if (getStatus === 405 && unsignedPostStatus === 503) {
