@@ -572,6 +572,7 @@ export default function Dashboard() {
             Agent
           </a>
 
+          {isPro && <a href="/dashboard/appointments" className="dashboardNavItem">Appointments</a>}
           <a href="/dashboard/requests" className="dashboardNavItem">
             Customer Requests
           </a>
@@ -814,15 +815,15 @@ export default function Dashboard() {
               <p>
                 {stats.appointmentsToday === 0
                   ? 'There are no pending requests captured today.'
-                  : 'Review the caller’s preferences and contact them to confirm an appointment.'}
+                  : 'Review the caller’s preferences in Appointments.'}
               </p>
             </div>
 
             <a
-              href="/dashboard/calls"
+              href="/dashboard/appointments?status=pending"
               className="btn btnOutline"
             >
-              View Calls
+              View appointment requests
             </a>
           </div>
         )}

@@ -1,5 +1,5 @@
 import BillingAccessNotice from '../components/BillingAccessNotice'
-import { formatAppointmentPreference, type AppointmentStatus } from '../lib/appointmentRequests'
+import { capturedDetails, formatAppointmentPreference, type AppointmentStatus } from '../lib/appointmentRequests'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchClientCalls } from '../lib/clientCalls'
@@ -27,27 +27,6 @@ type AppointmentRecord = {
   requested_time: string | null
   requested_timezone: string | null
   retell_call_id: string | null
-}
-
-type CapturedDetail = { label: string; value: string }
-
-const capturedDetails = (notes: string | null): CapturedDetail[] => {
-  if (!notes) return []
-
-  try {
-    const parsed = JSON.parse(notes) as { details?: unknown }
-    if (!Array.isArray(parsed.details)) return []
-
-    return parsed.details.flatMap((item) => {
-      if (!item || typeof item !== 'object') return []
-      const row = item as Record<string, unknown>
-      return typeof row.label === 'string' && typeof row.value === 'string'
-        ? [{ label: row.label, value: row.value }]
-        : []
-    })
-  } catch {
-    return [{ label: 'Notes', value: notes }]
-  }
 }
 
 export default function Calls() {
@@ -311,6 +290,7 @@ export default function Calls() {
             Agent
           </a>
 
+          {isPro && <a href="/dashboard/appointments" className="dashboardNavItem">Appointments</a>}
           <a href="/dashboard/requests" className="dashboardNavItem">
             Customer Requests
           </a>

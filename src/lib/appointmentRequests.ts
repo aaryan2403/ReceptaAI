@@ -17,3 +17,24 @@ export const isConfirmedAppointment = (appointment: {
   Boolean(appointment.appointment_time && Number.isFinite(Date.parse(appointment.appointment_time)))
 
 export const appointmentCallId = (value: string | null) => value?.split(':')[0] ?? null
+
+type CapturedDetail = { label: string; value: string }
+
+export const capturedDetails = (notes: string | null): CapturedDetail[] => {
+  if (!notes) return []
+
+  try {
+    const parsed = JSON.parse(notes) as { details?: unknown }
+    if (!Array.isArray(parsed.details)) return []
+
+    return parsed.details.flatMap((item) => {
+      if (!item || typeof item !== 'object') return []
+      const row = item as Record<string, unknown>
+      return typeof row.label === 'string' && typeof row.value === 'string'
+        ? [{ label: row.label, value: row.value }]
+        : []
+    })
+  } catch {
+    return [{ label: 'Notes', value: notes }]
+  }
+}

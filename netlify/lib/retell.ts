@@ -196,6 +196,12 @@ export const retellAccessDetails = (error: unknown, operation: 'agent' | 'list' 
 }
 
 export const retellAccessMessage = (error: unknown) => retellAccessDetails(error).error
+export const retellScheduleSyncMessage = (error: unknown) => {
+  if (error instanceof RetellRequestError) {
+    return `Retell could not synchronize appointment tools (HTTP ${error.status}). Verify the workspace key, agent access and response engine, then retry.`
+  }
+  return error instanceof Error ? error.message : 'Retell synchronization could not be completed.'
+}
 
 const retellRequest = async <T>(
   apiKey: string,
@@ -206,6 +212,7 @@ const retellRequest = async <T>(
     `${RETELL_API_BASE}${path}`,
     {
       ...init,
+      signal: init.signal ?? AbortSignal.timeout(6500),
       headers: {
         Authorization: `Bearer ${apiKey.trim()}`,
         ...(init.body
@@ -331,7 +338,7 @@ export const verifyRetellSignature = (
   if (!signature) return false
 
   const match =
-    /^v=(\d+),d=([a-fA-F0-9]+)$/.exec(
+    /^v=(\d+),d=([a-fA-F0-9]{64})$/.exec(
       signature.trim()
     )
 
@@ -341,7 +348,7 @@ export const verifyRetellSignature = (
   const suppliedDigest = match[2]
 
   if (
-    !Number.isFinite(timestamp) ||
+    !Number.isSafeInteger(timestamp) ||
     Math.abs(Date.now() - timestamp) >
       5 * 60 * 1000
   ) {
@@ -600,13 +607,16 @@ const RECEPTA_APPOINTMENT_TOOL_NAMES = new Set([
   'recepta_save_appointment_details',
 ])
 
-const buildReceptaAppointmentTools = (siteUrl: string) => [{
+const buildAppointmentIntakeTool = (siteUrl: string) => ({
   type: 'custom',
   name: 'recepta_save_appointment_details',
   description:
     'Save the caller’s appointment request and every configured intake field in Recepta. Call this exactly once after the caller confirms the collected details. This records the request; it does not reserve a calendar time.',
   url: `${siteUrl}/.netlify/functions/retell-appointment`,
   method: 'POST',
+  args_at_root: false,
+  speak_after_execution: true,
+  timeout_ms: 10000,
   parameters: {
     type: 'object',
     required: ['customer_name', 'appointment_details'],
@@ -622,6 +632,10 @@ const buildReceptaAppointmentTools = (siteUrl: string) => [{
       customer_email: {
         type: 'string',
         description: 'Caller’s confirmed email address when provided.',
+      },
+      customer_email_consent: {
+        type: 'boolean',
+        description: 'True only if the caller explicitly agrees to appointment-related emails at this address.',
       },
       customer_company: {
         type: 'string',
@@ -658,7 +672,36 @@ const buildReceptaAppointmentTools = (siteUrl: string) => [{
       },
     },
   },
-}]
+})
+
+const buildReceptaAppointmentTools = (siteUrl: string, scheduling: boolean) => {
+  const intake = buildAppointmentIntakeTool(siteUrl)
+  if (!scheduling) return [intake]
+  const contact = Object.fromEntries(Object.entries(intake.parameters.properties).filter(([name]) => !name.startsWith('preferred_')))
+  // The call identity comes from Retell's signed wrapper.
+  const tool = { type: intake.type, url: intake.url, method: intake.method, args_at_root: false, speak_after_execution: true, timeout_ms: 10000 }
+  return [intake, {
+    ...tool, name: 'recepta_check_availability',
+    description: 'Check real business appointment availability. Returns the exact timestamp to book and alternatives when unavailable.',
+    parameters: {
+      type: 'object', required: ['requested_date'],
+      properties: {
+        requested_date: { type: 'string', description: 'Business-local date in YYYY-MM-DD.' },
+        requested_time: { type: 'string', description: 'Business-local start in 24-hour HH:MM. Omit when asking for available times on that date.' },
+      },
+    },
+  }, {
+    ...tool, name: 'recepta_book_appointment',
+    description: 'Reserve a start after the caller agrees to it and confirms their details. Only a successful booked result confirms it.',
+    parameters: {
+      type: 'object', required: ['start', 'customer_name', 'customer_phone', 'appointment_details'],
+      properties: {
+        ...contact,
+        start: { type: 'string', description: 'Use the exact ISO timestamp with UTC offset returned by recepta_check_availability.' },
+      },
+    },
+  }]
+}
 
 const LEGACY_MANAGED_PROMPT_LINES: Record<string, string[][]> = {
   [BUSINESS_HOURS_PROMPT_MARKER]: [
@@ -719,7 +762,7 @@ const replaceManagedPrompt = (
   }
 
   const nextMarkerIndex = currentPrompt.indexOf(
-    '\n\n[RECEPTA MANAGED ',
+    marker === APPOINTMENT_BOOKING_PROMPT_MARKER ? '\n\n' : '\n\n[RECEPTA MANAGED ',
     markerIndex + marker.length
   )
   const before = currentPrompt.slice(0, markerIndex).trimEnd()
@@ -802,6 +845,8 @@ export const syncRetellSchedule = async ({
   callEmailSettings,
   emailOnly = false,
   preserveAvailability = false,
+  appointmentScheduling = false,
+  schedulingOnly = false,
   emailNotificationsEnabled = true,
   smsNotificationsEnabled = false,
 }: {
@@ -814,6 +859,8 @@ export const syncRetellSchedule = async ({
   callEmailSettings?: CallEmailSettings
   emailOnly?: boolean
   preserveAvailability?: boolean
+  appointmentScheduling?: boolean
+  schedulingOnly?: boolean
   emailNotificationsEnabled?: boolean
   smsNotificationsEnabled?: boolean
 }) => {
@@ -874,9 +921,9 @@ export const syncRetellSchedule = async ({
   const emailConfigured = callEmailPreferencesEnabled() && Boolean(callEmailSettings || storedEmailSettings)
   const emailSettings = normalizeCallEmailSettings(callEmailSettings ?? storedEmailSettings)
   const collectionFields = emailConfigured ? emailSettings.customFields : appointmentFields
-  if (emailConfigured && draftAgent.webhook_url && draftAgent.webhook_url !== eventWebhook) throw new Error('This agent has a different call-event webhook. Review its ownership before changing email settings.')
+  if (!schedulingOnly && emailConfigured && draftAgent.webhook_url && draftAgent.webhook_url !== eventWebhook) throw new Error('This agent has a different call-event webhook. Review its ownership before changing email settings.')
   let generalPrompt = currentLlm.general_prompt ?? ''
-  if (!emailOnly) {
+  if (!emailOnly && !schedulingOnly) {
   if (!preserveAvailability) {
   generalPrompt = appendManagedPrompt(
     currentLlm.general_prompt ?? '',
@@ -889,7 +936,7 @@ export const syncRetellSchedule = async ({
       'If the store mode is 24/7, the business is open all day. Otherwise use its exact saved opening hours. The AI may still answer while the business is closed.',
       'If the mode is custom, answer with the exact saved day and time. Never invent or assume hours.',
       'If store hours are unconfigured, say they have not been provided. Never claim the business is open 24/7 just because the AI answers.',
-      'AI answering mode: {{recepta_answering_mode}}. An answered call does not mean the store is open. Outside store hours, collect a message or appointment request for the business to confirm; do not claim staff are present or a slot is booked.',
+      'AI answering mode: {{recepta_answering_mode}}. An answered call does not mean the store is open. Outside store hours, do not claim staff are present. Appointment availability follows the separate booking rules.',
     ]
   )
 
@@ -938,7 +985,7 @@ export const syncRetellSchedule = async ({
 
   }
 
-  if (emailConfigured) {
+  if (emailConfigured && !schedulingOnly) {
   generalPrompt = replaceManagedPrompt(generalPrompt, '[RECEPTA MANAGED CALL EMAIL]', [
     'Call receipt policy: ' + (emailSettings.callerEnabled ? 'enabled' : 'disabled') + '.',
     emailSettings.callerEnabled
@@ -956,20 +1003,42 @@ export const syncRetellSchedule = async ({
 
   }
 
-  const siteUrl = process.env.URL?.trim().replace(/\/$/, '')
+  const isPreview = process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE === 'true' ||
+    Boolean(process.env.CONTEXT && process.env.CONTEXT !== 'production')
+  const siteUrl = (process.env.RECEPTA_APPOINTMENT_FUNCTION_URL ||
+    (isPreview ? process.env.DEPLOY_PRIME_URL : process.env.RECEPTA_APP_URL || process.env.URL))?.trim().replace(/\/$/, '')
   const existingTools = currentLlm.general_tools ?? []
+  const scheduling = appointmentScheduling || currentLlm.default_dynamic_variables?.recepta_scheduling_tools === 'enabled'
   let generalTools = existingTools
+  if (schedulingOnly && (!siteUrl || !siteUrl.startsWith('https://'))) {
+    throw new Error('Retell scheduling requires the public HTTPS address of this deployment.')
+  }
 
   if (siteUrl && !emailOnly) {
+    if (schedulingOnly) {
+      generalPrompt = appendManagedPrompt(generalPrompt, APPOINTMENT_FIELDS_PROMPT_MARKER, [
+        'Collect the configured appointment fields: {{recepta_appointment_fields}}',
+      ])
+    }
     generalPrompt = replaceManagedPrompt(
       generalPrompt,
       APPOINTMENT_BOOKING_PROMPT_MARKER,
-      [
+      scheduling ? [
+        'For booking, always use recepta_check_availability with the requested business-local date and time. The booking schedule is separate from store and employee hours.',
+        'Offer only times returned by the tool. If a local time repeats when clocks change, clarify which UTC offset the caller wants. If unavailable, offer the returned alternatives.',
+        'Collect and confirm the caller’s name, phone, and configured appointment fields. Ask for email only if appropriate and record explicit consent for appointment emails.',
+        'After the caller agrees, call recepta_book_appointment with the exact timestamp from the availability response and the confirmed details.',
+        'Confirm a booking only when that tool returns success with status booked. Give the confirmed time and reference. An availability check does not reserve a time.',
+        'If the result says call_already_booked, give the existing booking time and direct the caller to the business for a change.',
+        'If automatic booking is off, no suitable slot is available, or the booking service fails, explain that and offer to save an awaiting-confirmation request. If the service fails, apologize to the caller.',
+        'Use recepta_save_appointment_details only with the caller’s agreement. Say awaiting confirmation only if the tool returns success with status pending. Never claim a booking, request, email or text succeeded unless its result says so.',
+      ] : [
         'Recepta does not provide a live calendar or reserve time slots.',
         'For an appointment request, collect the caller’s name, available contact details, reason, preferred date and time, and every field listed in {{recepta_appointment_fields}}. Ask about timezone when needed; do not invent a preference or availability.',
         'Read back the important details and ask the caller to confirm them.',
         'After confirmation, call recepta_save_appointment_details exactly once.',
-        'Tell the caller their appointment request was recorded and the business will follow up. Never claim a date or time is booked or guaranteed.',
+        'Only tell the caller their request was recorded after recepta_save_appointment_details returns success: true with status pending. Say the request is awaiting business confirmation and do not promise a reserved time. Never claim a date or time is booked or guaranteed.',
+        'If saving fails, times out, or returns no explicit success, apologize and explain that the appointment request could not be confirmed as recorded. Offer a transfer or the business’s already-published contact option only if available; never claim an email, callback, message or appointment was created without backend confirmation.',
       ]
     )
     generalTools = [
@@ -977,7 +1046,7 @@ export const syncRetellSchedule = async ({
         const name = typeof tool.name === 'string' ? tool.name : ''
         return !RECEPTA_APPOINTMENT_TOOL_NAMES.has(name)
       }),
-      ...buildReceptaAppointmentTools(siteUrl),
+      ...buildReceptaAppointmentTools(siteUrl, scheduling),
     ]
   }
 
@@ -993,8 +1062,9 @@ export const syncRetellSchedule = async ({
         general_tools: generalTools,
         default_dynamic_variables: {
           ...(currentLlm.default_dynamic_variables ?? {}),
-          ...(emailConfigured ? { recepta_call_email_settings: JSON.stringify(emailSettings) } : {}),
-          ...(!emailOnly && !preserveAvailability ? {
+          ...(scheduling && !emailOnly ? { recepta_scheduling_tools: 'enabled' } : {}),
+          ...(emailConfigured && !schedulingOnly ? { recepta_call_email_settings: JSON.stringify(emailSettings) } : {}),
+          ...(!emailOnly && !schedulingOnly && !preserveAvailability ? {
             recepta_answering_mode: schedule.answeringMode ?? '24/7',
             recepta_schedule_mode: schedule.mode,
             recepta_business_hours: formatBusinessHours(schedule),
@@ -1004,7 +1074,7 @@ export const syncRetellSchedule = async ({
               recepta_employee_schedule_timezone: employeeScheduleTimeZone ?? schedule.timeZone,
             } : {}),
           } : {}),
-          ...(!emailOnly ? {
+          ...(!emailOnly && !schedulingOnly ? {
             recepta_email_confirmations: emailNotificationsEnabled ? 'enabled' : 'disabled',
             recepta_sms_confirmations: smsNotificationsEnabled ? 'enabled' : 'disabled',
           } : {}),
@@ -1026,9 +1096,9 @@ export const syncRetellSchedule = async ({
       method: 'POST',
       body: JSON.stringify({
         version: draftAgent.version,
-        version_title: emailOnly ? 'Recepta email sync' : preserveAvailability ? 'Recepta preferences sync' : 'Recepta schedule sync',
+        version_title: schedulingOnly ? 'Recepta appointment scheduling sync' : emailOnly ? 'Recepta email sync' : preserveAvailability ? 'Recepta preferences sync' : 'Recepta schedule sync',
         version_description:
-          emailOnly ? 'Updated the selected call fields and email receipt policy.' : preserveAvailability ? 'Updated call preferences without changing agent availability.' : schedule.mode === '24/7'
+          schedulingOnly ? 'Registered appointment scheduling tools.' : emailOnly ? 'Updated the selected call fields and email receipt policy.' : preserveAvailability ? 'Updated call preferences without changing agent availability.' : schedule.mode === '24/7'
             ? 'Set Recepta availability to 24/7.'
             : `Updated Recepta custom hours (${schedule.timeZone}).`,
       }),
