@@ -1037,7 +1037,8 @@ export const syncRetellSchedule = async ({
         'For an appointment request, collect the caller’s name, available contact details, reason, preferred date and time, and every field listed in {{recepta_appointment_fields}}. Ask about timezone when needed; do not invent a preference or availability.',
         'Read back the important details and ask the caller to confirm them.',
         'After confirmation, call recepta_save_appointment_details exactly once.',
-        'Tell the caller their appointment request was recorded and the business will follow up. Never claim a date or time is booked or guaranteed.',
+        'Only tell the caller their request was recorded after recepta_save_appointment_details returns success: true with status pending. Say the request is awaiting business confirmation and do not promise a reserved time.',
+        'If saving fails, times out, or returns no explicit success, apologize and explain that the appointment request could not be confirmed as recorded. Offer a transfer or the business’s already-published contact option only if available; never claim an email, callback, message or appointment was created without backend confirmation.',
       ]
     )
     generalTools = [
