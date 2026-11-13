@@ -11,7 +11,11 @@ const tenant = '00000000-0000-0000-0000-000000000101'
 const other = '00000000-0000-0000-0000-000000000102'
 const secret = 'synthetic-retell-key'
 const fixture = `
-  create role anon; create role authenticated; create role service_role bypassrls;
+  do $$ begin
+    if not exists (select from pg_roles where rolname='anon') then create role anon; end if;
+    if not exists (select from pg_roles where rolname='authenticated') then create role authenticated; end if;
+    if not exists (select from pg_roles where rolname='service_role') then create role service_role bypassrls; end if;
+  end $$;
   grant usage on schema public to service_role;
   create table clients(id uuid primary key, deletion_pending boolean not null default false, company_name text, contact_email text);
   create table subscriptions(client_id uuid primary key, plan_name text, status text, stripe_subscription_id text,
@@ -79,6 +83,7 @@ const action = (id, name, start, appt, version) => call('recepta_change_appointm
 
 test('tenant-specific settings apply durations, grid intervals, and up to ten overlapping bookings', async () => {
   const date = futureDate()
+  assert.equal((await available(tenant,date,'09:00')).reason,'automatic_booking_disabled')
   for (const [index, duration, interval, capacity] of [[0,15,5,2],[1,30,15,3],[2,60,30,10]]) {
     const day = futureDate(14+index)
     await save(tenant, rules({ duration_minutes: duration, start_interval_minutes: interval, capacity }))
@@ -397,9 +402,6 @@ test('signed Retell requests persist in PostgreSQL and surface in the authorized
 
 test('disabled automatic booking keeps pending intake available and enforces Pro and explicit email consent', async () => {
   const date=futureDate(55)
-  await db.query('delete from booking_settings where client_id=$1',[tenant])
-  const unset=await (await invoke('recepta_check_availability',{requested_date:date,requested_time:'09:00'})).json()
-  assert.equal(unset.reason,'pro_required')
   await save(tenant,rules({ enabled:false,email_customer:true }))
   const disabled=await (await invoke('recepta_check_availability',{ requested_date:date,requested_time:'09:00' })).json()
   assert.equal(disabled.reason,'automatic_booking_disabled')
