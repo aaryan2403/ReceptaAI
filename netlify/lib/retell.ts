@@ -1,4 +1,4 @@
-import { callEmailPreferencesEnabled } from './emailEnvironment'
+import { callEmailPreferencesEnabled, isReceptaPreview } from './emailEnvironment'
 import { normalizeCallEmailSettings, isRetellFieldKey, type CallEmailSettings } from '../../src/lib/callEmailSettings'
 import { mergeEmailAnalysis } from './callEmailCapture'
 import { getCallMaxSeconds } from './callMinutes'
@@ -84,6 +84,7 @@ type RetellAgent = {
   agent_name?: string
   is_suspended?: boolean
   is_transfer_agent?: boolean
+  is_published?: boolean
   webhook_url?: string | null
   webhook_events?: string[] | null
   post_call_analysis_data?: Array<Record<string, unknown>> | null
@@ -99,6 +100,7 @@ type RetellLlm = {
   default_dynamic_variables?: Record<string, string> | null
   general_prompt?: string | null
   general_tools?: Array<Record<string, unknown>> | null
+  states?: Array<Record<string, unknown> & { tools?: Array<Record<string, unknown>> | null }> | null
 }
 
 export type RetellOperatingDay = {
@@ -196,11 +198,36 @@ export const retellAccessDetails = (error: unknown, operation: 'agent' | 'list' 
 }
 
 export const retellAccessMessage = (error: unknown) => retellAccessDetails(error).error
+export class RetellSetupError extends Error {}
+
 export const retellScheduleSyncMessage = (error: unknown) => {
+  if (error instanceof RetellSetupError) return error.message
   if (error instanceof RetellRequestError) {
-    return `Retell could not synchronize appointment tools (HTTP ${error.status}). Verify the workspace key, agent access and response engine, then retry.`
+    if (error.status === 401) return 'Retell rejected the deployment workspace key (HTTP 401). Check the server key and redeploy.'
+    if (error.status === 403) return 'Retell denied access (HTTP 403). Verify workspace ownership and Agent/LLM permissions.'
+    if (error.status === 404) return 'The Retell agent or versioned response engine was unavailable in this workspace (HTTP 404).'
+    if (error.status === 429) return 'Retell is rate limiting requests (HTTP 429). Wait and retry.'
+    return `Retell could not complete the request (HTTP ${error.status}). Check the agent sync and try again.`
   }
-  return error instanceof Error ? error.message : 'Retell synchronization could not be completed.'
+  if (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name)) return 'Retell did not respond in time. Check the live configuration before retrying.'
+  return 'Recepta could not verify or synchronize the Retell configuration. Try the readiness check again.'
+}
+
+export const receptaRetellOrigin = (appointment = true) => {
+  const preview = isReceptaPreview()
+  const configured = ((appointment || preview ? process.env.RECEPTA_APPOINTMENT_FUNCTION_URL : undefined) ||
+    (preview ? process.env.DEPLOY_PRIME_URL : process.env.RECEPTA_APP_URL || process.env.URL || 'https://recepta.ca'))?.trim() ?? ''
+  let url: URL
+  try { url = new URL(configured) } catch {
+    throw new RetellSetupError('Configure the public HTTPS origin of this Recepta deployment in Netlify Functions.')
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash ||
+    (preview && (!/^deploy-preview-\d+--receptaai\.netlify\.app$/.test(url.hostname) || url.port ||
+      (process.env.DEPLOY_PRIME_URL && url.origin !== process.env.DEPLOY_PRIME_URL.replace(/\/$/, '')))) ||
+    (!preview && /^deploy-preview-/.test(url.hostname))) {
+    throw new RetellSetupError('The configured Retell tool origin does not match this Recepta deployment.')
+  }
+  return url.origin
 }
 
 const retellRequest = async <T>(
@@ -565,7 +592,7 @@ const updatePhoneBinding = async ({
     : null
 
   const inboundWebhookUrl = new URL('/.netlify/functions/retell-inbound',
-    process.env.RECEPTA_APP_URL || process.env.URL || 'https://recepta.ca').toString()
+    receptaRetellOrigin(false)).toString()
 
   await retellRequest<unknown>(
     apiKey,
@@ -701,6 +728,78 @@ const buildReceptaAppointmentTools = (siteUrl: string, scheduling: boolean) => {
       },
     },
   }]
+}
+
+const readRetellLlm = (apiKey: string, agent: RetellAgent) => {
+  const engine = agent.response_engine
+  if (engine?.type !== 'retell-llm' || !engine.llm_id || typeof engine.version !== 'number') {
+    throw new RetellSetupError('The assigned agent must use a versioned Retell LLM response engine.')
+  }
+  return retellRequest<RetellLlm>(apiKey, `/get-retell-llm/${encodeURIComponent(engine.llm_id)}?version=${engine.version}`)
+}
+
+const getPublishedRetellAgent = async (apiKey: string, agentId: string) => {
+  const agent = await retellRequest<RetellAgent>(apiKey, `/get-agent/${encodeURIComponent(agentId)}?version=latest_published`)
+  if (agent?.agent_id !== agentId || agent.is_published !== true || typeof agent.version !== 'number') {
+    throw new RetellSetupError('Retell did not return a published version of the assigned agent.')
+  }
+  if (agent.is_suspended || agent.is_transfer_agent) {
+    throw new RetellSetupError('The assigned Retell agent is suspended or reserved for transfers.')
+  }
+  return agent as RetellAgent & { version: number }
+}
+
+const appointmentToolIssue = (llm: RetellLlm, siteUrl: string, scheduling: boolean) => {
+  const expected = buildReceptaAppointmentTools(siteUrl, scheduling)
+  const tools = llm.general_tools ?? []
+  const stateTools = (llm.states ?? []).flatMap(state => state.tools ?? [])
+  for (const tool of expected) {
+    const matches = tools.filter(candidate => candidate.name === tool.name)
+    if (stateTools.some(candidate => candidate.name === tool.name) || matches.length > 1) {
+      return `${tool.name} has duplicate definitions in the Retell response engine.`
+    }
+    const actual = matches[0]
+    if (!actual) return `${tool.name} is missing from the Retell response engine.`
+    if (actual.url !== tool.url) return `${tool.name} points to the wrong Recepta endpoint.`
+    const schema = actual.parameters as { required?: string[]; properties?: Record<string, { type?: string }> } | undefined
+    const expectedProperties: Record<string, { type: string } | undefined> = tool.parameters.properties
+    if (actual.type !== 'custom' || actual.method !== 'POST' || actual.args_at_root === true ||
+      actual.speak_after_execution !== true || actual.execution_mode === 'async' ||
+      !Array.isArray(schema?.required) || schema.required.length !== tool.parameters.required.length ||
+      tool.parameters.required.some(name => !schema.required?.includes(name)) ||
+      Object.entries(expectedProperties).some(([name, property]) => schema.properties?.[name]?.type !== property?.type)) {
+      return `${tool.name} has an incompatible request schema or execution settings.`
+    }
+  }
+  if (!llm.general_prompt?.includes(APPOINTMENT_BOOKING_PROMPT_MARKER) ||
+      (scheduling && llm.default_dynamic_variables?.recepta_scheduling_tools !== 'enabled')) {
+    return 'The Retell agent is missing Recepta’s appointment instructions.'
+  }
+  return null
+}
+
+export const inspectRetellAppointments = async (apiKey: string, agentId: string, siteUrl = receptaRetellOrigin()) => {
+  const agent = await getPublishedRetellAgent(apiKey, agentId)
+  const llm = await readRetellLlm(apiKey, agent)
+  return {
+    version: agent.version, issue: appointmentToolIssue(llm, siteUrl, true), webhook: agent.webhook_url,
+    hasTransferTool: [...(llm.general_tools ?? []), ...(llm.states ?? []).flatMap(state => state.tools ?? [])]
+      .some(tool => tool.type === 'transfer_call'),
+  }
+}
+
+export const inspectRetellPhoneRoute = async (apiKey: string, phoneNumber: string, siteUrl: string) => {
+  const route = await retellRequest<{
+    phone_number?: string
+    inbound_webhook_url?: string | null
+    inbound_agents?: unknown[] | null
+  }>(apiKey, `/get-phone-number/${encodeURIComponent(phoneNumber)}`)
+  if (route?.phone_number !== phoneNumber) return 'Retell did not return the assigned number.'
+  if (route.inbound_webhook_url !== `${siteUrl}/.netlify/functions/retell-inbound`) {
+    return 'The number’s inbound webhook points to the wrong deployment or is missing.'
+  }
+  if (route.inbound_agents?.length) return 'The number has a fallback agent that could answer without Recepta call authorization.'
+  return null
 }
 
 const LEGACY_MANAGED_PROMPT_LINES: Record<string, string[][]> = {
@@ -847,6 +946,7 @@ export const syncRetellSchedule = async ({
   preserveAvailability = false,
   appointmentScheduling = false,
   schedulingOnly = false,
+  beforePublish,
   emailNotificationsEnabled = true,
   smsNotificationsEnabled = false,
 }: {
@@ -861,26 +961,29 @@ export const syncRetellSchedule = async ({
   preserveAvailability?: boolean
   appointmentScheduling?: boolean
   schedulingOnly?: boolean
+  beforePublish?: () => Promise<void>
   emailNotificationsEnabled?: boolean
   smsNotificationsEnabled?: boolean
 }) => {
-  const versions =
-    await retellRequest<RetellVersionList>(
-      apiKey,
-      `/list-agent-versions/${encodeURIComponent(
-        agentId
-      )}?limit=1000&sort_order=descending`
-    )
-
-  const versionRows = Array.isArray(versions.items)
-    ? versions.items
-    : []
-  const baseVersion =
-    versionRows.find((item) => item.is_published)?.version ??
-    versionRows[0]?.version
-
-  if (typeof baseVersion !== 'number') {
-    throw new Error('Retell agent has no version to update.')
+  const siteUrl = !emailOnly ? receptaRetellOrigin() : null
+  const published = await getPublishedRetellAgent(apiKey, agentId).catch(async error => {
+    // A first-time setup may start with an unpublished Retell draft.
+    if (!(error instanceof RetellRequestError) || error.status !== 404) throw error
+    const versions = await retellRequest<RetellVersionList>(apiKey, `/list-agent-versions/${encodeURIComponent(agentId)}?limit=1&sort_order=descending`)
+    const base = versions?.items?.[0]
+    if (!base || base.is_published || typeof base.version !== 'number') throw error
+    return null
+  })
+  const baseAgent = published ?? await retellRequest<RetellAgent>(apiKey, `/get-agent/${encodeURIComponent(agentId)}`)
+  if (baseAgent?.agent_id !== agentId || typeof baseAgent.version !== 'number' ||
+      baseAgent.is_suspended || baseAgent.is_transfer_agent) {
+    throw new RetellSetupError('Retell did not return an editable version of the assigned receptionist.')
+  }
+  const baseVersion = baseAgent.version
+  const baseLlm = schedulingOnly ? await readRetellLlm(apiKey, baseAgent) : null
+  if (published && baseLlm && siteUrl && !appointmentToolIssue(baseLlm, siteUrl, true) &&
+      (appointmentFields === undefined || baseLlm.default_dynamic_variables?.recepta_appointment_fields === formatAppointmentFields(appointmentFields))) {
+    return { agentUpdated: false, version: published.version }
   }
 
   const draftAgent = await retellRequest<RetellAgent>(
@@ -892,30 +995,14 @@ export const syncRetellSchedule = async ({
     }
   )
 
-  const eventWebhook = new URL('/.netlify/functions/retell-webhook', process.env.RECEPTA_APP_URL || process.env.URL || 'https://recepta.ca').toString()
-
-  const responseEngine = draftAgent.response_engine
-
-  if (
-    responseEngine?.type !== 'retell-llm' ||
-    !responseEngine.llm_id ||
-    typeof responseEngine.version !== 'number'
-  ) {
-    throw new Error(
-      'The assigned Retell agent does not use a versioned Retell LLM response engine.'
-    )
+  const eventWebhook = new URL('/.netlify/functions/retell-webhook', receptaRetellOrigin(false)).toString()
+  const responseEngine = draftAgent?.response_engine
+  if (draftAgent?.agent_id !== agentId || typeof draftAgent.version !== 'number' || draftAgent.version === baseVersion ||
+      !responseEngine?.llm_id || typeof responseEngine.version !== 'number' ||
+      (baseAgent.response_engine?.llm_id === responseEngine.llm_id && baseAgent.response_engine.version === responseEngine.version)) {
+    throw new RetellSetupError('Retell did not create a separate draft response engine. The live agent was left untouched.')
   }
-
-  if (typeof draftAgent.version !== 'number') {
-    throw new Error('Retell did not return the draft agent version.')
-  }
-
-  const currentLlm = await retellRequest<RetellLlm>(
-    apiKey,
-    `/get-retell-llm/${encodeURIComponent(
-      responseEngine.llm_id
-    )}?version=${responseEngine.version}`
-  )
+  const currentLlm = await readRetellLlm(apiKey, draftAgent)
   let storedEmailSettings: unknown
   try { storedEmailSettings = JSON.parse(currentLlm.default_dynamic_variables?.recepta_call_email_settings ?? 'null') } catch { storedEmailSettings = null }
   const emailConfigured = callEmailPreferencesEnabled() && Boolean(callEmailSettings || storedEmailSettings)
@@ -1003,16 +1090,16 @@ export const syncRetellSchedule = async ({
 
   }
 
-  const isPreview = process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE === 'true' ||
-    Boolean(process.env.CONTEXT && process.env.CONTEXT !== 'production')
-  const siteUrl = (process.env.RECEPTA_APPOINTMENT_FUNCTION_URL ||
-    (isPreview ? process.env.DEPLOY_PRIME_URL : process.env.RECEPTA_APP_URL || process.env.URL))?.trim().replace(/\/$/, '')
   const existingTools = currentLlm.general_tools ?? []
   const scheduling = appointmentScheduling || currentLlm.default_dynamic_variables?.recepta_scheduling_tools === 'enabled'
   let generalTools = existingTools
-  if (schedulingOnly && (!siteUrl || !siteUrl.startsWith('https://'))) {
-    throw new Error('Retell scheduling requires the public HTTPS address of this deployment.')
-  }
+  const isManagedTool = (tool: Record<string, unknown>) =>
+    typeof tool.name === 'string' && RECEPTA_APPOINTMENT_TOOL_NAMES.has(tool.name)
+  const cleanedStates = !emailOnly && currentLlm.states?.some(state => state.tools?.some(isManagedTool))
+    ? currentLlm.states.map(state => state.tools?.some(isManagedTool)
+      ? { ...state, tools: state.tools.filter(tool => !isManagedTool(tool)) }
+      : state)
+    : undefined
 
   if (siteUrl && !emailOnly) {
     if (schedulingOnly) {
@@ -1042,10 +1129,7 @@ export const syncRetellSchedule = async ({
       ]
     )
     generalTools = [
-      ...existingTools.filter((tool) => {
-        const name = typeof tool.name === 'string' ? tool.name : ''
-        return !RECEPTA_APPOINTMENT_TOOL_NAMES.has(name)
-      }),
+      ...existingTools.filter(tool => !isManagedTool(tool)),
       ...buildReceptaAppointmentTools(siteUrl, scheduling),
     ]
   }
@@ -1060,6 +1144,7 @@ export const syncRetellSchedule = async ({
       body: JSON.stringify({
         general_prompt: generalPrompt,
         general_tools: generalTools,
+        ...(cleanedStates ? { states: cleanedStates } : {}),
         default_dynamic_variables: {
           ...(currentLlm.default_dynamic_variables ?? {}),
           ...(scheduling && !emailOnly ? { recepta_scheduling_tools: 'enabled' } : {}),
@@ -1089,6 +1174,14 @@ export const syncRetellSchedule = async ({
     }
   )
 
+  await beforePublish?.()
+  if (published) {
+    const latest = await getPublishedRetellAgent(apiKey, agentId)
+    if (latest.version !== baseVersion) {
+      throw new RetellSetupError('The Retell agent changed during synchronization. Retry to apply appointment tools to its latest version.')
+    }
+  }
+
   await retellRequest<unknown>(
     apiKey,
     `/publish-agent-version/${encodeURIComponent(agentId)}`,
@@ -1104,6 +1197,15 @@ export const syncRetellSchedule = async ({
       }),
     }
   )
+
+  if (siteUrl && !emailOnly) {
+    const live = await getPublishedRetellAgent(apiKey, agentId)
+    if (live.version !== draftAgent.version) {
+      throw new RetellSetupError('Retell’s live version did not match the published draft. Check the live configuration and retry.')
+    }
+    const issue = appointmentToolIssue(await readRetellLlm(apiKey, live), siteUrl, scheduling)
+    if (issue) throw new RetellSetupError(issue)
+  }
 
   return {
     agentUpdated: true,
@@ -1279,7 +1381,7 @@ export const purchaseRetellPhoneNumber = async ({
   nickname: string
 }) => {
   const inboundWebhookUrl = new URL('/.netlify/functions/retell-inbound',
-    process.env.RECEPTA_APP_URL || process.env.URL || 'https://recepta.ca').toString()
+    receptaRetellOrigin(false)).toString()
   const agents = [
     {
       agent_id: agentId,

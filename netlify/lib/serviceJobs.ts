@@ -1,3 +1,5 @@
+import { configuredRetellKey } from './emailEnvironment'
+import { configuredStripeKey } from './subscriptionConfiguration'
 import { emailApiKey, assertEmailRecipients, emailProviderError } from './emailEnvironment'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
@@ -13,9 +15,10 @@ const check = (error: unknown) => { if (error) throw error }
 const missing = (error: unknown) => typeof error === 'object' && error !== null && 'code' in error && error.code === 'resource_missing'
 
 export const providerDelete = async (path:string, init:RequestInit = { method:'DELETE' }) => {
-  if (!process.env.RETELL_API_KEY) throw new Error('Retell cleanup configuration is missing.')
+  const key = configuredRetellKey()
+  if (!key) throw new Error('Retell cleanup configuration is missing.')
   const response = await fetch('https://api.retellai.com'+path, {
-    ...init, signal:AbortSignal.timeout(4000), headers:{ Authorization:`Bearer ${process.env.RETELL_API_KEY}`, 'Content-Type':'application/json' },
+    ...init, signal:AbortSignal.timeout(4000), headers:{ Authorization:`Bearer ${key}`, 'Content-Type':'application/json' },
   })
   if (!response.ok && (response.status!==404 || init.method==='POST')) throw new Error(`Retell cleanup failed (${response.status}).`)
   return response.status===404 || response.status===204 ? null : await response.json()
@@ -82,8 +85,9 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
   if (!payload.billing_done) {
     const customer=payload.stripe_customer_id as string|null, subscription=payload.stripe_subscription_id as string|null
     if (customer || subscription) {
-      if (!process.env.STRIPE_SECRET_KEY) throw new Error('Stripe cleanup configuration is missing.')
-      const stripe=new Stripe(process.env.STRIPE_SECRET_KEY,{ timeout:4000,maxNetworkRetries:0 })
+      const key = configuredStripeKey()
+      if (!key) throw new Error('Stripe cleanup configuration is missing.')
+      const stripe=new Stripe(key,{ timeout:4000,maxNetworkRetries:0 })
       if (subscription) {
         try {
           const current=await stripe.subscriptions.retrieve(subscription)

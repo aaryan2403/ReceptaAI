@@ -1,3 +1,4 @@
+import { configuredStripeKey } from '../lib/subscriptionConfiguration'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import { deliverBillingNotices, getBillingUsage, queueBillingNotice, queueUsageNotice } from '../lib/billingNotifications'
@@ -6,10 +7,11 @@ import { deliverBillingNotices, getBillingUsage, queueBillingNotice, queueUsageN
 export const config = { schedule: '0 * * * *' }
 
 export default async () => {
-  const { SUPABASE_URL, SUPABASE_SECRET_KEY, STRIPE_SECRET_KEY } = process.env
-  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !STRIPE_SECRET_KEY) throw new Error('Billing reminder configuration is missing.')
+  const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env
+  const stripeSecretKey = configuredStripeKey()
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !stripeSecretKey) throw new Error('Billing reminder configuration is missing.')
   const db = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, { auth: { persistSession: false } })
-  const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 3000, maxNetworkRetries: 0 })
+  const stripe = new Stripe(stripeSecretKey, { timeout: 3000, maxNetworkRetries: 0 })
   const deadline = Date.now() + 24_000
   const now = new Date()
   const horizon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)

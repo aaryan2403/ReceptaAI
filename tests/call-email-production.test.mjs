@@ -8,7 +8,8 @@ const compile = async path => {
 }
 const environment = await compile('netlify/lib/emailEnvironment.ts')
 const { syncRetellSchedule } = await compile('netlify/lib/retell.ts')
-const keys = ['CONTEXT', 'URL', 'RECEPTA_APP_URL', 'RECEPTA_REQUIRE_STRIPE_TEST_MODE', 'RECEPTA_CALL_EMAIL_ENABLED', 'RESEND_API_KEY', 'RESEND_STAGING_API_KEY']
+const { configuredStripeKey } = await compile('netlify/lib/subscriptionConfiguration.ts')
+const keys = ['STRIPE_SECRET_KEY', 'STRIPE_STAGING_SECRET_KEY', 'DEPLOY_PRIME_URL', 'CONTEXT', 'URL', 'RECEPTA_APP_URL', 'RECEPTA_REQUIRE_STRIPE_TEST_MODE', 'RECEPTA_CALL_EMAIL_ENABLED', 'RESEND_API_KEY', 'RESEND_STAGING_API_KEY']
 const original = Object.fromEntries(keys.map(key => [key, process.env[key]]))
 const originalFetch = globalThis.fetch
 test.beforeEach(() => { for (const key of keys) delete process.env[key] })
@@ -33,20 +34,32 @@ test('normal admin email controls use the production key without a separate roll
   assert.throws(() => environment.emailApiKey(), /RESEND_STAGING_API_KEY/)
 })
 
+test('preview credentials reject live Stripe keys and use the staging Retell workspace', () => {
+  process.env.DEPLOY_PRIME_URL = 'https://deploy-preview-32--receptaai.netlify.app'
+  process.env.STRIPE_SECRET_KEY = 'sk_live_synthetic'
+  assert.equal(configuredStripeKey(), undefined)
+  process.env.STRIPE_STAGING_SECRET_KEY = 'sk_test_synthetic'
+  assert.equal(configuredStripeKey(), 'sk_test_synthetic')
+  assert.equal(environment.isReceptaPreview(), true)
+})
+
 const fixture = (webhook = 'https://normal-admin.example.test/.netlify/functions/retell-webhook') => {
   process.env.URL = 'https://normal-admin.example.test'
   let llm = { general_prompt: 'Keep business instructions. Never transfer after 9pm.',
     general_tools: [{ type: 'custom', name: 'existing_business_tool' }], default_dynamic_variables: { keep: 'existing value' } }
   const writes = []
+  let liveVersion = 1
   globalThis.fetch = async (url, init = {}) => {
     const path = new URL(url).pathname
-    if (path.startsWith('/list-agent-versions/')) return Response.json({ items: [{ version: 1, is_published: true }] })
-    if (path.startsWith('/create-agent-version/')) return Response.json({ version: 2,
-      response_engine: { type: 'retell-llm', llm_id: 'synthetic_llm', version: 2 }, webhook_url: webhook,
+    const agent = version => ({ agent_id:'synthetic_agent', version, is_published:version===liveVersion,
+      response_engine: { type: 'retell-llm', llm_id: 'synthetic_llm', version }, webhook_url: webhook,
       webhook_events: ['transcript_updated'], post_call_analysis_data: [
         { type: 'string', name: 'business_field', description: 'Existing field' },
         { type: 'string', name: 'recepta_detail_obsolete', description: 'Old managed question' },
       ] })
+    if (path.startsWith('/get-agent/')) return Response.json(agent(liveVersion))
+    if (path.startsWith('/create-agent-version/')) return Response.json(agent(liveVersion + 1))
+    if (path.startsWith('/publish-agent-version/')) liveVersion = JSON.parse(init.body).version
     if (path.startsWith('/get-retell-llm/')) return Response.json(llm)
     if (path.startsWith('/update-retell-llm/')) llm = JSON.parse(init.body)
     if (path.startsWith('/update-') || path.startsWith('/publish-')) writes.push({ path, body: JSON.parse(init.body) })

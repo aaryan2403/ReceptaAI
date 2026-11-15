@@ -1,3 +1,4 @@
+import { configuredRetellKey } from '../lib/emailEnvironment'
 import { hasPaidSubscription, saveSubscriptionConfiguration } from '../lib/subscriptionConfiguration'
 
 import { createClient } from '@supabase/supabase-js'
@@ -48,7 +49,7 @@ export default async (request: Request) => {
   const adminEmail =
     process.env.ADMIN_EMAIL
   const retellApiKey =
-    process.env.RETELL_API_KEY
+    configuredRetellKey()
 
   if (
     !supabaseUrl ||
@@ -562,6 +563,7 @@ export default async (request: Request) => {
         agentId: retellAgentId,
         ...scheduleContext,
         preserveAvailability: true,
+        appointmentScheduling: savedSubscription.plan_name === 'Recepta Pro',
         appointmentFields,
         emailNotificationsEnabled:
           normalizeEmailNotificationsEnabled(

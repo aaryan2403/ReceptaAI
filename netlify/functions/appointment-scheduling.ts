@@ -1,16 +1,15 @@
-import { activeCallEmailSettings, normalizeCallEmailSettings } from '../../src/lib/callEmailSettings'
 import { schedulingReason } from '../../src/lib/appointmentScheduling'
 import { isActivePro, objectValue, schedulingSettingsForDashboard, uuid, validDate, validStart, validateSchedulingSettings } from '../lib/appointmentScheduling'
-import { configuredCallEmailRetellKey } from '../lib/emailEnvironment'
+import { appointmentAgentReadiness, repairAppointmentAgent } from '../lib/appointmentAgentSetup'
 import { getStoredBusinessSchedule } from '../lib/employeeSchedule'
-import { normalizeAppointmentFields, retellScheduleSyncMessage, syncRetellSchedule } from '../lib/retell'
+import { retellScheduleSyncMessage } from '../lib/retell'
 import { json, requestAuth } from '../lib/requestAuth'
 
 const PAGE_SIZE = 25
 const statusFilters = ['upcoming', 'pending', 'booked', 'cancelled', 'completed']
 
 export default async (request: Request) => {
-  if (!['GET','PUT','PATCH'].includes(request.method)) return json(405, { error: 'Method not allowed.' })
+  if (!['GET','PUT','PATCH','POST'].includes(request.method)) return json(405, { error: 'Method not allowed.' })
   const url = new URL(request.url)
   const target = url.searchParams.get('clientId')
   if (target !== null && !uuid(target)) return json(400, { error: 'A valid client is required.' })
@@ -27,6 +26,11 @@ export default async (request: Request) => {
     if (client.error) throw client.error
     if (!client.data) return json(404, { error: 'Client not found.' })
     if (client.data.deletion_pending) return json(409, { error: 'This account is awaiting deletion.' })
+    if (request.method === 'GET' && url.searchParams.get('readiness') === '1') {
+      if (target === null) return json(403, { error: 'Admin access required.' })
+      return json(200, await appointmentAgentReadiness(db, clientId, activePro))
+    }
+    if (request.method === 'POST' && target === null) return json(403, { error: 'Admin access required.' })
     if (!activePro && (target === null || request.method !== 'GET')) {
       return json(403, { error: 'An active Recepta Pro plan is required.' })
     }
@@ -76,6 +80,29 @@ export default async (request: Request) => {
       })
     }
 
+    if (request.method === 'POST') {
+      const rules = await db.from('booking_settings').select('updated_at').eq('client_id', clientId).maybeSingle()
+      if (rules.error) throw rules.error
+      try {
+        const result = await repairAppointmentAgent(db, clientId)
+        if (rules.data) {
+          const saved = await db.from('booking_settings').update({
+            sync_agent_id: result.agentId, synced_at: new Date().toISOString(), sync_error: null,
+          }).eq('client_id', clientId).eq('updated_at', rules.data.updated_at)
+          if (saved.error) throw saved.error
+        }
+        return json(200, { synced: true, version: result.version })
+      } catch (error) {
+        const message = retellScheduleSyncMessage(error)
+        if (rules.data) {
+          const failed = await db.from('booking_settings').update({ synced_at: null, sync_error: message })
+            .eq('client_id', clientId).eq('updated_at', rules.data.updated_at)
+          if (failed.error) console.error('Could not record appointment sync error', failed.error.code)
+        }
+        return json(502, { error: message })
+      }
+    }
+
     let body: Record<string, unknown>
     try { body = objectValue(await request.json()) } catch { return json(400, { error: 'Invalid appointment data.' }) }
 
@@ -108,33 +135,13 @@ export default async (request: Request) => {
 
     let agentId: string | null = null
     try {
-      const agent = await db.from('agents').select('retell_agent_id, business_hours').eq('client_id', clientId).maybeSingle()
-      if (agent.error) throw agent.error
-      agentId = agent.data?.retell_agent_id?.trim() || null
-      if (!agentId) throw new Error('Assign a Retell agent, then save appointment settings again to sync.')
-      if (saved.synced_at && saved.sync_agent_id === agentId && body.forceSync !== true) {
-        return json(200, { settings: saved, synced: true })
-      }
-      const ownership = await db.from('agents').select('client_id').eq('retell_agent_id', agentId).limit(2)
-      if (ownership.error) throw ownership.error
-      if (ownership.data.length !== 1 || ownership.data[0].client_id !== clientId) {
-        throw new Error('Assign a Retell agent that belongs only to this business.')
-      }
-      const apiKey = configuredCallEmailRetellKey()
-      if (!apiKey) throw new Error('The Retell workspace key for this deployment is missing.')
-      const account = await db.auth.admin.getUserById(clientId)
-      if (account.error) throw account.error
-      const activeFields = activeCallEmailSettings(account.data.user?.app_metadata)
-      const fields = activeFields ? normalizeCallEmailSettings(activeFields).customFields :
-        normalizeAppointmentFields(account.data.user?.user_metadata?.appointment_custom_fields)
-      await syncRetellSchedule({
-        apiKey, agentId, schedule: getStoredBusinessSchedule(agent.data?.business_hours), appointmentFields: fields,
-        appointmentScheduling: true, schedulingOnly: true,
-      })
+      const result = await repairAppointmentAgent(db, clientId)
+      agentId = result.agentId
       const syncedAt = new Date().toISOString()
       const sync = await db.from('booking_settings').update({ sync_agent_id: agentId, synced_at: syncedAt, sync_error: null })
         .eq('client_id', clientId).eq('updated_at', saved.updated_at).select('synced_at').maybeSingle()
       if (sync.error) throw sync.error
+      if (!sync.data) return json(409, { error: 'Appointment settings changed while Retell was synchronizing. Reload the saved settings and retry if needed.' })
       return json(200, { settings: { ...saved, sync_agent_id: agentId, synced_at: syncedAt, sync_error: null }, synced: true })
     } catch (error) {
       const message = retellScheduleSyncMessage(error)

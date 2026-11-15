@@ -19,8 +19,10 @@ const fixture = `
   grant usage on schema public to service_role;
   create table clients(id uuid primary key, deletion_pending boolean not null default false, company_name text, contact_email text);
   create table subscriptions(client_id uuid primary key, plan_name text, status text, stripe_subscription_id text,
-    current_period_start timestamptz, current_period_end timestamptz);
-  create table agents(client_id uuid primary key, retell_agent_id text, business_hours text);
+    current_period_start timestamptz, current_period_end timestamptz, monthly_minutes integer);
+  create table agents(client_id uuid primary key, retell_agent_id text, business_hours text, status text, phone_number text);
+  create table agent_phone_numbers(client_id uuid, phone_number text);
+  grant select on agent_phone_numbers to service_role;
   create table appointments(id uuid primary key default gen_random_uuid(),client_id uuid not null references clients(id),
     retell_call_id text,customer_name text,customer_email text,customer_phone text,company_name text,service text,notes text,
     status text not null default 'booked',source text not null,appointment_time timestamptz,appointment_end_time timestamptz,
@@ -59,7 +61,7 @@ const base = async (database) => {
   for (const migration of statements) await database.exec(migration)
   await database.query("insert into clients(id,company_name,contact_email) values($1,'First business','owner@example.test'),($2,'Second business','other@example.test')", [tenant, other])
   await database.query("insert into subscriptions(client_id,plan_name,status) values($1,'Recepta Pro','active'),($2,'Recepta Pro','active')", [tenant, other])
-  await database.query("insert into agents values($1,'agent_one',null),($2,'agent_two',null)", [tenant, other])
+  await database.query("insert into agents(client_id,retell_agent_id,business_hours) values($1,'agent_one',null),($2,'agent_two',null)", [tenant, other])
 }
 before(async () => { await base(db); await db.exec('set role service_role') })
 after(async () => { await db.close(); await native?.end() })
@@ -421,6 +423,7 @@ test('disabled automatic booking keeps pending intake available and enforces Pro
 })
 
 test('settings save registers signed Retell tools, preserves other functions and uses live database rules after later edits', async () => {
+  if (!dashboardHandler) await initializeHandlers()
   const originalFetch=globalThis.fetch
   const originalUrl=process.env.URL
   process.env.URL='https://example.test'
@@ -428,25 +431,31 @@ test('settings save registers signed Retell tools, preserves other functions and
     { type:'transfer_call',name:'transfer_call',transfer_destination:{type:'predefined',number:'+14165550125'} },
     { type:'end_call',name:'end_call' },{ type:'custom',name:'business_email' },
   ]
-  let written, versions=0
+  let written, versions=0, liveVersion=1
+  const states = [{ name: 'fallback', tools: [existing[0], { type: 'custom', name: 'recepta_book_appointment' }] }]
   globalThis.fetch=async (url,request)=>{
     const path = new URL(url).pathname
-    if (path.startsWith('/list-agent-versions')) { versions++; return Response.json({ items:[{version:1,is_published:true}] }) }
-    if (path.startsWith('/create-agent-version')) return Response.json({ version:2,response_engine:{type:'retell-llm',llm_id:'llm_test',version:2} })
-    if (path.startsWith('/get-retell-llm')) return Response.json({
+    if (path === '/.netlify/functions/retell-appointment') return signedHandler(new Request(url, request))
+    const agent = version => ({ agent_id:'agent_one', is_published:version === liveVersion, version,
+      response_engine:{type:'retell-llm',llm_id:'llm_test',version} })
+    if (path.startsWith('/get-agent')) return Response.json(agent(liveVersion))
+    if (path.startsWith('/create-agent-version')) { versions++; return Response.json(agent(liveVersion + 1)) }
+    if (path.startsWith('/get-retell-llm')) return Response.json(liveVersion > 1 ? written : {
       general_prompt:'Business script.\n\n[RECEPTA MANAGED APPOINTMENT BOOKING]\nLegacy calendar.\n\nManual transfer instructions.',
-      general_tools:existing,default_dynamic_variables:{ business:'sample' },
+      general_tools:existing,states,default_dynamic_variables:{ business:'sample' },
     })
     if (path.startsWith('/update-retell-llm')) written=JSON.parse(request.body)
+    if (path.startsWith('/publish-agent-version')) liveVersion=JSON.parse(request.body).version
     assert.ok(path.startsWith('/update-retell-llm')||path.startsWith('/publish-agent-version'))
     return Response.json({})
   }
   try {
     const date=futureDate(62)
     const response=await (await dashboard('','tenant','PUT',{settings:rules()})).json()
-    assert.equal(response.synced,true)
+    assert.equal(response.synced,true,response.settings?.sync_error)
     assert.deepEqual(written.general_tools.slice(0,existing.length),existing)
     assert.equal(written.default_dynamic_variables.business,'sample')
+    assert.deepEqual(written.states,[{name:'fallback',tools:[existing[0]]}])
     assert.deepEqual(written.general_tools.slice(existing.length).map(tool=>tool.name),[
       'recepta_save_appointment_details','recepta_check_availability','recepta_book_appointment',
     ])
@@ -457,6 +466,19 @@ test('settings save registers signed Retell tools, preserves other functions and
     const changed=await (await dashboard('','tenant','PUT',{settings:rules({hourly_limit:0})})).json()
     assert.equal(changed.synced,true)
     assert.equal(versions,1)
+    const retry = await dashboard('clientId='+tenant, 'admin', 'POST')
+    assert.equal(retry.status, 200)
+    assert.equal(versions,1)
+    assert.equal((await dashboard('', 'tenant', 'POST')).status,403)
+    written.general_tools.find(tool=>tool.name==='recepta_book_appointment').url = 'https://old.example.test'
+    const setup = await (await dashboard('clientId='+tenant+'&readiness=1', 'admin')).json()
+    assert.match(setup.checks.find(check=>check.label==='Published appointment tools').detail, /wrong Recepta endpoint/)
+    assert.equal(setup.checks.find(check=>check.label==='Signed appointment endpoint').status,'ready')
+    assert.equal(setup.checks.find(check=>check.label==='Phone routing').status,'blocked')
+    assert.equal((await dashboard('clientId='+tenant+'&readiness=1', 'other')).status,403)
+    assert.equal((await dashboard('clientId='+tenant, 'admin', 'POST')).status,200)
+    assert.equal(versions,2)
+    assert.match(written.general_tools.find(tool=>tool.name==='recepta_book_appointment').url,/example.test\/\.netlify/)
     const stopped=await (await invoke('recepta_check_availability',{requested_date:date,requested_time:'09:00'})).json()
     assert.equal(stopped.reason,'hourly_capacity_reached')
     assert.deepEqual(stopped.alternatives,[])

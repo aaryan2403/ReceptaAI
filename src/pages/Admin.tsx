@@ -1,3 +1,4 @@
+import AdminReceptionistReadiness from '../components/AdminReceptionistReadiness'
 import AppointmentScheduling from '../components/AppointmentScheduling'
 import './AdminClientEditor.css'
 import AdminCallEmailSettings from '../components/AdminCallEmailSettings'
@@ -2187,6 +2188,7 @@ export default function Admin() {
                   </small>
                 </label>
 
+                <AdminReceptionistReadiness key={editingClient.id} clientId={editingClient.id} />
                 <AdminCallEmailSettings key={editingClient.id} clientId={editingClient.id} />
                 <details className="adminEditFullWidth appointmentAdminPanel">
                   <summary>Appointment Scheduling Settings</summary>

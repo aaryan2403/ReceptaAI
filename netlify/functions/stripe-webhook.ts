@@ -1,3 +1,5 @@
+import { configuredStripeKey } from '../lib/subscriptionConfiguration'
+import { configuredRetellKey, isReceptaPreview } from '../lib/emailEnvironment'
 
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
@@ -28,11 +30,11 @@ export default async (request: Request) => {
   const supabaseSecretKey =
     process.env.SUPABASE_SECRET_KEY
   const stripeSecretKey =
-    process.env.STRIPE_SECRET_KEY
+    configuredStripeKey()
   const webhookSecret =
     process.env.STRIPE_WEBHOOK_SECRET
   const retellApiKey =
-    process.env.RETELL_API_KEY
+    configuredRetellKey()
 
   if (
     !supabaseUrl ||
@@ -79,6 +81,10 @@ export default async (request: Request) => {
         signature,
         webhookSecret
       )
+
+    if (isReceptaPreview() && event.livemode) {
+      return new Response('Live Stripe events are disabled in previews.', { status: 400 })
+    }
 
     const supabaseAdmin =
       createClient(

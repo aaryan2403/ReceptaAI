@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { activeCallEmailSettings, normalizeCallEmailSettings } from '../../src/lib/callEmailSettings'
 import { normalizeAppointmentFields, verifyRetellSignature } from '../lib/retell'
-import { configuredCallEmailRetellKey } from '../lib/emailEnvironment'
+import { configuredRetellKey, isReceptaPreview } from '../lib/emailEnvironment'
 import { appointmentIntake, isActivePro, objectValue, textValue, validDate, validStart, validTime } from '../lib/appointmentScheduling'
 import { json } from '../lib/requestAuth'
 
@@ -14,15 +14,13 @@ export default async (request: Request) => {
   const startedAt = Date.now()
   if (request.method !== 'POST') return json(405, { error: 'Method not allowed.' })
   const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env
-  const key = configuredCallEmailRetellKey()
+  const key = configuredRetellKey()
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !key) {
-    const preview = process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE === 'true'
-      || Boolean(process.env.CONTEXT && process.env.CONTEXT !== 'production')
     console.error('Recepta appointment configuration missing', {
       missing: [
         !SUPABASE_URL && 'SUPABASE_URL',
         !SUPABASE_SECRET_KEY && 'SUPABASE_SECRET_KEY',
-        !key && (preview ? 'RETELL_STAGING_API_KEY' : 'RETELL_API_KEY'),
+        !key && (isReceptaPreview() ? 'RETELL_STAGING_API_KEY' : 'RETELL_API_KEY'),
       ].filter(Boolean),
     })
     return json(503, { success: false, code: 'configuration_missing',
