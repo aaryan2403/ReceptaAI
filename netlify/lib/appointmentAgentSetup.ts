@@ -95,7 +95,8 @@ export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: st
     ? 'The active billing period and minute allowance are configured. Each inbound call must still reserve minutes.'
     : 'An active Stripe subscription, current paid billing period, and call minutes are required.'))
   checks.push(check('Appointment authorization', accessIssue ? 'blocked' : 'ready',
-    accessIssue ?? 'This business has a current paid Recepta Pro subscription.'))
+    accessIssue ?? (paid ? 'This business has a current paid Recepta Pro subscription.' :
+      'Appointment tools are temporarily authorized for internal testing only. Billing and inbound call admission remain blocked.')))
 
   let assignment, apiKey, origin, webhookOrigin
   try {
