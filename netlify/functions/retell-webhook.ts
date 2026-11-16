@@ -1,3 +1,4 @@
+import { configuredRetellKey } from '../lib/emailEnvironment'
 import { callEmailPreferencesReady } from '../lib/emailEnvironment'
 import { captureCallEmailDetails } from '../lib/callEmailCapture'
 import { activeCallEmailSettings } from '../../src/lib/callEmailSettings'
@@ -115,7 +116,7 @@ export default async (
   const supabaseSecretKey =
     process.env.SUPABASE_SECRET_KEY
   const retellApiKey =
-    process.env.RETELL_API_KEY
+    configuredRetellKey()
 
   if (
     !supabaseUrl ||

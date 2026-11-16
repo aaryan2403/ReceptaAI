@@ -39,16 +39,18 @@ test('agent resync removes live booking instructions and tools while preserving 
   const originalFetch = globalThis.fetch
   const originalUrl = process.env.URL
   process.env.URL = 'https://example.test'
-  let written
+  let written, published = false
   globalThis.fetch = async (url, init) => {
     const path = new URL(url).pathname
-    if (path.startsWith('/list-agent-versions')) return Response.json({ items: [{ version: 1, is_published: true }] })
-    if (path.startsWith('/create-agent-version')) return Response.json({ version: 2, response_engine: { type: 'retell-llm', llm_id: 'synthetic_llm', version: 2 } })
-    if (path.startsWith('/get-retell-llm')) return Response.json({
+    const agent = version => ({ agent_id:'synthetic_agent', version, is_published:true, response_engine:{type:'retell-llm',llm_id:'synthetic_llm',version} })
+    if (path.startsWith('/get-agent')) return Response.json(agent(published ? 2 : 1))
+    if (path.startsWith('/create-agent-version')) return Response.json(agent(2))
+    if (path.startsWith('/get-retell-llm')) return Response.json(published ? written : {
       general_prompt: 'Keep existing business instructions.\n\n[RECEPTA MANAGED APPOINTMENT BOOKING]\nUse recepta_check_availability to check live capacity. Only booked confirms a reservation.\n\n[RECEPTA MANAGED EMPLOYEE AVAILABILITY]\nRetain staff instructions.',
       general_tools: ['recepta_check_availability', 'recepta_book_appointment', 'recepta_list_employees', 'recepta_save_appointment_details', 'custom_business_tool'].map(name => ({ type: 'custom', name })),
     })
     if (path.startsWith('/update-retell-llm')) written = JSON.parse(init.body)
+    if (path.startsWith('/publish-agent-version')) published = true
     return Response.json({})
   }
   try {

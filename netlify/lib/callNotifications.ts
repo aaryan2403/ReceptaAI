@@ -54,12 +54,18 @@ const buildQueuedEmail = async (db: SupabaseClient, notice: CallNotice) => {
       if (employee.error) throw new Error('Appointment employee could not be loaded.')
       employeeName = employee.data?.name ?? null
     }
+    let bookingZone = schedule.timeZone
+    if (data?.appointment_time) {
+      const zone = await db.from('appointments').select('booking_time_zone')
+        .eq('client_id', notice.client_id).eq('retell_call_id', notice.retell_call_id).limit(1).maybeSingle()
+      if (!zone.error && zone.data?.booking_time_zone) bookingZone = zone.data.booking_time_zone
+    }
     if (data) appointment = {
       status: data.status, requestedDate: data.requested_date, requestedTime: data.requested_time,
       requestedTimezone: data.requested_timezone, customerName: data.customer_name,
       customerEmail: data.customer_email, customerPhone: data.customer_phone, customerCompany: data.company_name,
       employeeName, service: data.service, notes: data.notes, start: data.appointment_time,
-      end: data.appointment_end_time, durationMinutes: data.duration_minutes, timeZone: schedule.timeZone,
+      end: data.appointment_end_time, durationMinutes: data.duration_minutes, timeZone: bookingZone,
     }
   }
   return buildCallNotification({

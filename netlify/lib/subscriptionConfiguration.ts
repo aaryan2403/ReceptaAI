@@ -1,4 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isReceptaPreview } from './emailEnvironment'
+
+export const configuredStripeKey = () => {
+  if (!isReceptaPreview()) return process.env.STRIPE_SECRET_KEY?.trim()
+  const key = (process.env.STRIPE_STAGING_SECRET_KEY || process.env.STRIPE_SECRET_KEY)?.trim()
+  return key && /^(?:sk|rk)_test_/.test(key) ? key : undefined
+}
 
 export type SubscriptionConfiguration = {
   plan_name: 'Recepta Standard' | 'Recepta Pro'

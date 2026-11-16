@@ -25,7 +25,11 @@ const query = (table) => {
       : table === 'agents' ? [{ client_id: client, retell_agent_id: 'agent_test', phone_number: null, business_hours: null }]
       : table === 'appointments' ? fixture.appointments ?? [] : []
     // Capture tests use an active Pro subscription; lifecycle tests avoid real notifications.
-    if (table === 'subscriptions' && fixture.capture) rows[0].status = 'active'
+    if (table === 'subscriptions' && fixture.capture) Object.assign(rows[0], {
+      status: 'active', stripe_subscription_id: 'sub_test_only',
+      current_period_start: new Date(Date.now() - 86400000).toISOString(),
+      current_period_end: new Date(Date.now() + 86400000).toISOString(),
+    })
     for (const [op, column, value] of filters) {
       if (op === 'in') rows = rows.filter((row) => value.includes(row[column]))
       if (op === 'eq' && column === 'retell_call_id') rows = rows.filter((row) => row[column] === value)
@@ -49,6 +53,11 @@ globalThis.__appointmentDb = {
   },
   from: query,
   rpc: async (name, args) => {
+    // Legacy intake fixtures mock the new centralized authorization decision;
+    // the full PostgreSQL security and grant RPC is tested in appointments-scheduling.
+    if (name === 'recepta_authorize_appointment_tool') {
+      return { data: { allowed: fixture.capture && fixture.plan === 'Recepta Pro', mode: 'paid' }, error: null }
+    }
     rpcCalls++
     assert.equal(name, 'capture_recepta_appointment_request')
     try {
@@ -115,7 +124,7 @@ test('signed intake stores raw preferences as pending, has no slot, and deduplic
     await db.exec("update public.appointments set status='cancelled'")
     assert.equal((await (await capture(signed(request))).json()).status, 'cancelled')
     const other = payload(); other.call.metadata.recepta_client_id = otherClient
-    assert.equal((await capture(signed(other))).status, 500)
+    assert.equal((await capture(signed(other))).status, 403)
     const noPreference = payload(); noPreference.call.call_id = 'call_no_preference'
     assert.equal((await capture(signed(noPreference))).status, 200)
     const blank = (await db.query("select * from public.appointments where retell_call_id='call_no_preference'")).rows[0]

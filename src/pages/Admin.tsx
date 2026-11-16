@@ -1,3 +1,6 @@
+import AdminReceptionistReadiness from '../components/AdminReceptionistReadiness'
+import InternalAppointmentTestAccess from '../components/InternalAppointmentTestAccess'
+import AppointmentScheduling from '../components/AppointmentScheduling'
 import './AdminClientEditor.css'
 import AdminCallEmailSettings from '../components/AdminCallEmailSettings'
 import {
@@ -2186,7 +2189,13 @@ export default function Admin() {
                   </small>
                 </label>
 
+                <AdminReceptionistReadiness key={editingClient.id} clientId={editingClient.id} />
+                <InternalAppointmentTestAccess key={editingClient.id + ':qa'} clientId={editingClient.id} agentId={editingClient.agent?.retell_agent_id ?? null} />
                 <AdminCallEmailSettings key={editingClient.id} clientId={editingClient.id} />
+                <details className="adminEditFullWidth appointmentAdminPanel">
+                  <summary>Appointment Scheduling Settings</summary>
+                  <AppointmentScheduling key={editingClient.id} clientId={editingClient.id} />
+                </details>
 
                 <label className="adminEditCheck adminEditFullWidth">
                   <input type="checkbox" checked={editBuyerSmsEnabled} disabled={editPlanName !== 'Recepta Pro'} onChange={event => setEditBuyerSmsEnabled(event.target.checked)} />

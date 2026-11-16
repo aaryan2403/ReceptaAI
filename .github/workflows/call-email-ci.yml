@@ -1,4 +1,4 @@
-name: Validate call email controls
+name: Validate Recepta
 on:
   pull_request:
     branches: [main]
@@ -6,6 +6,19 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: recepta_tests
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -14,6 +27,32 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node --test --test-concurrency=1 tests/*.test.mjs
+        env:
+          RECEPTA_TEST_PG_URL: postgresql://postgres:test-only@127.0.0.1:5432/recepta_tests
       - run: npm run lint
       - run: npx tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --types node --skipLibCheck netlify/functions/*.ts netlify/lib/*.ts
       - run: npm run build
+  appointment-endpoint-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Smoke test deployed appointment endpoint (unsigned, no writes)
+        env:
+          RECEPTA_APPOINTMENT_SMOKE_URL: https://deploy-preview-${{ github.event.pull_request.number }}--receptaai.netlify.app/.netlify/functions/retell-appointment
+        run: node scripts/check-retell-appointment-endpoint.mjs
+  production-endpoint-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Probe production appointment endpoint (unsigned, no writes)
+        env:
+          RECEPTA_APPOINTMENT_SMOKE_URL: https://receptaai.netlify.app/.netlify/functions/retell-appointment
+        run: node scripts/check-retell-appointment-endpoint.mjs

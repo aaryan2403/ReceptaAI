@@ -1,3 +1,5 @@
+import { configuredStripeKey } from '../lib/subscriptionConfiguration'
+import { configuredRetellKey } from '../lib/emailEnvironment'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import {
@@ -63,9 +65,9 @@ export default async (request: Request) => {
     const supabaseSecretKey =
       process.env.SUPABASE_SECRET_KEY
     const stripeSecretKey =
-      process.env.STRIPE_SECRET_KEY
+      configuredStripeKey()
     const retellApiKey =
-      process.env.RETELL_API_KEY
+      configuredRetellKey()
 
     if (
       !supabaseUrl ||
@@ -716,6 +718,7 @@ export default async (request: Request) => {
           apiKey: retellApiKey,
           agentId: normalizedRetellId,
           ...scheduleContext,
+          appointmentScheduling: planName === 'Recepta Pro',
           emailNotificationsEnabled:
             buyerEmailEnabled,
           smsNotificationsEnabled:
