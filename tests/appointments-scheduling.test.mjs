@@ -474,7 +474,18 @@ test('internal appointment grants are admin-only, agent-bound, limited, auditabl
     assert.equal(direct.active,true)
     assert.equal(direct.can_use,true)
     assert.equal((await call('recepta_appointment_test_check',[other,'agent_two'])).active,false)
+    assert.equal((await invoke('recepta_save_appointment_details',detail,'unpaid-other',{
+      agent_id:'agent_two',metadata:{recepta_client_id:other},
+    })).status,403)
     assert.equal((await adminTest('GET',null,'other')).status,403)
+    const acl=(await db.query(`select
+      has_table_privilege('anon','public.recepta_appointment_test_grants','select') as anon_grant_read,
+      has_table_privilege('authenticated','public.recepta_appointment_test_usage','select') as customer_audit_read,
+      has_function_privilege('authenticated','public.recepta_grant_appointment_test(uuid,text,timestamptz,integer,integer,uuid)','execute') as customer_can_issue,
+      has_function_privilege('anon','public.recepta_authorize_appointment_tool(uuid,text,text,text)','execute') as anon_can_authorize`)).rows[0]
+    assert.deepEqual(acl,{
+      anon_grant_read:false,customer_audit_read:false,customer_can_issue:false,anon_can_authorize:false,
+    })
 
     const date=futureDate(70)
     const avail=await invoke('recepta_check_availability',{requested_date:date},'qa-call-1')
