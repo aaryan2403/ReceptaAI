@@ -10,9 +10,32 @@ const CHECK = 'recepta_check_availability'
 const BOOK = 'recepta_book_appointment'
 const SAVE = 'recepta_save_appointment_details'
 
+// This public project ref is not a credential. Refuse *all* preview appointment
+// writes when Netlify points at any database other than the isolated QA project.
+const STAGING_SUPABASE_ORIGIN = 'https://mvufjeqxqvpcfqwmihpy.supabase.co'
+const previewDatabaseIsStaging = () => {
+  if (!isReceptaPreview()) return null
+  try {
+    const url = new URL(process.env.SUPABASE_URL ?? '')
+    return url.origin === STAGING_SUPABASE_ORIGIN && url.pathname === '/' && !url.search && !url.hash
+  } catch { return false }
+}
+
 export default async (request: Request) => {
   const startedAt = Date.now()
-  if (request.method !== 'POST') return json(405, { error: 'Method not allowed.' })
+  const previewBinding = previewDatabaseIsStaging()
+  if (request.method !== 'POST') {
+    const response = json(405, { error: 'Method not allowed.' })
+    if (previewBinding !== null) {
+      response.headers.set('X-Recepta-Preview-Database', previewBinding ? 'staging' : 'mismatch')
+    }
+    return response
+  }
+  if (previewBinding === false) {
+    console.error('Recepta appointment preview database rejected', { code: 'preview_database_mismatch' })
+    return json(503, { success: false, code: 'preview_database_mismatch',
+      error: 'Preview appointment testing is not connected to the staging database.' })
+  }
   const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env
   const key = configuredRetellKey()
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !key) {
