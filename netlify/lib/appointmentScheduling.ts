@@ -108,6 +108,17 @@ export const appointmentAccessIssue = async (db: SupabaseClient, clientId: strin
     .eq('client_id', clientId).maybeSingle()
   if (error) throw new Error('Could not verify appointment access.')
   if (data?.plan_name !== 'Recepta Pro') return 'Recepta Pro is required for appointment booking and request capture.'
-  if (!hasPaidSubscription(data)) return 'The Pro subscription has no current paid period. Complete or restore payment in Billing to enable appointments.'
-  return null
+  if (hasPaidSubscription(data)) return null
+
+  // An internal test grant is not payment. It must be live, unrevoked, within
+  // usage limits, and bound to the client's *current* unique Retell assignment.
+  const agent = await db.from('agents').select('retell_agent_id').eq('client_id', clientId).maybeSingle()
+  if (agent.error) throw new Error('Could not verify the appointment test agent.')
+  const agentId = agent.data?.retell_agent_id?.trim()
+  if (agentId) {
+    const test = await db.rpc('recepta_appointment_test_check', { p_client: clientId, p_agent: agentId })
+    if (test.error) throw new Error('Could not verify appointment test authorization.')
+    if (test.data?.active === true && test.data?.can_use === true) return null
+  }
+  return 'The Pro subscription has no current paid period and no active, usable internal appointment-testing entitlement.'
 }
