@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { activeCallEmailSettings, normalizeCallEmailSettings } from '../../src/lib/callEmailSettings'
 import { normalizeAppointmentFields, verifyRetellSignature } from '../lib/retell'
 import { configuredRetellKey, isReceptaPreview } from '../lib/emailEnvironment'
-import { appointmentAccessIssue, appointmentIntake, objectValue, textValue, validDate, validStart, validTime } from '../lib/appointmentScheduling'
+import { appointmentIntake, objectValue, textValue, validDate, validStart, validTime } from '../lib/appointmentScheduling'
 import { json } from '../lib/requestAuth'
 
 const CHECK = 'recepta_check_availability'
@@ -66,11 +66,20 @@ export default async (request: Request) => {
       return json(403, { success: false, code: 'tenant_mismatch',
         error: 'This call does not match the assigned business.' })
     }
-    if (await appointmentAccessIssue(db, clientId)) {
+    // Authorize *each signed tool invocation*. The RPC atomically records bounded QA
+    // usage, or validates a genuinely paid Pro subscription without consuming QA credits.
+    const access = await db.rpc('recepta_authorize_appointment_tool', {
+      p_client: clientId, p_agent: agentId, p_call_id: callId, p_tool: name,
+    })
+    if (access.error) throw access.error
+    if (access.data?.allowed !== true) {
+      const exhausted = access.data?.reason === 'test_limit_exhausted'
       console.warn('Recepta appointment rejected', { tool: name, call_trace: callTrace,
-        code: 'inactive_pro_subscription' })
-      return json(403, { success: false, code: 'inactive_pro_subscription',
-        error: 'Appointment capture requires an active Recepta Pro plan.',
+        code: exhausted ? 'test_entitlement_exhausted' : 'inactive_pro_subscription' })
+      return json(403, { success: false,
+        code: exhausted ? 'test_entitlement_exhausted' : 'inactive_pro_subscription',
+        error: exhausted ? 'Internal appointment test limit reached.' :
+          'Appointment capture requires active Recepta Pro or explicit internal test authorization.',
         instruction: 'Do not claim the appointment request was recorded.' })
     }
 
