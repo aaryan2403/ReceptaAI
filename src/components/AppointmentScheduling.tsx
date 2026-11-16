@@ -24,6 +24,7 @@ type Appointment = AppointmentPreference & {
 
 type DashboardData = {
   activePro: boolean
+  accessIssue: string | null
   settings: SchedulingSettings
   needsSync: boolean
   appointments: Appointment[]
@@ -60,24 +61,13 @@ const callScheduling = async <T,>(clientId?: string, params: Record<string, stri
   return data
 }
 
-function Minutes({ label, value, presets, min, max, onChange }: {
-  label: string; value: number; presets: number[]; min: number; max: number; onChange: (value: number) => void
+function Minutes({ label, value, min, max, onChange }: {
+  label: string; value: number; min: number; max: number; onChange: (value: number) => void
 }) {
-  const [custom, setCustom] = useState(!presets.includes(value))
-  return <div className="appointmentControl">
-    <label>{label}
-      <select value={custom ? 'custom' : value} onChange={event => {
-        setCustom(event.target.value === 'custom')
-        if (event.target.value !== 'custom') onChange(Number(event.target.value))
-      }}>
-        {presets.map(preset => <option key={preset} value={preset}>{preset} min</option>)}
-        <option value="custom">Custom</option>
-      </select>
-    </label>
-    {custom && <label>Custom {label.toLowerCase()} in minutes
-      <input type="number" min={min} max={max} value={value} onChange={event => onChange(Number(event.target.value))} />
-    </label>}
-  </div>
+  return <label>{label} (minutes)
+    <input type="number" min={min} max={max} step={1} value={Number.isNaN(value) ? '' : value}
+      onChange={event => onChange(event.target.valueAsNumber)} />
+  </label>
 }
 
 function DayRules({ title, day, onChange }: { title: string; day: BookingDay; onChange: (day: BookingDay) => void }) {
@@ -104,8 +94,8 @@ function DayRules({ title, day, onChange }: { title: string; day: BookingDay; on
         <label>Until<input type="time" value={block.end === '24:00' ? '00:00' : block.end} onChange={event => onChange({
           ...day, blocks: day.blocks.map((item, i) => i === index ? { ...item, end: event.target.value === '00:00' ? '24:00' : event.target.value } : item),
         })} /></label>
-        <label>Max starts<input type="number" min="0" value={block.limit} onChange={event => onChange({
-          ...day, blocks: day.blocks.map((item, i) => i === index ? { ...item, limit: Number(event.target.value) } : item),
+        <label>Max starts<input type="number" min="0" value={Number.isNaN(block.limit) ? '' : block.limit} onChange={event => onChange({
+          ...day, blocks: day.blocks.map((item, i) => i === index ? { ...item, limit: event.target.valueAsNumber } : item),
         })} /></label>
         <button type="button" className="btn btnOutline" onClick={() => onChange({
           ...day, blocks: day.blocks.filter((_, i) => i !== index),
@@ -147,6 +137,7 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
     setSettings(previous => previous ?? result.settings)
     setNeedsSync(result.needsSync)
     setLoadedFilter(status + page)
+    return result
   }, [clientId, page, status])
 
   useEffect(() => {
@@ -184,12 +175,21 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
     setSlots(result.slots ?? [])
     if (result.reason && result.reason !== 'choose_a_time') setMessage(schedulingReason(result.reason))
   }
-  const save = (forceSync = false) => run(async () => {
-    const result = await callScheduling<{ settings: SchedulingSettings; synced: boolean }>(clientId, {}, 'PUT', { settings, forceSync })
+  const save = () => run(async () => {
+    if (Number.isNaN(settings.capacity)) throw new Error('Enter a simultaneous appointment limit or select Unlimited.')
+    const result = await callScheduling<{ settings: SchedulingSettings; synced: boolean; accessIssue?: string }>(clientId, {}, 'PUT', { settings })
     setSettings(result.settings); setNeedsSync(!result.synced); setDirty(false); setSlots(null)
     setData(previous => previous && { ...previous, settings: result.settings })
-    setMessage(result.synced ? 'Appointment settings saved and synced with Retell.' : 'Appointment settings saved. Retell synchronization needs attention.')
+    setMessage(result.synced ? 'Appointment settings saved and synced with Retell.' :
+      result.accessIssue ? 'Appointment settings saved for setup. Booking remains unavailable until Pro is active.' :
+      'Appointment settings saved. Retell synchronization needs attention.')
     await refresh()
+  })
+  const retrySync = () => run(async () => {
+    await callScheduling(clientId, {}, 'POST')
+    const result = await refresh()
+    setSettings(result.settings)
+    setMessage('Retell appointment tools verified.')
   })
   const update = (record: Appointment, action: 'cancel' | 'confirm' | 'reschedule') => run(async () => {
     try {
@@ -214,26 +214,32 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
   }
 
   return <div className="appointmentWorkspace">
-    {!data.activePro && <p className="appointmentFeedback">An active Recepta Pro plan is required to update scheduling settings or manage appointments.</p>}
-    {data.activePro && <details className="appointmentPanel" open={clientId ? true : undefined}>
+    {data.accessIssue && <p className="appointmentFeedback" role="status">{data.accessIssue}</p>}
+    {(clientId || data.activePro) && <details className="appointmentPanel" open={clientId ? true : undefined}>
       <summary>{clientId ? 'Booking rules' : 'Appointment Scheduling Settings'}</summary>
       <fieldset className="appointmentSettings" disabled={busy}>
-        <label className="appointmentCheck"><input type="checkbox" checked={settings.enabled}
-          onChange={event => edit({ enabled: event.target.checked })} /> Allow the AI to confirm bookings</label>
         <div className="appointmentGrid">
-          <Minutes label="Appointment duration" min={5} max={480} value={settings.duration_minutes} presets={[15,30,45,60,90,120]}
+          <label>Booking mode
+            <select value={settings.enabled ? 'automatic' : 'request-only'}
+              onChange={event => edit({ enabled: event.target.value === 'automatic' })}>
+              <option value="request-only">Request only</option>
+              <option value="automatic">Automatically confirm available bookings</option>
+            </select>
+          </label>
+          <Minutes label="Appointment duration" min={5} max={480} value={settings.duration_minutes}
             onChange={duration_minutes => edit({ duration_minutes })} />
-          <Minutes label="Start-time interval" min={1} max={1440} value={settings.start_interval_minutes} presets={[5,10,15,30,60]}
+          <Minutes label="Booking start interval" min={1} max={1440} value={settings.start_interval_minutes}
             onChange={start_interval_minutes => edit({ start_interval_minutes })} />
-          <Minutes label="Buffer after appointments" min={0} max={120} value={settings.buffer_minutes} presets={[0,5,10,15,30]}
+          <Minutes label="Buffer after appointments" min={0} max={120} value={settings.buffer_minutes}
             onChange={buffer_minutes => edit({ buffer_minutes })} />
           <label>Booking timezone
             <input list={`appointment-time-zones-${clientId || 'pro'}`} value={settings.time_zone} onChange={event => edit({ time_zone: event.target.value })} />
           </label>
           <datalist id={`appointment-time-zones-${clientId || 'pro'}`}><option value="UTC" />{timeZones.map(zone => <option key={zone} value={zone} />)}</datalist>
-          <label>Maximum overlapping appointments<input type="number" min="1" disabled={settings.capacity === null} value={settings.capacity ?? ''}
-            onChange={event => edit({ capacity: Number(event.target.value) })} /></label>
-          <label>Default maximum starts per hour<input type="number" min="0" placeholder="Unlimited"
+          <label>Maximum simultaneous appointments<input type="number" min="1" disabled={settings.capacity === null}
+            value={settings.capacity === null || Number.isNaN(settings.capacity) ? '' : settings.capacity}
+            onChange={event => edit({ capacity: event.target.valueAsNumber })} /></label>
+          <label>Bookings per hour<input type="number" min="0" placeholder="Unlimited"
             value={settings.hourly_limit ?? ''} onChange={event => edit({ hourly_limit: event.target.value === '' ? null : Number(event.target.value) })} /></label>
         </div>
         <label className="appointmentCheck"><input type="checkbox" checked={settings.capacity === null}
@@ -269,12 +275,11 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
           onChange={event => edit({ email_customer: event.target.checked })} /> Email callers who agree to receive appointment updates</label>
         <div className="appointmentActions">
           <button type="button" className="btn btnPrimary" onClick={() => void save()}>Save appointment settings</button>
-          {!dirty && (settings.sync_error || settings.synced_at) && <button type="button" className="btn btnOutline"
-            onClick={() => void save(true)}>{needsSync ? 'Retry Retell sync' : 'Sync Retell again'}</button>}
+          {data.activePro && !dirty && needsSync && <button type="button" className="btn btnOutline"
+            onClick={() => void retrySync()}>Retry Retell sync</button>}
         </div>
-        {settings.sync_error && <p className="appointmentFeedback" role="status">{settings.sync_error}</p>}
-        {!settings.sync_error && settings.synced_at && !needsSync && <small>Retell tools synchronized.</small>}
-        {needsSync && settings.synced_at && <p>Save again to sync the currently assigned Retell agent.</p>}
+        {data.activePro && settings.sync_error && <p className="appointmentFeedback" role="status">{settings.sync_error}</p>}
+        {data.activePro && !settings.sync_error && settings.synced_at && !needsSync && <small>Retell tools synchronized.</small>}
       </fieldset>
     </details>}
 

@@ -25,7 +25,11 @@ const query = (table) => {
       : table === 'agents' ? [{ client_id: client, retell_agent_id: 'agent_test', phone_number: null, business_hours: null }]
       : table === 'appointments' ? fixture.appointments ?? [] : []
     // Capture tests use an active Pro subscription; lifecycle tests avoid real notifications.
-    if (table === 'subscriptions' && fixture.capture) rows[0].status = 'active'
+    if (table === 'subscriptions' && fixture.capture) Object.assign(rows[0], {
+      status: 'active', stripe_subscription_id: 'sub_test_only',
+      current_period_start: new Date(Date.now() - 86400000).toISOString(),
+      current_period_end: new Date(Date.now() + 86400000).toISOString(),
+    })
     for (const [op, column, value] of filters) {
       if (op === 'in') rows = rows.filter((row) => value.includes(row[column]))
       if (op === 'eq' && column === 'retell_call_id') rows = rows.filter((row) => row[column] === value)

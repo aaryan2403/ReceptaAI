@@ -51,6 +51,7 @@ const migrationFiles = [
   '20261028191236_shared_booking_capacity.sql',
   '20261101194002_disable_calendar_booking.sql',
   '20261113064703_tenant_appointment_scheduling.sql',
+  '20261116074255_appointment_setup_and_paid_access.sql',
 ]
 
 const pgUrl = process.env.RECEPTA_TEST_PG_URL
@@ -60,7 +61,9 @@ const base = async (database) => {
   await database.exec(fixture)
   for (const migration of statements) await database.exec(migration)
   await database.query("insert into clients(id,company_name,contact_email) values($1,'First business','owner@example.test'),($2,'Second business','other@example.test')", [tenant, other])
-  await database.query("insert into subscriptions(client_id,plan_name,status) values($1,'Recepta Pro','active'),($2,'Recepta Pro','active')", [tenant, other])
+  await database.query(`insert into subscriptions(client_id,plan_name,status,stripe_subscription_id,current_period_start,current_period_end,monthly_minutes)
+    values($1,'Recepta Pro','active','sub_test_one',now()-interval '1 day',now()+interval '1 month',100),
+          ($2,'Recepta Pro','active','sub_test_two',now()-interval '1 day',now()+interval '1 month',100)`, [tenant, other])
   await database.query("insert into agents(client_id,retell_agent_id,business_hours) values($1,'agent_one',null),($2,'agent_two',null)", [tenant, other])
 }
 before(async () => { await base(db); await db.exec('set role service_role') })
@@ -128,6 +131,14 @@ test('hourly start limits, peak occupancy and buffer handle crossing boundaries 
   assert.equal((await available(tenant,date,'09:45')).available,true)
   assert.equal((await book(tenant,starts['09:45'],'boundary-0')).status,'cancelled')
   assert.deepEqual((await db.query("select action from appointment_history where appointment_id=$1 order by id", [first.appointment_id])).rows.map(row=>row.action), ['booked','cancelled'])
+
+  const blockDate = futureDate(27)
+  const block = { ...bookingDay(true), blocks: [{ start:'09:00', end:'12:00', limit:1 }] }
+  await save(tenant,rules({ hourly_limit:0, capacity:5, exceptions:{ [blockDate]:block } }))
+  assert.equal((await book(tenant,await localStart(blockDate,'09:00'),'multi-hour-block')).success,true)
+  assert.equal((await available(tenant,blockDate,'09:45')).reason,'hourly_capacity_reached')
+  assert.equal((await available(tenant,blockDate,'10:00')).available,true)
+  assert.equal((await available(tenant,blockDate,'12:00')).reason,'hourly_capacity_reached')
 
   const next = futureDate(26)
   await save(tenant,rules({ capacity:1, duration_minutes:15, start_interval_minutes:5, buffer_minutes:5 }))
@@ -252,7 +263,7 @@ const initializeHandlers = async () => {
     recepta_scheduling_availability:['p_client','p_date','p_time','p_start','p_automatic','p_appointment_id'],
     capture_recepta_appointment_request:['p_client_id','p_call_id','p_details'],
     recepta_appointment_conflicts:['p_client','p_ids'],
-    recepta_save_scheduling_settings:['p_client','p_rules'],
+    recepta_save_scheduling_settings:['p_client','p_rules','p_prepare'],
     claim_recepta_service_jobs:['p_limit','p_key'],
     finish_recepta_service_job:['p_key','p_lease','p_error'],
   }
@@ -341,6 +352,10 @@ test('signed Retell requests persist in PostgreSQL and surface in the authorized
   assert.equal(saved.booking_reference,saved.appointment_id)
   const retry=await (await invoke('recepta_book_appointment',args)).json()
   assert.equal(retry.appointment_id,saved.appointment_id)
+  const recovered=await (await invoke('recepta_save_appointment_details',args)).json()
+  assert.equal(recovered.booking_reference,saved.booking_reference)
+  assert.equal(recovered.status,'booked')
+  assert.equal(Date.parse(recovered.start),Date.parse(slot.start))
   const newStart=await localStart(date,'11:00')
   const duplicateIntent=await (await invoke('recepta_book_appointment',{...args,start:newStart})).json()
   assert.equal(duplicateIntent.reason,'call_already_booked')
@@ -407,6 +422,10 @@ test('disabled automatic booking keeps pending intake available and enforces Pro
   await save(tenant,rules({ enabled:false,email_customer:true }))
   const disabled=await (await invoke('recepta_check_availability',{ requested_date:date,requested_time:'09:00' })).json()
   assert.equal(disabled.reason,'automatic_booking_disabled')
+  const local=await (await invoke('recepta_check_availability',{})).json()
+  assert.match(local.business_date,/^\d{4}-\d{2}-\d{2}$/)
+  assert.equal(local.time_zone,'America/Toronto')
+  assert.equal(local.reason,'automatic_booking_disabled')
   const pending=await (await invoke('recepta_save_appointment_details',detail,'no-consent')).json()
   assert.equal(pending.status,'pending')
   assert.equal((await db.query("select count(*)::int n from service_jobs where payload->>'appointment_id'=$1",[pending.appointment_id])).rows[0].n,0)
@@ -420,6 +439,32 @@ test('disabled automatic booking keeps pending intake available and enforces Pro
   assert.equal((await pendingPlan.json()).code,'inactive_pro_subscription')
   assert.equal((await db.query("select count(*)::int n from appointments where retell_call_id='unpaid-plan'")).rows[0].n,0)
   await db.query("update subscriptions set status='active' where client_id=$1",[tenant])
+})
+
+test('admins can prepare an unpaid account while customers and callers still require paid Pro', async () => {
+  if (!dashboardHandler) await initializeHandlers()
+  await db.query("update subscriptions set current_period_end=now()-interval '1 hour' where client_id=$1",[tenant])
+  try {
+    const settings=rules({duration_minutes:37,start_interval_minutes:20,buffer_minutes:13,capacity:5,hourly_limit:7})
+    const customer=await dashboard('','tenant','PUT',{settings})
+    assert.equal(customer.status,403)
+    assert.match((await customer.json()).error,/no current paid period/)
+    assert.equal((await dashboard('clientId='+tenant,'other','PUT',{settings})).status,403)
+    const prep=await dashboard('clientId='+tenant,'admin','PUT',{settings})
+    assert.equal(prep.status,200)
+    const prepared=await prep.json()
+    assert.equal(prepared.synced,false)
+    assert.equal(prepared.settings.duration_minutes,37)
+    assert.equal(prepared.settings.capacity,5)
+    assert.equal((await invoke('recepta_check_availability',{})).status,403)
+    await assert.rejects(save(tenant,settings),{code:'42501'})
+    assert.equal((await dashboard('clientId='+tenant,'admin','POST')).status,403)
+    const grants = (await db.query(`select has_function_privilege(
+      'authenticated','public.recepta_save_scheduling_settings(uuid,jsonb,boolean)','execute') as prepare`)).rows[0]
+    assert.equal(grants.prepare,false)
+  } finally {
+    await db.query("update subscriptions set current_period_end=now()+interval '1 month' where client_id=$1",[tenant])
+  }
 })
 
 test('settings save registers signed Retell tools, preserves other functions and uses live database rules after later edits', async () => {
@@ -440,8 +485,8 @@ test('settings save registers signed Retell tools, preserves other functions and
       response_engine:{type:'retell-llm',llm_id:'llm_test',version} })
     if (path.startsWith('/get-agent')) return Response.json(agent(liveVersion))
     if (path.startsWith('/create-agent-version')) { versions++; return Response.json(agent(liveVersion + 1)) }
-    if (path.startsWith('/get-retell-llm')) return Response.json(liveVersion > 1 ? written : {
-      general_prompt:'Business script.\n\n[RECEPTA MANAGED APPOINTMENT BOOKING]\nLegacy calendar.\n\nManual transfer instructions.',
+    if (path.startsWith('/get-retell-llm')) return Response.json(written ?? {
+      general_prompt:'Business script.\n\n[RECEPTA MANAGED APPOINTMENT BOOKING]\nLegacy calendar.\n\nLegacy request instructions.\n\n[RECEPTA MANAGED CALL EMAIL]\nKeep email policy.\n\nManual transfer instructions.',
       general_tools:existing,states,default_dynamic_variables:{ business:'sample' },
     })
     if (path.startsWith('/update-retell-llm')) written=JSON.parse(request.body)
@@ -462,14 +507,18 @@ test('settings save registers signed Retell tools, preserves other functions and
     assert.ok(written.general_tools.slice(existing.length).every(tool=>tool.args_at_root===false && tool.url==='https://example.test/.netlify/functions/retell-appointment'))
     assert.match(written.general_prompt,/Manual transfer instructions/)
     assert.match(written.general_prompt,/only when that tool returns success with status booked/)
-    assert.doesNotMatch(written.general_prompt,/Legacy calendar/)
+    assert.match(written.general_prompt,/Keep email policy/)
+    assert.doesNotMatch(written.general_prompt,/Legacy calendar|Legacy request instructions/)
     const changed=await (await dashboard('','tenant','PUT',{settings:rules({hourly_limit:0})})).json()
     assert.equal(changed.synced,true)
     assert.equal(versions,1)
     const retry = await dashboard('clientId='+tenant, 'admin', 'POST')
     assert.equal(retry.status, 200)
     assert.equal(versions,1)
-    assert.equal((await dashboard('', 'tenant', 'POST')).status,403)
+    const unchanged=await db.query('select updated_at from booking_settings where client_id=$1',[tenant])
+    assert.equal((await dashboard('', 'tenant', 'POST')).status,200)
+    assert.equal((await db.query('select updated_at from booking_settings where client_id=$1',[tenant])).rows[0].updated_at.getTime(),
+      unchanged.rows[0].updated_at.getTime())
     written.general_tools.find(tool=>tool.name==='recepta_book_appointment').url = 'https://old.example.test'
     const setup = await (await dashboard('clientId='+tenant+'&readiness=1', 'admin')).json()
     assert.match(setup.checks.find(check=>check.label==='Published appointment tools').detail, /wrong Recepta endpoint/)

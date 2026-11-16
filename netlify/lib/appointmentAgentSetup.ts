@@ -55,11 +55,10 @@ export const repairAppointmentAgent = async (db: SupabaseClient, clientId: strin
 type ReadinessCheck = { label: string; status: 'ready' | 'blocked' | 'unverified' | 'optional'; detail: string }
 const check = (label: string, status: ReadinessCheck['status'], detail: string): ReadinessCheck => ({ label, status, detail })
 
-const probeSignedAppointmentEndpoint = async (origin: string, key: string, clientId: string, agentId: string) => {
-  // Availability is read-only. An empty date reaches validation only after the
-  // deployed handler verifies the signature, tenant mapping and Pro access.
+const probeSignedAppointmentEndpoint = async (origin: string, key: string, clientId: string, agentId: string, date: string) => {
+  // A real availability lookup also verifies the deployed handler can reach its scheduling RPC.
   const body = JSON.stringify({
-    name: 'recepta_check_availability', args: {},
+    name: 'recepta_check_availability', args: { requested_date: date },
     call: { agent_id: agentId, call_id: randomUUID(), metadata: { recepta_client_id: clientId } },
   })
   const now = String(Date.now())
@@ -68,20 +67,26 @@ const probeSignedAppointmentEndpoint = async (origin: string, key: string, clien
     method: 'POST', body, redirect: 'error', signal: AbortSignal.timeout(5000),
     headers: { 'content-type': 'application/json', 'x-retell-signature': `v=${now},d=${digest}` },
   })
-  if (response.status === 401) return 'The appointment endpoint rejected this deployment’s Retell signature.'
-  if (response.status === 403) return 'The appointment endpoint rejected this business’s agent mapping or Pro entitlement.'
-  if (!response.ok) return `The appointment endpoint returned HTTP ${response.status}.`
-  const payload = await response.json()
-  return payload?.reason === 'invalid_local_date_or_time' ? null : 'The appointment endpoint returned an unexpected response.'
+  const payload = await response.json().catch(() => null)
+  if (response.status === 401) throw new RetellSetupError('The appointment endpoint rejected this deployment’s Retell signature. Check the workspace key.')
+  if (payload?.code === 'inactive_pro_subscription') throw new RetellSetupError('The appointment endpoint rejected the Pro subscription. Check payment and the deployed Supabase project.')
+  if (payload?.code === 'agent_mapping_invalid' || payload?.code === 'tenant_mismatch') throw new RetellSetupError('The appointment endpoint rejected the agent assignment. Check the selected agent and deployed Supabase project.')
+  if (payload?.code === 'scheduling_backend_unavailable') throw new RetellSetupError('The appointment endpoint could not read the scheduling database. Check the migration and Function logs.')
+  if (payload?.code === 'configuration_missing') throw new RetellSetupError('The appointment endpoint is missing its Netlify Function configuration.')
+  if (!response.ok) throw new RetellSetupError(`The appointment endpoint returned HTTP ${response.status}. Check the Function URL and logs.`)
+  if (typeof payload?.available !== 'boolean' || !Array.isArray(payload.alternatives)) {
+    throw new RetellSetupError('The appointment endpoint returned an unexpected response. Check that it runs the scheduling implementation.')
+  }
+  return { reason: payload.reason, alternatives: payload.alternatives }
 }
 
-export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: string, activePro: boolean) => {
+export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: string, accessIssue: string | null) => {
   const checks: ReadinessCheck[] = []
   const [subscription, numbers, rules] = await Promise.all([
     db.from('subscriptions').select('status, stripe_subscription_id, current_period_start, current_period_end, monthly_minutes')
       .eq('client_id', clientId).maybeSingle(),
     db.from('agent_phone_numbers').select('phone_number').eq('client_id', clientId),
-    db.from('booking_settings').select('enabled, email_owner, email_customer').eq('client_id', clientId).maybeSingle(),
+    db.from('booking_settings').select('enabled, time_zone, email_owner, email_customer').eq('client_id', clientId).maybeSingle(),
   ])
   if (subscription.error || numbers.error || rules.error) throw subscription.error ?? numbers.error ?? rules.error
   const billing = subscription.data
@@ -89,6 +94,8 @@ export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: st
   checks.push(check('Call authorization', paid ? 'ready' : 'blocked', paid
     ? 'The active billing period and minute allowance are configured. Each inbound call must still reserve minutes.'
     : 'An active Stripe subscription, current paid billing period, and call minutes are required.'))
+  checks.push(check('Appointment authorization', accessIssue ? 'blocked' : 'ready',
+    accessIssue ?? 'This business has a current paid Recepta Pro subscription.'))
 
   let assignment, apiKey, origin, webhookOrigin
   try {
@@ -118,7 +125,8 @@ export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: st
         return check(label, 'blocked', retellScheduleSyncMessage(error))
       }
     })),
-    activePro ? probeSignedAppointmentEndpoint(origin, apiKey, clientId, agentId) : Promise.resolve(null),
+    accessIssue ? Promise.resolve(null) : probeSignedAppointmentEndpoint(origin, apiKey, clientId, agentId,
+      new Intl.DateTimeFormat('sv-SE', { timeZone: rules.data?.time_zone ?? 'UTC', dateStyle: 'short' }).format(new Date())),
   ])
 
   if (published.status === 'fulfilled') {
@@ -127,7 +135,7 @@ export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: st
     checks.push(check('Call events', webhook === webhookOrigin + '/.netlify/functions/retell-webhook' ? 'ready' : 'blocked',
       webhook === webhookOrigin + '/.netlify/functions/retell-webhook'
         ? 'The published agent sends call events to this deployment.' : 'The published agent’s call-event webhook is missing or points elsewhere.'))
-    if (activePro) checks.push(check('Published appointment tools', issue ? 'blocked' : 'ready',
+    if (!accessIssue) checks.push(check('Published appointment tools', issue ? 'blocked' : 'ready',
       issue ?? 'Availability, booking and request tools point to this deployment and use the expected configuration.'))
     checks.push(check('Human transfer', 'unverified', hasTransferTool
       ? 'A transfer tool is published. Verify an answered transfer and the no-answer path with real calls.'
@@ -142,31 +150,27 @@ export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: st
     checks.push(check('Inbound test call', 'unverified', 'Call the business number from an external line and verify that the assigned agent answers.'))
   }
 
-  if (!activePro) {
-    checks.push(check('Appointment authorization', 'optional', 'Appointment tools require an active Recepta Pro plan.'))
-  } else {
-    const issue = signed.status === 'fulfilled' ? signed.value : 'The signed appointment endpoint could not be reached.'
-    checks.push(check('Signed appointment endpoint', issue ? 'blocked' : 'ready',
-      issue ?? 'The deployed endpoint accepted the signature, agent mapping and Pro entitlement.'))
-    let bookingIssue: string | null = null
-    if (rules.data?.enabled) {
-      const date = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
-      const availability = await db.rpc('recepta_scheduling_availability', { p_client: clientId, p_date: date })
-      if (availability.error || !availability.data) {
-        bookingIssue = 'Scheduling rules could not be read. Check the appointment migration and saved rules.'
-      } else if (['schedule_not_set','pro_required','automatic_booking_disabled'].includes(availability.data.reason)) {
-        bookingIssue = 'Automatic booking is unavailable. Check the saved schedule and active Pro entitlement.'
-      } else if (!availability.data.alternatives?.length) {
-        bookingIssue = 'There are no bookable times over the next week. Review open days, exceptions and capacity.'
-      }
+  if (!accessIssue) {
+    const availability = signed.status === 'fulfilled' ? signed.value : null
+    checks.push(check('Signed appointment endpoint', availability ? 'ready' : 'blocked',
+      signed.status === 'rejected' ? retellScheduleSyncMessage(signed.reason) :
+        'The deployed endpoint accepted the signature and read this business’s scheduling rules.'))
+    if (availability) {
+      const auto = rules.data?.enabled === true
+      const bookingIssue = auto
+        ? ['schedule_not_set', 'automatic_booking_disabled'].includes(availability.reason)
+          ? 'Automatic booking is unavailable. Check the saved schedule and deployment.'
+          : availability.alternatives.length === 0 ? 'No bookable times were found over the next week. Review hours, exceptions, and capacity.' : null
+        : availability.reason !== 'automatic_booking_disabled' ? 'The deployed booking mode differs from the saved settings.' : null
+      checks.push(check('Booking mode', bookingIssue ? 'blocked' : 'ready', bookingIssue ?? (auto
+        ? 'Automatic booking is enabled and the scheduling engine returned bookable times.'
+        : 'Request-only mode is enabled. Requests await business confirmation.')))
     }
-    checks.push(check('Booking mode', bookingIssue ? 'blocked' : 'ready', bookingIssue ?? (rules.data?.enabled
-      ? 'Automatic booking is enabled and the scheduling engine responds.' : 'Request-only mode is enabled. Requests await business confirmation.')))
     if (rules.data?.email_owner || rules.data?.email_customer) {
       checks.push(check('Appointment email', configuredEmailApiKey() ? 'unverified' : 'blocked', configuredEmailApiKey()
         ? 'An email key is configured. Verify receipt in the configured test inboxes.' : 'The Resend key for this deployment is missing.'))
     }
   }
 
-  return { checks, canRetry: activePro }
+  return { checks, canRetry: !accessIssue }
 }

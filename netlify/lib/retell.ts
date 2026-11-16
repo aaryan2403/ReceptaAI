@@ -627,6 +627,19 @@ const APPOINTMENT_FIELDS_PROMPT_MARKER =
 const EMAIL_CONFIRMATIONS_PROMPT_MARKER =
   '[RECEPTA MANAGED EMAIL CONFIRMATIONS]'
 
+const APPOINTMENT_SCHEDULING_INSTRUCTIONS = [
+  'Use these managed instructions for scheduling even when the business prompt describes an older request-only flow.',
+  'Ask for the desired date and time. Use recepta_check_availability with the requested business-local date and time. The booking schedule is separate from store and employee hours.',
+  'For relative dates, call recepta_check_availability without a date if needed to get the current business date and timezone, then check the resolved date. Do not read out unverified dates or times.',
+  'Offer only times returned by the tool. If a local time repeats when clocks change, clarify which UTC offset the caller wants. If unavailable, offer the returned alternatives.',
+  'Collect and confirm the caller’s name, phone, and configured appointment fields. Ask for email only if appropriate and record explicit consent for appointment emails.',
+  'After the caller agrees, call recepta_book_appointment with the exact timestamp from the availability response and the confirmed details.',
+  'Confirm a booking only when that tool returns success with status booked. Give the confirmed time and reference. An availability check does not reserve a time.',
+  'If the result says call_already_booked, give the existing booking time and direct the caller to the business for a change.',
+  'If automatic booking is off, no suitable slot is available, or the booking service fails, explain that and offer to save an awaiting-confirmation request. If the service fails, apologize to the caller.',
+  'Use recepta_save_appointment_details only with the caller’s agreement. Say awaiting confirmation only if it returns success with status pending. If it returns success with status booked, a start, and a booking reference, read back that existing booking in the business time zone. Only claim a successful booking, request, email or text when the tool result confirms it.',
+]
+
 const RECEPTA_APPOINTMENT_TOOL_NAMES = new Set([
   'recepta_list_employees',
   'recepta_check_availability',
@@ -711,9 +724,9 @@ const buildReceptaAppointmentTools = (siteUrl: string, scheduling: boolean) => {
     ...tool, name: 'recepta_check_availability',
     description: 'Check real business appointment availability. Returns the exact timestamp to book and alternatives when unavailable.',
     parameters: {
-      type: 'object', required: ['requested_date'],
+      type: 'object', required: [],
       properties: {
-        requested_date: { type: 'string', description: 'Business-local date in YYYY-MM-DD.' },
+        requested_date: { type: 'string', description: 'Business-local date in YYYY-MM-DD. Omit to check today and return the business date and timezone.' },
         requested_time: { type: 'string', description: 'Business-local start in 24-hour HH:MM. Omit when asking for available times on that date.' },
       },
     },
@@ -763,16 +776,18 @@ const appointmentToolIssue = (llm: RetellLlm, siteUrl: string, scheduling: boole
     if (actual.url !== tool.url) return `${tool.name} points to the wrong Recepta endpoint.`
     const schema = actual.parameters as { required?: string[]; properties?: Record<string, { type?: string }> } | undefined
     const expectedProperties: Record<string, { type: string } | undefined> = tool.parameters.properties
+    const required = schema?.required ?? []
     if (actual.type !== 'custom' || actual.method !== 'POST' || actual.args_at_root === true ||
       actual.speak_after_execution !== true || actual.execution_mode === 'async' ||
-      !Array.isArray(schema?.required) || schema.required.length !== tool.parameters.required.length ||
-      tool.parameters.required.some(name => !schema.required?.includes(name)) ||
-      Object.entries(expectedProperties).some(([name, property]) => schema.properties?.[name]?.type !== property?.type)) {
+      !Array.isArray(required) || required.length !== tool.parameters.required.length ||
+      tool.parameters.required.some(name => !required.includes(name)) ||
+      Object.entries(expectedProperties).some(([name, property]) => schema?.properties?.[name]?.type !== property?.type)) {
       return `${tool.name} has an incompatible request schema or execution settings.`
     }
   }
   if (!llm.general_prompt?.includes(APPOINTMENT_BOOKING_PROMPT_MARKER) ||
-      (scheduling && llm.default_dynamic_variables?.recepta_scheduling_tools !== 'enabled')) {
+      (scheduling && (llm.default_dynamic_variables?.recepta_scheduling_tools !== 'enabled' ||
+        !llm.general_prompt.includes([APPOINTMENT_BOOKING_PROMPT_MARKER, ...APPOINTMENT_SCHEDULING_INSTRUCTIONS].join('\n'))))) {
     return 'The Retell agent is missing Recepta’s appointment instructions.'
   }
   return null
@@ -860,10 +875,10 @@ const replaceManagedPrompt = (
     return `${currentPrompt.trim()}\n\n${managedBlock}`.trim()
   }
 
-  const nextMarkerIndex = currentPrompt.indexOf(
-    marker === APPOINTMENT_BOOKING_PROMPT_MARKER ? '\n\n' : '\n\n[RECEPTA MANAGED ',
-    markerIndex + marker.length
-  )
+  const contentStart = markerIndex + marker.length
+  const nextManagedBlock = currentPrompt.indexOf('\n\n[RECEPTA MANAGED ', contentStart)
+  const nextMarkerIndex = marker === APPOINTMENT_BOOKING_PROMPT_MARKER && nextManagedBlock === -1
+    ? currentPrompt.indexOf('\n\n', contentStart) : nextManagedBlock
   const before = currentPrompt.slice(0, markerIndex).trimEnd()
   const after =
     nextMarkerIndex === -1
@@ -1110,16 +1125,7 @@ export const syncRetellSchedule = async ({
     generalPrompt = replaceManagedPrompt(
       generalPrompt,
       APPOINTMENT_BOOKING_PROMPT_MARKER,
-      scheduling ? [
-        'For booking, always use recepta_check_availability with the requested business-local date and time. The booking schedule is separate from store and employee hours.',
-        'Offer only times returned by the tool. If a local time repeats when clocks change, clarify which UTC offset the caller wants. If unavailable, offer the returned alternatives.',
-        'Collect and confirm the caller’s name, phone, and configured appointment fields. Ask for email only if appropriate and record explicit consent for appointment emails.',
-        'After the caller agrees, call recepta_book_appointment with the exact timestamp from the availability response and the confirmed details.',
-        'Confirm a booking only when that tool returns success with status booked. Give the confirmed time and reference. An availability check does not reserve a time.',
-        'If the result says call_already_booked, give the existing booking time and direct the caller to the business for a change.',
-        'If automatic booking is off, no suitable slot is available, or the booking service fails, explain that and offer to save an awaiting-confirmation request. If the service fails, apologize to the caller.',
-        'Use recepta_save_appointment_details only with the caller’s agreement. Say awaiting confirmation only if the tool returns success with status pending. Never claim a booking, request, email or text succeeded unless its result says so.',
-      ] : [
+      scheduling ? APPOINTMENT_SCHEDULING_INSTRUCTIONS : [
         'Recepta does not provide a live calendar or reserve time slots.',
         'For an appointment request, collect the caller’s name, available contact details, reason, preferred date and time, and every field listed in {{recepta_appointment_fields}}. Ask about timezone when needed; do not invent a preference or availability.',
         'Read back the important details and ask the caller to confirm them.',
@@ -1174,6 +1180,10 @@ export const syncRetellSchedule = async ({
     }
   )
 
+  if (siteUrl && !emailOnly && scheduling) {
+    const issue = appointmentToolIssue(await readRetellLlm(apiKey, draftAgent), siteUrl, scheduling)
+    if (issue) throw new RetellSetupError(issue)
+  }
   await beforePublish?.()
   if (published) {
     const latest = await getPublishedRetellAgent(apiKey, agentId)

@@ -1,5 +1,5 @@
 import { schedulingReason } from '../../src/lib/appointmentScheduling'
-import { isActivePro, objectValue, schedulingSettingsForDashboard, uuid, validDate, validStart, validateSchedulingSettings } from '../lib/appointmentScheduling'
+import { appointmentAccessIssue, objectValue, schedulingSettingsForDashboard, uuid, validDate, validStart, validateSchedulingSettings } from '../lib/appointmentScheduling'
 import { appointmentAgentReadiness, repairAppointmentAgent } from '../lib/appointmentAgentSetup'
 import { getStoredBusinessSchedule } from '../lib/employeeSchedule'
 import { retellScheduleSyncMessage } from '../lib/retell'
@@ -19,26 +19,26 @@ export default async (request: Request) => {
     if (auth.response) return auth.response
     const { db, user } = auth
     const clientId = target ?? user.id
-    const [client, activePro] = await Promise.all([
+    const [client, accessIssue] = await Promise.all([
       db.from('clients').select('id, deletion_pending').eq('id', clientId).maybeSingle(),
-      isActivePro(db, clientId),
+      appointmentAccessIssue(db, clientId),
     ])
     if (client.error) throw client.error
     if (!client.data) return json(404, { error: 'Client not found.' })
     if (client.data.deletion_pending) return json(409, { error: 'This account is awaiting deletion.' })
+    const activePro = accessIssue === null
     if (request.method === 'GET' && url.searchParams.get('readiness') === '1') {
       if (target === null) return json(403, { error: 'Admin access required.' })
-      return json(200, await appointmentAgentReadiness(db, clientId, activePro))
+      return json(200, await appointmentAgentReadiness(db, clientId, accessIssue))
     }
-    if (request.method === 'POST' && target === null) return json(403, { error: 'Admin access required.' })
-    if (!activePro && (target === null || request.method !== 'GET')) {
-      return json(403, { error: 'An active Recepta Pro plan is required.' })
+    if (!activePro && (target === null || ['POST', 'PATCH'].includes(request.method))) {
+      return json(403, { error: accessIssue })
     }
 
     if (request.method === 'GET') {
       const date = url.searchParams.get('date')
       if (date !== null) {
-        if (!activePro) return json(403, { error: 'An active Recepta Pro plan is required.' })
+        if (!activePro) return json(403, { error: accessIssue })
         const appointmentId = url.searchParams.get('appointmentId')
         if (!validDate(date) || (appointmentId !== null && !uuid(appointmentId))) {
           return json(400, { error: 'Select a valid booking date and appointment.' })
@@ -75,7 +75,7 @@ export default async (request: Request) => {
       const settings = schedulingSettingsForDashboard(rules.data, getStoredBusinessSchedule(agent.data?.business_hours).timeZone)
       const needsSync = rules.data?.synced_at == null || rules.data.sync_agent_id !== agent.data?.retell_agent_id
       return json(200, {
-        activePro, settings, needsSync, appointments: appointments.data, conflicts: conflicts.data,
+        activePro, accessIssue, settings, needsSync, appointments: appointments.data, conflicts: conflicts.data,
         more: (appointments.count ?? 0) > (page + 1) * PAGE_SIZE,
       })
     }
@@ -88,8 +88,9 @@ export default async (request: Request) => {
         if (rules.data) {
           const saved = await db.from('booking_settings').update({
             sync_agent_id: result.agentId, synced_at: new Date().toISOString(), sync_error: null,
-          }).eq('client_id', clientId).eq('updated_at', rules.data.updated_at)
+          }).eq('client_id', clientId).eq('updated_at', rules.data.updated_at).select('synced_at').maybeSingle()
           if (saved.error) throw saved.error
+          if (!saved.data) return json(409, { error: 'Appointment settings changed during synchronization. Reload the current settings.' })
         }
         return json(200, { synced: true, version: result.version })
       } catch (error) {
@@ -128,10 +129,13 @@ export default async (request: Request) => {
     try { settings = validateSchedulingSettings(body.settings) } catch (error) {
       return json(400, { error: error instanceof Error ? error.message : 'Invalid booking settings.' })
     }
-    const result = await db.rpc('recepta_save_scheduling_settings', { p_client: clientId, p_rules: settings })
+    const result = await db.rpc('recepta_save_scheduling_settings', {
+      p_client: clientId, p_rules: settings, ...(target !== null ? { p_prepare: true } : {}),
+    })
     if (result.error) throw result.error
     const saved = Array.isArray(result.data) ? result.data[0] : result.data
     if (!saved) throw new Error('Supabase did not return the saved booking settings.')
+    if (!activePro) return json(200, { settings: saved, synced: false, accessIssue })
 
     let agentId: string | null = null
     try {

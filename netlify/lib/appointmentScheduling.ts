@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { BookingDay, SchedulingSettings } from '../../src/lib/appointmentScheduling'
 import { defaultSchedulingSettings } from '../../src/lib/appointmentScheduling'
 import { isEmailAddress } from '../../src/lib/callEmailSettings'
+import { hasPaidSubscription } from './subscriptionConfiguration'
 
 export const textValue = (value: unknown, maximum = 500) => {
   const text = typeof value === 'string' ? value.trim() : ''
@@ -101,8 +102,12 @@ export const appointmentIntake = (args: Record<string, unknown>, fields: string[
   }
 }
 
-export const isActivePro = async (db: SupabaseClient, clientId: string) => {
-  const { data, error } = await db.from('subscriptions').select('status, plan_name').eq('client_id', clientId).maybeSingle()
+export const appointmentAccessIssue = async (db: SupabaseClient, clientId: string) => {
+  const { data, error } = await db.from('subscriptions')
+    .select('status, plan_name, stripe_subscription_id, current_period_start, current_period_end')
+    .eq('client_id', clientId).maybeSingle()
   if (error) throw new Error('Could not verify appointment access.')
-  return data?.status === 'active' && data.plan_name === 'Recepta Pro'
+  if (data?.plan_name !== 'Recepta Pro') return 'Recepta Pro is required for appointment booking and request capture.'
+  if (!hasPaidSubscription(data)) return 'The Pro subscription has no current paid period. Complete or restore payment in Billing to enable appointments.'
+  return null
 }

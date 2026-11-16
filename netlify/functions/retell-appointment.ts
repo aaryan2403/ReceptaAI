@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { activeCallEmailSettings, normalizeCallEmailSettings } from '../../src/lib/callEmailSettings'
 import { normalizeAppointmentFields, verifyRetellSignature } from '../lib/retell'
 import { configuredRetellKey, isReceptaPreview } from '../lib/emailEnvironment'
-import { appointmentIntake, isActivePro, objectValue, textValue, validDate, validStart, validTime } from '../lib/appointmentScheduling'
+import { appointmentAccessIssue, appointmentIntake, objectValue, textValue, validDate, validStart, validTime } from '../lib/appointmentScheduling'
 import { json } from '../lib/requestAuth'
 
 const CHECK = 'recepta_check_availability'
@@ -66,7 +66,7 @@ export default async (request: Request) => {
       return json(403, { success: false, code: 'tenant_mismatch',
         error: 'This call does not match the assigned business.' })
     }
-    if (!await isActivePro(db, clientId)) {
+    if (await appointmentAccessIssue(db, clientId)) {
       console.warn('Recepta appointment rejected', { tool: name, call_trace: callTrace,
         code: 'inactive_pro_subscription' })
       return json(403, { success: false, code: 'inactive_pro_subscription',
@@ -75,14 +75,34 @@ export default async (request: Request) => {
     }
 
     if (name === CHECK) {
-      if (!validDate(args.requested_date) || (args.requested_time !== undefined && !validTime(args.requested_time))) {
+      if ((args.requested_date !== undefined && !validDate(args.requested_date)) ||
+          (args.requested_time !== undefined && !validTime(args.requested_time))) {
         return json(200, { available: false, reason: 'invalid_local_date_or_time', alternatives: [] })
       }
+      let localContext = {}
+      if (args.requested_date === undefined) {
+        const settings = await db.from('booking_settings').select('time_zone').eq('client_id', clientId).maybeSingle()
+        if (settings.error) throw settings.error
+        if (settings.data?.time_zone) {
+          const timeZone = settings.data.time_zone
+          const businessDate = new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeZone }).format(new Date())
+          localContext = { business_date: businessDate, time_zone: timeZone }
+        }
+      }
       const { data, error } = await db.rpc('recepta_scheduling_availability', {
-        p_client: clientId, p_date: args.requested_date, p_time: args.requested_time ?? null,
+        p_client: clientId, p_date: args.requested_date ?? null, p_time: args.requested_time ?? null,
       })
       if (error) throw error
-      return json(200, data)
+      if (data?.reason === 'pro_required') {
+        return json(403, { success: false, code: 'inactive_pro_subscription',
+          error: 'Appointment capture requires an active Recepta Pro plan.' })
+      }
+      if (typeof data?.available !== 'boolean') throw new Error('The availability RPC returned no scheduling status.')
+      console.info('Recepta appointment availability checked', {
+        tool: name, call_trace: callTrace, available: data.available, reason: data.reason,
+        elapsed_ms: Date.now() - startedAt,
+      })
+      return json(200, { ...data, ...localContext })
     }
 
     const account = await db.auth.admin.getUserById(clientId)
@@ -100,7 +120,12 @@ export default async (request: Request) => {
         p_client: clientId, p_action: 'book', p_call_id: callId, p_start: args.start, p_details: details,
       })
       if (error) throw error
-      if (data.success) return json(200, { ...data, booking_reference: data.appointment_id })
+      if (data?.success && data.status === 'booked' && data.appointment_id && data.start) {
+        console.info('Recepta appointment booked', { tool: name, call_trace: callTrace,
+          status: data.status, elapsed_ms: Date.now() - startedAt })
+        return json(200, { ...data, booking_reference: data.appointment_id })
+      }
+      if (data?.success !== false) throw new Error('The booking RPC returned no confirmed appointment.')
       if (data.reason === 'call_already_booked') return json(200, {
         ...data, booking_reference: data.appointment_id,
         instruction: 'This call already has a booking at the returned start. Tell the caller the existing booked time. A different time requires a reschedule by the business.',
@@ -118,8 +143,18 @@ export default async (request: Request) => {
     console.info('Recepta appointment intake completed', {
       tool: name, call_trace: callTrace, status: data.status, elapsed_ms: Date.now() - startedAt,
     })
+    if (data.status === 'booked') {
+      const existing = await db.from('appointments').select('appointment_time, booking_time_zone')
+        .eq('client_id', clientId).eq('id', data.id).eq('status', 'booked').maybeSingle()
+      if (existing.error) throw existing.error
+      if (existing.data?.appointment_time) return json(200, {
+        success: true, status: 'booked', booking_reference: data.id,
+        start: existing.data.appointment_time, time_zone: existing.data.booking_time_zone,
+        instruction: 'This call already booked the returned time. Read it back in the business time zone.',
+      })
+    }
     return json(200, {
-      success: data.status === 'pending' || data.status === 'booked',
+      success: data.status === 'pending',
       appointment_id: data.id, status: data.status, captured_fields: capturedFields,
       instruction: data.status === 'pending'
         ? 'The request is awaiting confirmation. Do not claim a calendar time was reserved.'
@@ -129,7 +164,7 @@ export default async (request: Request) => {
     const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : null
     console.error('Recepta appointment tool failed', { tool: name, code, call_trace: callTrace,
       elapsed_ms: Date.now() - startedAt })
-    if (code === '42501') return json(403, { error: 'Appointment capture requires an active Recepta Pro plan.' })
-    return json(503, { success: false, error: name === SAVE ? 'The request could not be recorded. Tell the caller it was not saved.' : 'Scheduling could not be verified. Offer to record a pending request.' })
+    if (code === '42501') return json(403, { success: false, code: 'inactive_pro_subscription', error: 'Appointment capture requires an active Recepta Pro plan.' })
+    return json(503, { success: false, code: 'scheduling_backend_unavailable', error: name === SAVE ? 'The request could not be recorded. Tell the caller it was not saved.' : 'Scheduling could not be verified. Offer to record a pending request.' })
   }
 }
