@@ -496,7 +496,9 @@ test('internal appointment grants are admin-only, agent-bound, limited, auditabl
     const usage=(await db.query('select tool_name,call_hash from recepta_appointment_test_usage where grant_id=$1',[allowed.id])).rows
     assert.equal(usage.length,4)
     assert.ok(usage.every(row=>row.call_hash.length===32 && !row.call_hash.includes('qa-call')))
-    const shown=await (await dashboard('status=pending')).json()
+    // After quota exhaustion the unpaid customer cannot keep invoking appointment
+    // APIs, but the normal admin must still be able to see the persisted request.
+    const shown=await (await dashboard('clientId='+tenant+'&status=pending','admin')).json()
     assert.ok(shown.appointments.some(a=>a.id===pending1.appointment_id))
     assert.equal((await db.query("select notes from appointments where id=$1",[pending1.appointment_id])).rows[0].notes.includes('Roof repair'),true)
     const grantStatus=await adminTest('GET',null,'admin')
