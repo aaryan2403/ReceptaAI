@@ -53,6 +53,11 @@ globalThis.__appointmentDb = {
   },
   from: query,
   rpc: async (name, args) => {
+    // Legacy intake fixtures mock the new centralized authorization decision;
+    // the full PostgreSQL security and grant RPC is tested in appointments-scheduling.
+    if (name === 'recepta_authorize_appointment_tool') {
+      return { data: { allowed: fixture.capture && fixture.plan === 'Recepta Pro', mode: 'paid' }, error: null }
+    }
     rpcCalls++
     assert.equal(name, 'capture_recepta_appointment_request')
     try {
