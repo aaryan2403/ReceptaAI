@@ -236,6 +236,47 @@ test('independent PostgreSQL sessions serialize the last slot and preserve same-
   } finally { await first.query('rollback'); first.release(); second.release() }
 })
 
+test('two concurrent signed QA authorizations cannot consume more than one remaining tool action', { skip: !pgUrl }, async () => {
+  assert.ok(native, 'The isolated PostgreSQL concurrency fixture must exist.')
+  const actor = '00000000-0000-0000-0000-000000000103'
+  const grant=await native.query(
+    "select public.recepta_grant_appointment_test($1,$2,$3,$4,$5,$6) as result",
+    [tenant,'agent_one',new Date(Date.now()+3600000).toISOString(),1,1,actor])
+    .catch(async error => {
+      // Set the test client to pending without changing any real billing project.
+      if (error.code !== '22023') throw error
+      await native.query("update subscriptions set status='pending',stripe_subscription_id=null where client_id=$1",[tenant])
+      return native.query("select public.recepta_grant_appointment_test($1,$2,$3,$4,$5,$6) as result",
+        [tenant,'agent_one',new Date(Date.now()+3600000).toISOString(),1,1,actor])
+    })
+  const grantId=grant.rows[0].result.id
+  const first=await native.connect(),second=await native.connect()
+  try {
+    await first.query('begin')
+    const firstResult=await first.query("select public.recepta_authorize_appointment_tool($1,$2,$3,$4) as result",
+      [tenant,'agent_one','qa-race-one','recepta_save_appointment_details'])
+    assert.equal(firstResult.rows[0].result.allowed,true)
+    let secondResolved=false
+    const secondCall=second.query("select public.recepta_authorize_appointment_tool($1,$2,$3,$4) as result",
+      [tenant,'agent_one','qa-race-two','recepta_save_appointment_details'])
+      .then(result=>{ secondResolved=true; return result })
+    await new Promise(resolve=>setTimeout(resolve,40))
+    assert.equal(secondResolved,false,'The second authorization must wait for the grant lock.')
+    await first.query('commit')
+    const secondResult=await secondCall
+    assert.equal(secondResult.rows[0].result.allowed,false)
+    assert.equal(secondResult.rows[0].result.reason,'test_limit_exhausted')
+    const counts=(await native.query('select used_calls,used_invocations from recepta_appointment_test_grants where id=$1',[grantId])).rows[0]
+    assert.deepEqual(counts,{used_calls:1,used_invocations:1})
+    assert.equal((await native.query('select count(*)::int n from recepta_appointment_test_usage where grant_id=$1',[grantId])).rows[0].n,1)
+  } finally {
+    await first.query('rollback').catch(()=>{})
+    first.release(); second.release()
+    await native.query('select public.recepta_revoke_appointment_test($1,$2,$3)',[tenant,'agent_one',actor])
+    await native.query("update subscriptions set status='active',stripe_subscription_id='sub_test_one' where client_id=$1",[tenant])
+  }
+})
+
 let signedHandler, dashboardHandler, adminTestHandler, emailBuilder, jobRunner
 const bundle = async (path) => {
   const output = await build({ entryPoints:[path], bundle:true, platform:'node', format:'esm',write:false,
