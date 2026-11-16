@@ -152,7 +152,7 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
     return () => { active = false }
   }, [clientId, page, status, reloadKey])
 
-  const run = async (action: () => Promise<void>) => {
+  const run = async (action: () => Promise<unknown>) => {
     setBusy(true); setError(''); setMessage('')
     try { await action() } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Appointment scheduling is unavailable.')
