@@ -40,7 +40,7 @@ grant usage, select on sequence public.recepta_appointment_test_usage_id_seq to 
 
 -- A read-only check; never confuses temporary QA permission with payment or call admission.
 create function public.recepta_appointment_test_check(p_client uuid, p_agent text)
-returns jsonb language sql stable security invoker set search_path = '' as $$
+returns jsonb language sql volatile security invoker set search_path = '' as $$
   select coalesce((
     select jsonb_build_object(
       'active',true,
@@ -62,7 +62,7 @@ $$;
 
 -- Preserve paid Pro authorization exactly; add an independently audited appointment-only allowance.
 create or replace function public.recepta_scheduling_access(p_client uuid)
-returns boolean language sql stable security invoker set search_path = '' as $$
+returns boolean language sql volatile security invoker set search_path = '' as $$
   select exists (
     select 1 from public.clients c join public.subscriptions s on s.client_id=c.id
     where c.id=p_client and not c.deletion_pending and s.plan_name='Recepta Pro'
@@ -82,7 +82,7 @@ create function public.recepta_authorize_appointment_tool(
 declare v_grant public.recepta_appointment_test_grants; v_hash text; v_new boolean;
 begin
   if p_client is null or nullif(btrim(p_agent),'') is null or nullif(btrim(p_call_id),'') is null
-    or length(p_call_id)>200 or p_tool not in (
+    or length(p_call_id)>200 or p_tool is null or p_tool not in (
       'recepta_check_availability','recepta_book_appointment','recepta_save_appointment_details')
     or (select count(*) from public.agents where client_id=p_client and retell_agent_id=p_agent) <> 1
     or (select count(*) from public.agents where retell_agent_id=p_agent) <> 1
