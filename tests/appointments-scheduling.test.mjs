@@ -52,6 +52,7 @@ const migrationFiles = [
   '20261101194002_disable_calendar_booking.sql',
   '20261113064703_tenant_appointment_scheduling.sql',
   '20261116074255_appointment_setup_and_paid_access.sql',
+  '20261116113500_internal_appointment_test_entitlement.sql',
 ]
 
 const pgUrl = process.env.RECEPTA_TEST_PG_URL
@@ -235,7 +236,7 @@ test('independent PostgreSQL sessions serialize the last slot and preserve same-
   } finally { await first.query('rollback'); first.release(); second.release() }
 })
 
-let signedHandler, dashboardHandler, emailBuilder, jobRunner
+let signedHandler, dashboardHandler, adminTestHandler, emailBuilder, jobRunner
 const bundle = async (path) => {
   const output = await build({ entryPoints:[path], bundle:true, platform:'node', format:'esm',write:false,
     plugins:[{ name:'test-database',setup(builder) {
@@ -262,6 +263,10 @@ const initializeHandlers = async () => {
     recepta_change_appointment:['p_client','p_action','p_start','p_id','p_version','p_call_id','p_details','p_actor'],
     recepta_scheduling_availability:['p_client','p_date','p_time','p_start','p_automatic','p_appointment_id'],
     capture_recepta_appointment_request:['p_client_id','p_call_id','p_details'],
+    recepta_authorize_appointment_tool:['p_client','p_agent','p_call_id','p_tool'],
+    recepta_appointment_test_check:['p_client','p_agent'],
+    recepta_grant_appointment_test:['p_client','p_agent','p_expires_at','p_max_calls','p_max_invocations','p_actor'],
+    recepta_revoke_appointment_test:['p_client','p_agent','p_actor'],
     recepta_appointment_conflicts:['p_client','p_ids'],
     recepta_save_scheduling_settings:['p_client','p_rules','p_prepare'],
     claim_recepta_service_jobs:['p_limit','p_key'],
@@ -319,6 +324,7 @@ const initializeHandlers = async () => {
   }
   signedHandler = (await bundle('netlify/functions/retell-appointment.ts')).default
   dashboardHandler = (await bundle('netlify/functions/appointment-scheduling.ts')).default
+  adminTestHandler = (await bundle('netlify/functions/admin-appointment-test-entitlement.ts')).default
   emailBuilder = (await bundle('netlify/lib/appointmentNotification.ts')).loadAppointmentEmail
   jobRunner = (await bundle('netlify/lib/serviceJobs.ts')).processServiceJobs
 }
@@ -329,6 +335,10 @@ const invoke = async (name, args, callId='test-call', changes={}, key=secret) =>
   const digest = createHmac('sha256',key).update(body+now).digest('hex')
   return signedHandler(new Request('https://synthetic.test',{ method:'POST',headers:{'x-retell-signature':`v=${now},d=${digest}`},body }))
 }
+
+const adminTest = (method,body,token='admin') => adminTestHandler(new Request('https://synthetic.test/.netlify/functions/admin-appointment-test-entitlement',{ method,
+  headers: { Authorization:'Bearer '+token, 'Content-Type':'application/json' },
+  ...(body ? {body:JSON.stringify(body)} : {}) }))
 
 const dashboard = (params='',token='tenant',method='GET',body) => dashboardHandler(new Request('https://synthetic.test/?'+params,{
   method,headers:{Authorization:'Bearer '+token},body:body?JSON.stringify(body):undefined,
@@ -439,6 +449,83 @@ test('disabled automatic booking keeps pending intake available and enforces Pro
   assert.equal((await pendingPlan.json()).code,'inactive_pro_subscription')
   assert.equal((await db.query("select count(*)::int n from appointments where retell_call_id='unpaid-plan'")).rows[0].n,0)
   await db.query("update subscriptions set status='active' where client_id=$1",[tenant])
+})
+
+test('internal appointment grants are admin-only, agent-bound, limited, auditable and revocable without paid billing', async () => {
+  if (!signedHandler) await initializeHandlers()
+  const adminId = '00000000-0000-0000-0000-000000000103'
+  const expiresAt = new Date(Date.now()+3600000).toISOString()
+  // No payment is assigned to either test tenant. Existing billing fields remain untouched after the test.
+  await db.query("update subscriptions set status='pending',stripe_subscription_id=null where client_id in ($1,$2)",[tenant,other])
+  try {
+    assert.equal((await invoke('recepta_save_appointment_details',detail,'blocked-before-grant')).status,403)
+    assert.equal((await dashboard()).status,403)
+    const grantBody={clientId:tenant,agentId:'agent_one',expiresAt,maxCalls:2,maxInvocations:4}
+    assert.equal((await adminTest('POST',grantBody,'other')).status,403)
+    assert.equal((await adminTest('POST',{...grantBody,agentId:'agent_two'})).status,409)
+    assert.equal((await adminTest('POST',{...grantBody,maxCalls:11})).status,400)
+    const granted=await adminTest('POST',grantBody)
+    assert.equal(granted.status,201)
+    const allowed=(await granted.json()).grant
+    assert.equal(allowed.client_id,tenant)
+    assert.equal(allowed.retell_agent_id,'agent_one')
+    assert.equal((await db.query('select status,stripe_subscription_id from subscriptions where client_id=$1',[tenant])).rows[0].status,'pending')
+    const direct=await call('recepta_appointment_test_check',[tenant,'agent_one'])
+    assert.equal(direct.active,true)
+    assert.equal(direct.can_use,true)
+    assert.equal((await call('recepta_appointment_test_check',[other,'agent_two'])).active,false)
+    assert.equal((await adminTest('GET',null,'other')).status,403)
+
+    const date=futureDate(70)
+    const avail=await invoke('recepta_check_availability',{requested_date:date},'qa-call-1')
+    assert.equal(avail.status,200)
+    const pending1=await (await invoke('recepta_save_appointment_details',{
+      ...detail,preferred_date:date,appointment_details:[{label:'Service type',value:'Roof repair'}],
+    },'qa-call-1')).json()
+    assert.equal(pending1.success,true)
+    assert.equal(pending1.status,'pending')
+    const pending2=await (await invoke('recepta_save_appointment_details',detail,'qa-call-2')).json()
+    assert.equal(pending2.status,'pending')
+    assert.equal((await invoke('recepta_check_availability',{requested_date:date},'qa-call-3')).status,403)
+    assert.equal((await invoke('recepta_check_availability',{requested_date:date},'qa-call-2')).status,200)
+    const exhausted=await invoke('recepta_save_appointment_details',detail,'qa-call-1')
+    assert.equal(exhausted.status,403)
+    assert.equal((await exhausted.json()).code,'test_entitlement_exhausted')
+    const rows=(await db.query('select used_calls,used_invocations from recepta_appointment_test_grants where id=$1',[allowed.id])).rows[0]
+    assert.deepEqual(rows,{used_calls:2,used_invocations:4})
+    const usage=(await db.query('select tool_name,call_hash from recepta_appointment_test_usage where grant_id=$1',[allowed.id])).rows
+    assert.equal(usage.length,4)
+    assert.ok(usage.every(row=>row.call_hash.length===32 && !row.call_hash.includes('qa-call')))
+    const shown=await (await dashboard('status=pending')).json()
+    assert.ok(shown.appointments.some(a=>a.id===pending1.appointment_id))
+    assert.equal((await db.query("select notes from appointments where id=$1",[pending1.appointment_id])).rows[0].notes.includes('Roof repair'),true)
+    const grantStatus=await adminTest('GET',null,'admin')
+    assert.equal(grantStatus.status,400) // GET requires explicit query IDs, preventing accidental full enumeration.
+
+    const revoke=await adminTest('DELETE',{clientId:tenant,agentId:'agent_one'})
+    assert.equal(revoke.status,200)
+    assert.equal((await revoke.json()).revoked,true)
+    assert.equal((await invoke('recepta_save_appointment_details',detail,'after-revocation')).status,403)
+    assert.equal((await call('recepta_appointment_test_check',[tenant,'agent_one'])).active,false)
+    await assert.rejects(call('capture_recepta_appointment_request',[tenant,'direct-no-grant',{customer_name:'Not Allowed'}]),{code:'42501'})
+    assert.equal((await db.query('select revoked_by is not null as tracked from recepta_appointment_test_grants where id=$1',[allowed.id])).rows[0].tracked,true)
+
+    const replacement=await adminTest('POST',{...grantBody,expiresAt:new Date(Date.now()+3600000).toISOString()})
+    assert.equal(replacement.status,201)
+    const replacementId=(await replacement.json()).grant.id
+    await db.query("update recepta_appointment_test_grants set expires_at=now()-interval '1 second' where id=$1",[replacementId])
+    assert.equal((await invoke('recepta_save_appointment_details',detail,'after-expiration')).status,403)
+    assert.equal((await call('recepta_appointment_test_check',[tenant,'agent_one'])).active,false)
+    // No grant could have enabled inbound calling, transfers, or Stripe billing.
+    assert.deepEqual((await db.query('select client_id,status,stripe_subscription_id from subscriptions order by client_id')).rows
+      .map(r=>({client_id:r.client_id,status:r.status,stripe_subscription_id:r.stripe_subscription_id})),[
+      {client_id:tenant,status:'pending',stripe_subscription_id:null},
+      {client_id:other,status:'pending',stripe_subscription_id:null},
+    ])
+  } finally {
+    await db.query("update subscriptions set status='active', stripe_subscription_id=case when client_id=$1 then 'sub_test_one' else 'sub_test_two' end where client_id in ($1,$2)",[tenant,other])
+    await db.query("update recepta_appointment_test_grants set revoked_at=coalesce(revoked_at,now()),revoked_by=coalesce(revoked_by,$1) where revoked_at is null",[adminId])
+  }
 })
 
 test('admins can prepare an unpaid account while customers and callers still require paid Pro', async () => {
