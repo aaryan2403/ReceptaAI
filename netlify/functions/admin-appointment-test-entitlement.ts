@@ -47,8 +47,8 @@ export default async (request: Request) => {
     if (!expiration || !Number.isFinite(expiration.getTime()) ||
         expiration.getTime() < Date.now() + 15 * 60 * 1000 ||
         expiration.getTime() > Date.now() + 48 * 60 * 60 * 1000 ||
-        !Number.isInteger(maxCalls) || maxCalls < 1 || maxCalls > 10 ||
-        !Number.isInteger(maxInvocations) || maxInvocations < maxCalls || maxInvocations > 50) {
+        typeof maxCalls !== 'number' || !Number.isInteger(maxCalls) || maxCalls < 1 || maxCalls > 10 ||
+        typeof maxInvocations !== 'number' || !Number.isInteger(maxInvocations) || maxInvocations < maxCalls || maxInvocations > 50) {
       return json(400, { error: 'Use an expiration 15 minutes to 48 hours ahead, 1–10 distinct calls and at most 50 tool actions.' })
     }
     // The SQL function revalidates the unique agent assignment, selected pending Pro
