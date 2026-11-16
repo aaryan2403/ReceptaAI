@@ -385,6 +385,41 @@ const dashboard = (params='',token='tenant',method='GET',body) => dashboardHandl
   method,headers:{Authorization:'Bearer '+token},body:body?JSON.stringify(body):undefined,
 }))
 
+test('preview appointment handler fails closed unless its Supabase URL is the isolated staging database', async () => {
+  if (!signedHandler) await initializeHandlers()
+  const previousContext = process.env.CONTEXT
+  const previousUrl = process.env.SUPABASE_URL
+  const previousForced = process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE
+  try {
+    process.env.CONTEXT = 'deploy-preview'
+    delete process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE
+    process.env.SUPABASE_URL = 'https://qkdsdaboxkysabnbjmej.supabase.co'
+    const mismatch = await signedHandler(new Request('https://synthetic.test', { method: 'GET' }))
+    assert.equal(mismatch.status,405)
+    assert.equal(mismatch.headers.get('x-recepta-preview-database'),'mismatch')
+    const denied = await signedHandler(new Request('https://synthetic.test', {
+      method:'POST', body:'{}',
+    }))
+    assert.equal(denied.status,503)
+    assert.equal((await denied.json()).code,'preview_database_mismatch')
+    process.env.SUPABASE_URL = 'https://mvufjeqxqvpcfqwmihpy.supabase.co'
+    const valid = await signedHandler(new Request('https://synthetic.test', { method:'GET' }))
+    assert.equal(valid.status,405)
+    assert.equal(valid.headers.get('x-recepta-preview-database'),'staging')
+    const invalidSignature = await signedHandler(new Request('https://synthetic.test', {
+      method:'POST', body:'{}',
+    }))
+    assert.equal(invalidSignature.status,401)
+  } finally {
+    if (previousContext === undefined) delete process.env.CONTEXT
+    else process.env.CONTEXT = previousContext
+    if (previousUrl === undefined) delete process.env.SUPABASE_URL
+    else process.env.SUPABASE_URL = previousUrl
+    if (previousForced === undefined) delete process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE
+    else process.env.RECEPTA_REQUIRE_STRIPE_TEST_MODE = previousForced
+  }
+})
+
 test('signed Retell requests persist in PostgreSQL and surface in the authorized dashboard with intake and email jobs', async () => {
   await initializeHandlers()
   const date = futureDate(51)
