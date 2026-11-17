@@ -51,7 +51,7 @@ export default async (request: Request) => {
       missing: [
         !SUPABASE_URL && 'SUPABASE_URL',
         !SUPABASE_SECRET_KEY && 'SUPABASE_SECRET_KEY',
-        !key && (isReceptaPreview() ? 'RETELL_STAGING_API_KEY' : 'RETELL_API_KEY'),
+        !key && (previewBinding !== null ? 'RETELL_STAGING_API_KEY' : 'RETELL_API_KEY'),
       ].filter(Boolean),
     })
     return json(503, { success: false, code: 'configuration_missing',
