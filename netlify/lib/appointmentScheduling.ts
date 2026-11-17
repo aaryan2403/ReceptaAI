@@ -116,15 +116,15 @@ export const appointmentAccessIssue = async (db: SupabaseClient, clientId: strin
   if (agent.error) throw new Error('Could not verify the appointment test agent.')
   const agentId = agent.data?.retell_agent_id?.trim()
   if (agentId) {
-    // Founder-only appointment access is an explicit database grant bound to
-    // this client and the currently assigned agent, not a paid subscription.
-    // During a rolling deploy the RPC may not exist until its migration runs.
-    // Missing authorization remains a denial; other errors fail closed.
-    const owner = await db.rpc('recepta_owner_booking_approved', { p_client: clientId, p_agent: agentId })
-    if (owner.error && owner.error.code !== 'PGRST202') {
-      throw new Error('Could not verify owner appointment authorization.')
+    // Only the specifically designated founder account can request this grant.
+    // The database independently validates the stored grant and unique agent assignment.
+    if (clientId === '72e5b432-2e97-4882-a30d-7c9f756c2fc2') {
+      const owner = await db.rpc('recepta_owner_booking_approved', { p_client: clientId, p_agent: agentId })
+      if (owner.error && owner.error.code !== 'PGRST202') {
+        throw new Error('Could not verify owner appointment authorization.')
+      }
+      if (owner.data === true) return null
     }
-    if (owner.data === true) return null
 
     const test = await db.rpc('recepta_appointment_test_check', { p_client: clientId, p_agent: agentId })
     if (test.error) throw new Error('Could not verify appointment test authorization.')
