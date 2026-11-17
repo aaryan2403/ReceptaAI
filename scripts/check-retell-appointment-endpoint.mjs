@@ -15,8 +15,13 @@ const request = async (method) => {
     redirect: 'follow',
     signal: AbortSignal.timeout(8_000),
   })
-  // Only read non-sensitive status/attestation headers.
-  return { status: response.status, database: response.headers.get('x-recepta-preview-database') }
+  // Log only public status and diagnostic codes. Never read or print secrets.
+  const data = method === 'POST' && response.status === 503
+    ? await response.json().catch(() => null)
+    : null
+  const code = typeof data?.code === 'string' && /^[a-z_]{1,60}$/.test(data.code)
+    ? data.code : null
+  return { status: response.status, database: response.headers.get('x-recepta-preview-database'), code }
 }
 
 const checkPreviewFrontend = async () => {
@@ -45,7 +50,7 @@ for (let attempt = 1; attempt <= (preview ? 15 : 6); attempt += 1) {
   try {
     const get = await request('GET')
     const post = await request('POST')
-    console.log(`Appointment endpoint smoke attempt ${attempt}: GET=${get.status}, unsigned POST=${post.status}`)
+    console.log(`Appointment endpoint smoke attempt ${attempt}: GET=${get.status}, binding=${get.database ?? 'absent'}, unsigned POST=${post.status}, reason=${post.code ?? 'none'}`)
     if (get.status === 405 && post.status === 401) {
       if (!preview || get.database === 'staging') {
         if (preview) {
@@ -59,9 +64,11 @@ for (let attempt = 1; attempt <= (preview ? 15 : 6); attempt += 1) {
         ? 'Preview appointment function is bound to a NON-STAGING Supabase database.'
         : 'Preview appointment function has not deployed the staging database binding guard.'
     } else if (get.status === 405 && post.status === 503) {
-      error = get.database === 'mismatch'
-        ? 'Preview appointment function fails closed due to wrong Supabase database.'
-        : 'Appointment function reports missing required Netlify configuration.'
+      error = get.database === 'mismatch' || post.code === 'preview_database_mismatch'
+        ? 'Preview deployment has a non-staging SUPABASE_URL. Use the staging project URL for Deploy previews, not production.'
+        : post.code === 'configuration_missing'
+          ? 'Preview handler is missing a required server-only value: SUPABASE_URL, SUPABASE_SECRET_KEY, or RETELL_STAGING_API_KEY. Check that each is scoped to Functions on Deploy previews.'
+          : 'Preview function returned HTTP 503 without an identifiable diagnostic code.'
     } else if (get.status === 404 || post.status === 404) {
       error = 'Netlify appointment handler is not deployed at the expected URL (404).'
     } else {

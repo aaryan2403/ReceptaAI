@@ -91,11 +91,19 @@ export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: st
   if (subscription.error || numbers.error || rules.error) throw subscription.error ?? numbers.error ?? rules.error
   const billing = subscription.data
   const paid = hasPaidSubscription(billing) && (billing?.monthly_minutes ?? 0) > 0
+  // A founder grant authorizes appointment tools but does not fund inbound calls.
+  // Readiness must not mislabel this permanent owner permission as internal QA.
+  let ownerBooking = false
+  if (!paid && !accessIssue) {
+    const owner = await db.rpc('recepta_owner_booking_approved', { p_client: clientId })
+    ownerBooking = !owner.error && owner.data === true
+  }
   checks.push(check('Call authorization', paid ? 'ready' : 'blocked', paid
     ? 'The active billing period and minute allowance are configured. Each inbound call must still reserve minutes.'
     : 'An active Stripe subscription, current paid billing period, and call minutes are required.'))
   checks.push(check('Appointment authorization', accessIssue ? 'blocked' : 'ready',
     accessIssue ?? (paid ? 'This business has a current paid Recepta Pro subscription.' :
+      ownerBooking ? 'Founder-only appointment access is enabled. Billing remains pending and incoming phone calls remain blocked.' :
       'Appointment tools are temporarily authorized for internal testing only. Billing and inbound call admission remain blocked.')))
 
   let assignment, apiKey, origin, webhookOrigin

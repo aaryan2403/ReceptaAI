@@ -13,8 +13,14 @@ const SAVE = 'recepta_save_appointment_details'
 // This public project ref is not a credential. Refuse *all* preview appointment
 // writes when Netlify points at any database other than the isolated QA project.
 const STAGING_SUPABASE_ORIGIN = 'https://mvufjeqxqvpcfqwmihpy.supabase.co'
-const previewDatabaseIsStaging = () => {
-  if (!isReceptaPreview()) return null
+// Netlify function runtime does not always expose deploy context variables.
+// The served preview hostname is an additional trustworthy fail-closed signal.
+const previewDatabaseIsStaging = (request: Request) => {
+  let previewHost = false
+  try {
+    previewHost = /^deploy-preview-\d+--receptaai\.netlify\.app$/i.test(new URL(request.url).hostname)
+  } catch { /* An invalid request URL must not grant any appointment access. */ }
+  if (!isReceptaPreview() && !previewHost) return null
   try {
     const url = new URL(process.env.SUPABASE_URL ?? '')
     return url.origin === STAGING_SUPABASE_ORIGIN && url.pathname === '/' && !url.search && !url.hash
@@ -23,7 +29,7 @@ const previewDatabaseIsStaging = () => {
 
 export default async (request: Request) => {
   const startedAt = Date.now()
-  const previewBinding = previewDatabaseIsStaging()
+  const previewBinding = previewDatabaseIsStaging(request)
   if (request.method !== 'POST') {
     const response = json(405, { error: 'Method not allowed.' })
     if (previewBinding !== null) {
@@ -37,13 +43,15 @@ export default async (request: Request) => {
       error: 'Preview appointment testing is not connected to the staging database.' })
   }
   const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env
-  const key = configuredRetellKey()
+  // A preview can never accept signatures made with a production Retell key,
+  // even if Netlify omits CONTEXT and DEPLOY_PRIME_URL at function runtime.
+  const key = previewBinding !== null ? process.env.RETELL_STAGING_API_KEY?.trim() : configuredRetellKey()
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !key) {
     console.error('Recepta appointment configuration missing', {
       missing: [
         !SUPABASE_URL && 'SUPABASE_URL',
         !SUPABASE_SECRET_KEY && 'SUPABASE_SECRET_KEY',
-        !key && (isReceptaPreview() ? 'RETELL_STAGING_API_KEY' : 'RETELL_API_KEY'),
+        !key && (previewBinding !== null ? 'RETELL_STAGING_API_KEY' : 'RETELL_API_KEY'),
       ].filter(Boolean),
     })
     return json(503, { success: false, code: 'configuration_missing',
