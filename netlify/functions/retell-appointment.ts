@@ -18,7 +18,7 @@ const STAGING_SUPABASE_ORIGIN = 'https://mvufjeqxqvpcfqwmihpy.supabase.co'
 const previewDatabaseIsStaging = (request: Request) => {
   let previewHost = false
   try {
-    previewHost = /^deploy-preview-\\d+--receptaai\\.netlify\\.app$/i.test(new URL(request.url).hostname)
+    previewHost = /^deploy-preview-\d+--receptaai\.netlify\.app$/i.test(new URL(request.url).hostname)
   } catch { /* An invalid request URL must not grant any appointment access. */ }
   if (!isReceptaPreview() && !previewHost) return null
   try {
