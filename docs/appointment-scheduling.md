@@ -8,6 +8,14 @@ Admin → Clients → Edit Client → Appointment Scheduling Settings and the Pr
 - The scheduling engine checks capacity in a tenant-serialized transaction. Requests do not reserve space. Existing bookings retain their stored duration and buffer when settings change, and the dashboard flags bookings that conflict with updated rules. A Retell call can create one appointment or request, identified by its signed call ID.
 - The dashboard permits booking up to 366 days ahead. Weekly opening and closing times use the same day, with a midnight option. Use two daily rules for an overnight schedule.
 
+## Founder account appointment access
+
+The founder's own `testclient` account has a **single-tenant appointment-only authorization** through the `recepta_owner_booking_grants` table. It does not change Stripe subscriptions, customer plans, minute allowances, agent status, or phone routing. The account must still have a unique assigned Retell agent, a pending Recepta Pro selection and no paid Stripe subscription. The migration seeds only the specifically identified founder account and agent after verifying this binding; other customers remain on the usual paid Pro flow. A change to the assigned agent automatically invalidates the grant until an authorized operator explicitly updates it. Revoke immediately by setting `revoked_at = clock_timestamp()` on that row using an administrator database session; do not expose grant writes to browsers.
+
+**To activate:** After deploying the owner-access migration, open the normal Recepta Admin Dashboard, confirm automatic booking settings have been saved for `testclient`, and use **Receptionist setup → Retry appointment tool sync**. Check that the published Retell agent has `recepta_check_availability`, `recepta_book_appointment` and `recepta_save_appointment_details` pointing to the deployed function endpoint. A booking is confirmed only after the server returns `status: booked`.
+
+**Important scope:** This grant authorizes scheduling API calls and Retell appointment tools, **not inbound telephone calls**. The incoming-call admission system still requires valid paid minutes and an active, properly routed phone number. Retell/provider call usage can still incur charges. Do not describe this as a paid or fully activated customer subscription.
+
 ## Client setup and recovery
 
 Open **Admin → Clients → Edit Client → Receptionist setup** after saving the agent and phone assignment. Check the paid billing period, published agent and tool configuration, signed availability lookup, inbound phone webhook and booking mode. **Retry appointment tool sync** updates the assigned agent’s managed appointment tools and prompt, then reads back the published version. The Pro Appointments page can retry without resaving rules. Finish with a real inbound call and, when configured, an answered and an unanswered transfer.
