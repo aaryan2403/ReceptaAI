@@ -209,7 +209,12 @@ export default async (request: Request) => {
     return json(200, { call_inbound: { reject:true } })
   }
 
-  if (!agent?.retell_agent_id || !['active', 'live'].includes(agent.status ?? '')) {
+  // The designated founder account may receive calls while its subscription
+  // remains pending. This does not grant admission by itself: the reservation
+  // RPC separately requires an active, agent-bound founder grant and caps usage.
+  const founderSetup = agent?.client_id === '72e5b432-2e97-4882-a30d-7c9f756c2fc2' &&
+    agent.status === 'setup'
+  if (!agent?.retell_agent_id || (!['active', 'live'].includes(agent.status ?? '') && !founderSetup)) {
     return decline('agent_unavailable')
   }
 
