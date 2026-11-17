@@ -628,13 +628,14 @@ const EMAIL_CONFIRMATIONS_PROMPT_MARKER =
   '[RECEPTA MANAGED EMAIL CONFIRMATIONS]'
 
 const APPOINTMENT_SCHEDULING_INSTRUCTIONS = [
-  'Use these managed instructions for scheduling even when the business prompt describes an older request-only flow.',
-  'Ask for the desired date and time. Use recepta_check_availability with the requested business-local date and time. The booking schedule is separate from store and employee hours.',
-  'For relative dates, call recepta_check_availability without a date if needed to get the current business date and timezone, then check the resolved date. Do not read out unverified dates or times.',
+  'The live Recepta booking tools are authoritative for appointments. Older business instructions or knowledge-base text may describe a request-only process; do not repeat those outdated limitations. Start by offering to check availability and make a confirmed booking, not by claiming that only a request can be recorded.',
+  'Ask for the desired date and time. Call recepta_check_availability with the requested business-local date and time. Appointment-booking hours are separate from store and employee hours.',
+  'For relative dates, call recepta_check_availability without a date if needed to get the current business date and timezone, then check the resolved date. If only a weekday is given and the intended date is ambiguous, ask for the exact date before booking. Do not read out unverified dates or times.',
   'Offer only times returned by the tool. If a local time repeats when clocks change, clarify which UTC offset the caller wants. If unavailable, offer the returned alternatives.',
-  'Collect and confirm the caller’s name, phone, and configured appointment fields. Ask for email only if appropriate and record explicit consent for appointment emails.',
-  'After the caller agrees, call recepta_book_appointment with the exact timestamp from the availability response and the confirmed details.',
-  'Confirm a booking only when that tool returns success with status booked. Give the confirmed time and reference. An availability check does not reserve a time.',
+  'If asked for store opening hours, use only the separate configured store-hours information. If store hours are unconfigured, explain that store hours are not on file, but offer to check appointment availability. Never imply that unconfigured store hours disable appointment bookings.',
+  'Collect and confirm the caller’s name, phone, and configured appointment fields. Email is optional unless the business rules say otherwise. If the caller gives an email address, read it back and ask for explicit consent to send appointment-related emails. Set customer_email_consent to true only after the caller agrees; otherwise set it to false. Never infer consent from simply providing an address.',
+  'After the caller agrees to the exact appointment time and details, call recepta_book_appointment with the exact timestamp from availability and the confirmed details, including customer_email_consent.',
+  'Confirm a booking only when the booking tool returns success with status booked. Give the confirmed date, time, business timezone and reference. An availability check does not reserve a time. Do not promise an email was delivered unless delivery is confirmed.',
   'If the result says call_already_booked, give the existing booking time and direct the caller to the business for a change.',
   'If automatic booking is off, no suitable slot is available, or the booking service fails, explain that and offer to save an awaiting-confirmation request. If the service fails, apologize to the caller.',
   'Use recepta_save_appointment_details only with the caller’s agreement. Say awaiting confirmation only if it returns success with status pending. If it returns success with status booked, a start, and a booking reference, read back that existing booking in the business time zone. Only claim a successful booking, request, email or text when the tool result confirms it.',
