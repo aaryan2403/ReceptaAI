@@ -188,16 +188,18 @@ export default async (request: Request) => {
 
   const businessHours = JSON.stringify(schedule)
 
-  // Keep the database booking engine on the SAME schedule used by the
-  // receptionist, for every tenant. A separate booking week must never
-  // silently permit times when the business is closed.
+  // Only synchronize appointment availability to store hours for businesses
+  // that select that booking mode. "Anytime" clients remain bookable outside
+  // opening hours even if the store hours or AI answering hours change.
   const existingRules = await supabaseAdmin.from('booking_settings')
-    .select('weekly, exceptions, capacity, time_zone, updated_at')
+    .select('weekly, exceptions, capacity, time_zone, booking_hours_mode, updated_at')
     .eq('client_id', clientId).maybeSingle()
   if (existingRules.error) return json(500, { error: 'Could not load appointment booking rules.' })
   let calendar: ReturnType<typeof bookingCalendarFromStoreHours> | null = null
   if (existingRules.data) {
-    try { calendar = bookingCalendarFromStoreHours(schedule) }
+    try {
+      calendar = bookingCalendarFromStoreHours(schedule, existingRules.data.booking_hours_mode)
+    }
     catch (error) {
       return json(400, { error: error instanceof Error ? error.message : 'Invalid store hours for booking.' })
     }
