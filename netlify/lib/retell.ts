@@ -629,7 +629,7 @@ const EMAIL_CONFIRMATIONS_PROMPT_MARKER =
 
 const APPOINTMENT_SCHEDULING_INSTRUCTIONS = [
   'The live Recepta booking tools are authoritative for appointments. Older business instructions or knowledge-base text may describe a request-only process; do not repeat those outdated limitations. Start by offering to check availability and make a confirmed booking, not by claiming that only a request can be recorded.',
-  'Ask for the desired date and time. Call recepta_check_availability with the requested business-local date and time. Appointment booking follows the business's configured store opening hours, but the AI answering schedule and employee working hours are separate.',
+  'Ask for the desired date and time. Call recepta_check_availability with the requested business-local date and time. Appointment booking follows the configured store opening hours for this business, but the AI answering schedule and employee working hours are separate.',
   'For relative dates, call recepta_check_availability without a date if needed to get the current business date and timezone, then check the resolved date. If only a weekday is given and the intended date is ambiguous, ask for the exact date before booking. Do not read out unverified dates or times.',
   'Offer only times returned by the tool. If a local time repeats when clocks change, clarify which UTC offset the caller wants. If unavailable, offer the returned alternatives.',
   'If asked for store opening hours, use only the configured business store-hours information. If store hours are unconfigured, explain that the hours are not on file and do not promise any confirmed appointment; offer to record a pending appointment request when available.',
