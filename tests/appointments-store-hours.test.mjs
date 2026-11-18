@@ -36,6 +36,17 @@ test('24/7 businesses can accept any day and time', () => {
   assert.equal(Object.values(rules.weekly).every(day => day.open && day.start==='00:00' && day.end==='24:00'), true)
 })
 
+test('anytime booking ignores closed store days while preserving the business timezone', () => {
+  const rules = bookingCalendarFromStoreHours(custom, 'anytime')
+  assert.equal(rules.weekly['6'].open, true)
+  assert.equal(rules.weekly['7'].open, true)
+  assert.equal(rules.weekly['6'].start, '00:00')
+  assert.equal(rules.weekly['6'].end, '24:00')
+  assert.equal(rules.time_zone, 'America/Toronto')
+  assert.equal(bookingCalendarFromStoreHours({ ...custom, mode: 'unconfigured' }, 'anytime').weekly['7'].open, true)
+  assert.throws(() => bookingCalendarFromStoreHours(custom, 'invalid'), /Select when/)
+})
+
 test('unknown and overnight store hours fail closed instead of offering wrong appointments', () => {
   assert.throws(() => bookingCalendarFromStoreHours({ ...custom, mode:'unconfigured' }), /Configure/)
   assert.throws(() => bookingCalendarFromStoreHours({
