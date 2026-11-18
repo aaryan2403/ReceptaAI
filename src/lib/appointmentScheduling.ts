@@ -7,6 +7,7 @@ export type SchedulingSettings = {
   buffer_minutes: number
   capacity: number | null
   hourly_limit: number | null
+  booking_hours_mode?: 'store_hours' | 'anytime'
   time_zone: string
   weekly: Record<string, BookingDay>
   exceptions: Record<string, BookingDay>
@@ -20,7 +21,7 @@ export const bookingDay = (open = false): BookingDay => ({ open, start: '09:00',
 
 export const defaultSchedulingSettings = (timeZone = 'America/Toronto'): SchedulingSettings => ({
   enabled: false, duration_minutes: 30, start_interval_minutes: 15, buffer_minutes: 0, capacity: 1,
-  hourly_limit: null, time_zone: timeZone, email_owner: false, email_customer: false,
+  hourly_limit: null, booking_hours_mode: 'store_hours', time_zone: timeZone, email_owner: false, email_customer: false,
   weekly: Object.fromEntries(Array.from({ length: 7 }, (_, i) => [String(i + 1), bookingDay()])),
   exceptions: {},
 })
