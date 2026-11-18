@@ -54,6 +54,7 @@ const migrationFiles = [
   '20261116074255_appointment_setup_and_paid_access.sql',
   '20261116113500_internal_appointment_test_entitlement.sql',
   '20261118050500_booking_hours_mode.sql',
+  '20261118074000_remove_booking_capacity_blocks.sql',
 ]
 
 const pgUrl = process.env.RECEPTA_TEST_PG_URL
@@ -118,35 +119,24 @@ test('tenant-specific settings apply durations, grid intervals, and up to ten ov
   assert.equal((await available(tenant,date,'09:00')).available,true)
 })
 
-test('hourly start limits, peak occupancy and buffer handle crossing boundaries and cancellation', async () => {
+test('hourly start limits ignore legacy blocks and reset each hour', async () => {
   const date = futureDate(25)
   const day = { ...bookingDay(true), blocks: [
     { start:'09:00', end:'10:00', limit:4 }, { start:'10:00', end:'11:00', limit:10 },
     { start:'11:00', end:'12:00', limit:0 },
   ] }
   await save(tenant,rules({ hourly_limit:2, capacity:10, buffer_minutes:10, exceptions:{ [date]:day } }))
-  const starts = Object.fromEntries(await Promise.all(['09:45','10:00','10:15','10:30','11:00'].map(async time=>[time,await localStart(date,time)])))
-  const first = await book(tenant,starts['09:45'],'boundary-0')
-  for (let n=1;n<4;n++) assert.equal((await book(tenant,starts['09:45'],`boundary-${n}`)).success,true)
-  assert.equal((await book(tenant,starts['09:45'],'boundary-extra')).reason,'hourly_capacity_reached')
-  for (let n=0;n<6;n++) assert.equal((await book(tenant,starts['10:00'],`following-${n}`)).success,true)
-  assert.equal((await book(tenant,starts['10:15'],'within-buffer')).reason,'simultaneous_capacity_reached')
-  assert.equal((await available(tenant,date,'10:00')).hourly_remaining,4)
-  assert.equal((await book(tenant,starts['10:30'],'after-buffer')).success,true)
-  assert.equal((await available(tenant,date,'11:00')).reason,'hourly_capacity_reached')
-  assert.equal((await available(tenant,date,'11:00')).alternatives.length,3)
+  const start = await localStart(date,'09:45')
+  const first = await book(tenant,start,'boundary-0')
+  assert.equal(first.success,true)
+  assert.equal((await book(tenant,start,'boundary-1')).success,true)
+  assert.equal((await book(tenant,start,'boundary-extra')).reason,'hourly_capacity_reached')
+  assert.equal((await available(tenant,date,'10:00')).hourly_remaining,2)
+  assert.equal((await available(tenant,date,'11:00')).available,true)
   assert.equal((await action(tenant,'cancel',null,first.appointment_id,1)).success,true)
   assert.equal((await available(tenant,date,'09:45')).available,true)
-  assert.equal((await book(tenant,starts['09:45'],'boundary-0')).status,'cancelled')
+  assert.equal((await book(tenant,start,'boundary-0')).status,'cancelled')
   assert.deepEqual((await db.query("select action from appointment_history where appointment_id=$1 order by id", [first.appointment_id])).rows.map(row=>row.action), ['booked','cancelled'])
-
-  const blockDate = futureDate(27)
-  const block = { ...bookingDay(true), blocks: [{ start:'09:00', end:'12:00', limit:1 }] }
-  await save(tenant,rules({ hourly_limit:0, capacity:5, exceptions:{ [blockDate]:block } }))
-  assert.equal((await book(tenant,await localStart(blockDate,'09:00'),'multi-hour-block')).success,true)
-  assert.equal((await available(tenant,blockDate,'09:45')).reason,'hourly_capacity_reached')
-  assert.equal((await available(tenant,blockDate,'10:00')).available,true)
-  assert.equal((await available(tenant,blockDate,'12:00')).reason,'hourly_capacity_reached')
 
   const next = futureDate(26)
   await save(tenant,rules({ capacity:1, duration_minutes:15, start_interval_minutes:5, buffer_minutes:5 }))
@@ -188,8 +178,8 @@ test('daylight-saving gaps are skipped and both repeated-hour offsets are explic
     }
   }
   const spring = date(3,2), fall = date(11,1)
-  const dst = { ...bookingDay(true), start:'00:00',end:'04:00',blocks:[{start:'01:00',end:'02:00',limit:1}] }
-  await save(tenant,rules({ capacity:null, exceptions:{ [spring]:dst,[fall]:dst }, time_zone:zone }))
+  const dst = { ...bookingDay(true), start:'00:00',end:'04:00' }
+  await save(tenant,rules({ capacity:null, hourly_limit:1, exceptions:{ [spring]:dst,[fall]:dst }, time_zone:zone }))
   const missing = await available(tenant,spring,'02:15')
   assert.equal(missing.reason,'nonexistent_local_time')
   assert.ok(missing.alternatives.some(value=>value.includes('T03:00:00-04:00')))
