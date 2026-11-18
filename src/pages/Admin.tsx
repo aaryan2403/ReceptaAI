@@ -3,6 +3,7 @@ import InternalAppointmentTestAccess from '../components/InternalAppointmentTest
 import AppointmentScheduling from '../components/AppointmentScheduling'
 import './AdminClientEditor.css'
 import AdminCallEmailSettings from '../components/AdminCallEmailSettings'
+import AdminStoreHours from '../components/AdminStoreHours'
 import {
   useCallback,
   useEffect,
@@ -2190,6 +2191,29 @@ export default function Admin() {
                 </label>
 
                 <AdminReceptionistReadiness key={editingClient.id} clientId={editingClient.id} />
+                {editingClient.agent ? (
+                  <AdminStoreHours
+                    key={editingClient.id}
+                    clientId={editingClient.id}
+                    businessHours={editingClient.agent.business_hours}
+                    onSaved={(hours) => {
+                      // The schedule endpoint has already persisted these hours and
+                      // published the assigned Retell agent before this callback runs.
+                      setEditingClient(current =>
+                        current?.id === editingClient.id && current.agent
+                          ? { ...current, agent: { ...current.agent, business_hours: hours } }
+                          : current
+                      )
+                      setClients(current => current.map(client =>
+                        client.id === editingClient.id && client.agent
+                          ? { ...client, agent: { ...client.agent, business_hours: hours } }
+                          : client
+                      ))
+                    }}
+                  />
+                ) : (
+                  <p className="adminEditFullWidth">Save the client and assign an AI agent before configuring store hours.</p>
+                )}
                 <InternalAppointmentTestAccess key={editingClient.id + ':qa'} clientId={editingClient.id} agentId={editingClient.agent?.retell_agent_id ?? null} />
                 <AdminCallEmailSettings key={editingClient.id} clientId={editingClient.id} />
                 <details className="adminEditFullWidth appointmentAdminPanel">
