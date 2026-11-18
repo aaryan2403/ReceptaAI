@@ -119,15 +119,21 @@ export default async (request: Request) => {
           (args.requested_time !== undefined && !validTime(args.requested_time))) {
         return json(200, { available: false, reason: 'invalid_local_date_or_time', alternatives: [] })
       }
-      let localContext = {}
-      if (args.requested_date === undefined) {
-        const settings = await db.from('booking_settings').select('time_zone').eq('client_id', clientId).maybeSingle()
-        if (settings.error) throw settings.error
-        if (settings.data?.time_zone) {
-          const timeZone = settings.data.time_zone
-          const businessDate = new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeZone }).format(new Date())
-          localContext = { business_date: businessDate, time_zone: timeZone }
-        }
+      const settings = await db.from('booking_settings')
+        .select('time_zone, booking_hours_mode').eq('client_id', clientId).maybeSingle()
+      if (settings.error) throw settings.error
+      const bookingHoursMode = settings.data?.booking_hours_mode === 'anytime' ? 'anytime' : 'store_hours'
+      const localContext: Record<string, string> = {
+        booking_hours_mode: bookingHoursMode,
+        booking_hours_description: bookingHoursMode === 'anytime'
+          ? 'Appointments can be booked any day, 24/7, subject to hourly availability.'
+          : 'Appointments may only be booked during the configured store hours.',
+      }
+      if (args.requested_date === undefined && settings.data?.time_zone) {
+        const timeZone = settings.data.time_zone
+        const businessDate = new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeZone }).format(new Date())
+        localContext.business_date = businessDate
+        localContext.time_zone = timeZone
       }
       const { data, error } = await db.rpc('recepta_scheduling_availability', {
         p_client: clientId, p_date: args.requested_date ?? null, p_time: args.requested_time ?? null,

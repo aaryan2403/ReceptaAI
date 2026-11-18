@@ -53,6 +53,8 @@ const migrationFiles = [
   '20261113064703_tenant_appointment_scheduling.sql',
   '20261116074255_appointment_setup_and_paid_access.sql',
   '20261116113500_internal_appointment_test_entitlement.sql',
+  '20261118050500_booking_hours_mode.sql',
+  '20261118074000_remove_booking_capacity_blocks.sql',
 ]
 
 const pgUrl = process.env.RECEPTA_TEST_PG_URL
@@ -73,6 +75,12 @@ after(async () => { await db.close(); await native?.end() })
 const detail = { customer_name: 'Test Caller', customer_phone: '+14165550123', customer_email: 'buyer@example.test', email_consent: true }
 const allDays = () => Object.fromEntries(Array.from({ length: 7 }, (_, index) => [String(index + 1), bookingDay(true)]))
 const rules = (options = {}) => ({ ...defaultSchedulingSettings(), enabled: true, weekly: allDays(), ...options })
+const storeHours = JSON.stringify({
+  mode:'custom', answeringMode:'24/7', timeZone:'America/Toronto',
+  hours:['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((day,index)=>({
+    day,open:index<5,start:'09:00',end:'17:00',
+  })),
+})
 const futureDate = (days = 14) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10)
 const localStart = async (date, time, zone = 'America/Toronto') =>
   (await db.query("select public.recepta_schedule_stamp(t,$3) as stamp from public.recepta_wall_time($1::date+$2::time,$3) t order by t", [date, time, zone])).rows[0]?.stamp
@@ -111,35 +119,24 @@ test('tenant-specific settings apply durations, grid intervals, and up to ten ov
   assert.equal((await available(tenant,date,'09:00')).available,true)
 })
 
-test('hourly start limits, peak occupancy and buffer handle crossing boundaries and cancellation', async () => {
+test('hourly start limits ignore legacy blocks and reset each hour', async () => {
   const date = futureDate(25)
   const day = { ...bookingDay(true), blocks: [
     { start:'09:00', end:'10:00', limit:4 }, { start:'10:00', end:'11:00', limit:10 },
     { start:'11:00', end:'12:00', limit:0 },
   ] }
   await save(tenant,rules({ hourly_limit:2, capacity:10, buffer_minutes:10, exceptions:{ [date]:day } }))
-  const starts = Object.fromEntries(await Promise.all(['09:45','10:00','10:15','10:30','11:00'].map(async time=>[time,await localStart(date,time)])))
-  const first = await book(tenant,starts['09:45'],'boundary-0')
-  for (let n=1;n<4;n++) assert.equal((await book(tenant,starts['09:45'],`boundary-${n}`)).success,true)
-  assert.equal((await book(tenant,starts['09:45'],'boundary-extra')).reason,'hourly_capacity_reached')
-  for (let n=0;n<6;n++) assert.equal((await book(tenant,starts['10:00'],`following-${n}`)).success,true)
-  assert.equal((await book(tenant,starts['10:15'],'within-buffer')).reason,'simultaneous_capacity_reached')
-  assert.equal((await available(tenant,date,'10:00')).hourly_remaining,4)
-  assert.equal((await book(tenant,starts['10:30'],'after-buffer')).success,true)
-  assert.equal((await available(tenant,date,'11:00')).reason,'hourly_capacity_reached')
-  assert.equal((await available(tenant,date,'11:00')).alternatives.length,3)
+  const start = await localStart(date,'09:45')
+  const first = await book(tenant,start,'boundary-0')
+  assert.equal(first.success,true)
+  assert.equal((await book(tenant,start,'boundary-1')).success,true)
+  assert.equal((await book(tenant,start,'boundary-extra')).reason,'hourly_capacity_reached')
+  assert.equal((await available(tenant,date,'10:00')).hourly_remaining,2)
+  assert.equal((await available(tenant,date,'11:00')).available,true)
   assert.equal((await action(tenant,'cancel',null,first.appointment_id,1)).success,true)
   assert.equal((await available(tenant,date,'09:45')).available,true)
-  assert.equal((await book(tenant,starts['09:45'],'boundary-0')).status,'cancelled')
+  assert.equal((await book(tenant,start,'boundary-0')).status,'cancelled')
   assert.deepEqual((await db.query("select action from appointment_history where appointment_id=$1 order by id", [first.appointment_id])).rows.map(row=>row.action), ['booked','cancelled'])
-
-  const blockDate = futureDate(27)
-  const block = { ...bookingDay(true), blocks: [{ start:'09:00', end:'12:00', limit:1 }] }
-  await save(tenant,rules({ hourly_limit:0, capacity:5, exceptions:{ [blockDate]:block } }))
-  assert.equal((await book(tenant,await localStart(blockDate,'09:00'),'multi-hour-block')).success,true)
-  assert.equal((await available(tenant,blockDate,'09:45')).reason,'hourly_capacity_reached')
-  assert.equal((await available(tenant,blockDate,'10:00')).available,true)
-  assert.equal((await available(tenant,blockDate,'12:00')).reason,'hourly_capacity_reached')
 
   const next = futureDate(26)
   await save(tenant,rules({ capacity:1, duration_minutes:15, start_interval_minutes:5, buffer_minutes:5 }))
@@ -181,8 +178,8 @@ test('daylight-saving gaps are skipped and both repeated-hour offsets are explic
     }
   }
   const spring = date(3,2), fall = date(11,1)
-  const dst = { ...bookingDay(true), start:'00:00',end:'04:00',blocks:[{start:'01:00',end:'02:00',limit:1}] }
-  await save(tenant,rules({ capacity:null, exceptions:{ [spring]:dst,[fall]:dst }, time_zone:zone }))
+  const dst = { ...bookingDay(true), start:'00:00',end:'04:00' }
+  await save(tenant,rules({ capacity:null, hourly_limit:1, exceptions:{ [spring]:dst,[fall]:dst }, time_zone:zone }))
   const missing = await available(tenant,spring,'02:15')
   assert.equal(missing.reason,'nonexistent_local_time')
   assert.ok(missing.alternatives.some(value=>value.includes('T03:00:00-04:00')))
@@ -620,6 +617,7 @@ test('internal appointment grants are admin-only, agent-bound, limited, auditabl
 test('admins can prepare an unpaid account while customers and callers still require paid Pro', async () => {
   if (!dashboardHandler) await initializeHandlers()
   await db.query("update subscriptions set current_period_end=now()-interval '1 hour' where client_id=$1",[tenant])
+  await db.query("update agents set business_hours=$2 where client_id=$1",[tenant,storeHours])
   try {
     const settings=rules({duration_minutes:37,start_interval_minutes:20,buffer_minutes:13,capacity:5,hourly_limit:7})
     const customer=await dashboard('','tenant','PUT',{settings})
@@ -631,7 +629,11 @@ test('admins can prepare an unpaid account while customers and callers still req
     const prepared=await prep.json()
     assert.equal(prepared.synced,false)
     assert.equal(prepared.settings.duration_minutes,37)
-    assert.equal(prepared.settings.capacity,5)
+    assert.equal(prepared.settings.capacity,null)
+    assert.equal(prepared.settings.hourly_limit,7)
+    assert.equal(prepared.settings.weekly['1'].open,true)
+    assert.equal(prepared.settings.weekly['6'].open,false)
+    assert.deepEqual(prepared.settings.exceptions,{})
     assert.equal((await invoke('recepta_check_availability',{})).status,403)
     await assert.rejects(save(tenant,settings),{code:'42501'})
     assert.equal((await dashboard('clientId='+tenant,'admin','POST')).status,403)
@@ -640,6 +642,7 @@ test('admins can prepare an unpaid account while customers and callers still req
     assert.equal(grants.prepare,false)
   } finally {
     await db.query("update subscriptions set current_period_end=now()+interval '1 month' where client_id=$1",[tenant])
+    await db.query("update agents set business_hours=null where client_id=$1",[tenant])
   }
 })
 
@@ -671,8 +674,9 @@ test('settings save registers signed Retell tools, preserves other functions and
     return Response.json({})
   }
   try {
+    await db.query("update agents set business_hours=$2 where client_id=$1",[tenant,storeHours])
     const date=futureDate(62)
-    const response=await (await dashboard('','tenant','PUT',{settings:rules()})).json()
+    const response=await (await dashboard('','tenant','PUT',{settings:rules({hourly_limit:4})})).json()
     assert.equal(response.synced,true,response.settings?.sync_error)
     assert.deepEqual(written.general_tools.slice(0,existing.length),existing)
     assert.equal(written.default_dynamic_variables.business,'sample')
@@ -682,10 +686,11 @@ test('settings save registers signed Retell tools, preserves other functions and
     ])
     assert.ok(written.general_tools.slice(existing.length).every(tool=>tool.args_at_root===false && tool.url==='https://example.test/.netlify/functions/retell-appointment'))
     assert.match(written.general_prompt,/Manual transfer instructions/)
-    assert.match(written.general_prompt,/only when that tool returns success with status booked/)
+    assert.match(written.general_prompt,/Confirm a booking only when the booking tool returns success with status booked/)
+    assert.match(written.general_prompt,/Appointment booking follows the configured booking-hours choice/)
     assert.match(written.general_prompt,/Keep email policy/)
     assert.doesNotMatch(written.general_prompt,/Legacy calendar|Legacy request instructions/)
-    const changed=await (await dashboard('','tenant','PUT',{settings:rules({hourly_limit:0})})).json()
+    const changed=await (await dashboard('','tenant','PUT',{settings:rules({hourly_limit:1})})).json()
     assert.equal(changed.synced,true)
     assert.equal(versions,1)
     const retry = await dashboard('clientId='+tenant, 'admin', 'POST')
@@ -705,13 +710,38 @@ test('settings save registers signed Retell tools, preserves other functions and
     assert.equal(versions,2)
     assert.match(written.general_tools.find(tool=>tool.name==='recepta_book_appointment').url,/example.test\/\.netlify/)
     const stopped=await (await invoke('recepta_check_availability',{requested_date:date,requested_time:'09:00'})).json()
-    assert.equal(stopped.reason,'hourly_capacity_reached')
-    assert.deepEqual(stopped.alternatives,[])
-    const invalid=await dashboard('','tenant','PUT',{settings:rules({time_zone:'bad/zone'})})
-    assert.equal(invalid.status,400)
+    assert.equal(typeof stopped.available,'boolean')
+    assert.equal(stopped.booking_hours_mode,'store_hours')
+    const ignored=await dashboard('','tenant','PUT',{settings:rules({time_zone:'bad/zone',hourly_limit:4})})
+    assert.equal(ignored.status,200)
+    const effective=await ignored.json()
+    assert.equal(effective.settings.time_zone,'America/Toronto')
+    assert.equal(effective.settings.weekly['6'].open,false)
+
+    // Switching modes changes persisted availability and the exact mode the AI sees.
+    const anytime=await dashboard('','tenant','PUT',{settings:rules({hourly_limit:4,booking_hours_mode:'anytime'})})
+    assert.equal(anytime.status,200)
+    assert.equal((await anytime.json()).settings.booking_hours_mode,'anytime')
+    const anyTimeAnswer=await (await invoke('recepta_check_availability',{})).json()
+    assert.equal(anyTimeAnswer.booking_hours_mode,'anytime')
+    assert.equal((await db.query("select weekly->'6'->>'open' as open from booking_settings where client_id=$1",[tenant])).rows[0].open,'true')
+    const night=await (await invoke('recepta_check_availability',{
+      requested_date:futureDate(80),requested_time:'23:45',
+    })).json()
+    assert.equal(night.booking_hours_mode,'anytime')
+    assert.equal(night.available,true,'anytime bookings should cross local midnight')
+
+    const store=await dashboard('','tenant','PUT',{settings:rules({hourly_limit:4,booking_hours_mode:'store_hours'})})
+    assert.equal(store.status,200)
+    assert.equal((await store.json()).settings.weekly['6'].open,false)
+    await db.query("update agents set business_hours=null where client_id=$1",[tenant])
+    const unconfigured=await dashboard('','tenant','PUT',{settings:rules({hourly_limit:4})})
+    assert.equal(unconfigured.status,400)
+    assert.match((await unconfigured.json()).error,/Configure the client/)
   } finally {
     globalThis.fetch=originalFetch
     if (originalUrl === undefined) delete process.env.URL
     else process.env.URL=originalUrl
+    await db.query("update agents set business_hours=null where client_id=$1",[tenant])
   }
 })

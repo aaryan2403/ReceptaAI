@@ -83,6 +83,7 @@ const fixture=async()=>{
  await db.query("insert into clients(id,status,role,company_name,contact_email) values($1,'live','client','Synthetic business','owner@example.test'),($2,'live','client','Other business','other@example.test')",[client,other])
  await db.query("insert into subscriptions(client_id,plan_name,status,monthly_minutes,monthly_price,ai_model_id,stripe_subscription_id,stripe_customer_id,current_period_start,current_period_end,pii_redaction_enabled,safety_guardrails_enabled,extra_phone_numbers) values($1,'Recepta Standard','active',60,207.02,'essential','sub_test','cus_test',now()-interval '1 day',now()+interval '29 days',false,false,0)",[client])
  await db.query("insert into agents(client_id,retell_agent_id,status,phone_number) values($1,'agent_test','live','+14165550100')",[client])
+ await db.query("insert into booking_settings(client_id,capacity,hourly_limit,time_zone) values($1,1,4,'America/Toronto')",[client])
  await db.query("insert into agent_phone_numbers values($1,'+14165550100','retell',true)",[client])
  await db.query("insert into integration_settings values('resend_webhook',$1,now())",[{secret}])
  globalThis.fetch=async(url,options={})=>{
@@ -116,6 +117,10 @@ test.before(async()=>{
  create table clients(id uuid primary key,status text,role text,company_name text,contact_email text);
  create table subscriptions(client_id uuid primary key references clients on delete cascade,plan_name text,status text,monthly_minutes integer,monthly_price numeric,ai_model_id text,stripe_subscription_id text,stripe_customer_id text,current_period_start timestamptz,current_period_end timestamptz,next_billing_date timestamptz,pii_redaction_enabled boolean default false,safety_guardrails_enabled boolean default false,extra_phone_numbers integer default 0);
  create table agents(client_id uuid primary key references clients on delete cascade,agent_name text,retell_agent_id text,status text,phone_number text,business_hours text);
+ create table booking_settings(client_id uuid primary key references clients on delete cascade,
+    weekly jsonb not null default '{}'::jsonb, exceptions jsonb not null default '{}'::jsonb,
+    capacity integer, hourly_limit integer, time_zone text,
+    booking_hours_mode text not null default 'store_hours', updated_at timestamptz not null default now());
  create table agent_phone_numbers(client_id uuid references clients on delete cascade,phone_number text,source text,is_primary boolean);
  create table calls(id uuid primary key default gen_random_uuid(),client_id uuid references clients on delete cascade,retell_call_id text unique,call_status text,started_at timestamptz default now(),ended_at timestamptz,duration_seconds integer default 0,caller_name text,caller_number text,transcript text,recording_url text,summary text,outcome text,user_sentiment text,call_successful boolean,appointment_booked boolean default false,retell_agent_id text,disconnection_reason text,updated_at timestamptz default now());
  create table employees(id uuid,client_id uuid,name text,role text,is_active boolean);create table employee_schedules(employee_id uuid,day_of_week integer,is_working boolean,start_time text,end_time text);
@@ -328,12 +333,21 @@ test('only admins set client store hours; sync uses the selected client and roll
  assert.equal((await preferences(request(body,'admin'))).status,200)
  let stored=JSON.parse((await db.query('select business_hours from agents')).rows[0].business_hours)
  assert.equal(stored.mode,'custom');assert.equal(stored.answeringMode,'24/7');assert.deepEqual(stored.hours,hours)
+  const bookedHours=(await db.query('select weekly,exceptions,capacity,hourly_limit from booking_settings where client_id=$1',[client])).rows[0]
+  assert.equal(bookedHours.weekly['1'].open,true)
+  assert.equal(bookedHours.weekly['2'].open,false)
+  assert.equal(bookedHours.capacity,null)
+  assert.equal(bookedHours.hourly_limit,4)
+  assert.deepEqual(bookedHours.exceptions,{})
  assert.equal(globalThis.__operationsPrefSync[0].agentId,'agent_test')
  assert.equal((await preferences(request({...body,answeringMode:'business_hours'},'admin'))).status,200)
  stored=(await db.query('select business_hours from agents')).rows[0].business_hours
  globalThis.__operationsPrefFail=true
  assert.equal((await preferences(request({...body,scheduleMode:'24/7'},'admin'))).status,502)
  assert.equal((await db.query('select business_hours from agents')).rows[0].business_hours,stored)
+  const rolledBack=(await db.query('select weekly from booking_settings where client_id=$1',[client])).rows[0].weekly
+  assert.equal(rolledBack['1'].open,true)
+  assert.equal(rolledBack['2'].open,false)
  globalThis.__operationsPrefFail=false
  assert.equal((await preferences(request({...body,answeringMode:'free-unlimited-calls'},'admin'))).status,400)
  assert.equal((await preferences(request({...body,clientId:''},'admin'))).status,400)

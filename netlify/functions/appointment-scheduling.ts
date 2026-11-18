@@ -2,6 +2,7 @@ import { schedulingReason } from '../../src/lib/appointmentScheduling'
 import { appointmentAccessIssue, objectValue, schedulingSettingsForDashboard, uuid, validDate, validStart, validateSchedulingSettings } from '../lib/appointmentScheduling'
 import { appointmentAgentReadiness, repairAppointmentAgent } from '../lib/appointmentAgentSetup'
 import { getStoredBusinessSchedule } from '../lib/employeeSchedule'
+import { bookingCalendarFromStoreHours } from '../lib/bookingStoreHours'
 import { retellScheduleSyncMessage } from '../lib/retell'
 import { json, requestAuth } from '../lib/requestAuth'
 
@@ -125,8 +126,26 @@ export default async (request: Request) => {
       return json(200, changed.data)
     }
 
+    // The client cannot supply a separate weekly calendar, date exceptions,
+    // time zone, or overlapping capacity. Store hours are authoritative.
+    const agent = await db.from('agents').select('business_hours').eq('client_id', clientId).maybeSingle()
+    if (agent.error) throw agent.error
     let settings
-    try { settings = validateSchedulingSettings(body.settings) } catch (error) {
+    try {
+      const requested = objectValue(body.settings)
+      const mode = requested.booking_hours_mode ?? 'store_hours'
+      if (mode !== 'store_hours' && mode !== 'anytime') {
+        return json(400, { error: 'Choose valid appointment booking hours.' })
+      }
+      const calendar = bookingCalendarFromStoreHours(getStoredBusinessSchedule(agent.data?.business_hours), mode)
+      if (!Object.values(calendar.weekly).some(day => day.open)) {
+        return json(400, { error: 'Set at least one open day in Store Hours or select Anytime booking.' })
+      }
+      if (typeof requested.hourly_limit !== 'number' || !Number.isInteger(requested.hourly_limit) || requested.hourly_limit < 1) {
+        return json(400, { error: 'Set a positive whole number of bookings per hour.' })
+      }
+      settings = { ...validateSchedulingSettings({ ...requested, ...calendar, capacity: null, enabled: true }), booking_hours_mode: mode }
+    } catch (error) {
       return json(400, { error: error instanceof Error ? error.message : 'Invalid booking settings.' })
     }
     const result = await db.rpc('recepta_save_scheduling_settings', {
