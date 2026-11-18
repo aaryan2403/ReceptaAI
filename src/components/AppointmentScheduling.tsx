@@ -166,20 +166,12 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
       <summary>{clientId ? 'Booking rules' : 'Appointment Scheduling Settings'}</summary>
       <fieldset className="appointmentSettings" disabled={busy}>
         <div className="appointmentGrid">
-          <label>When can the AI book appointments?
-            <select value={settings.booking_hours_mode ?? 'store_hours'} onChange={event =>
-              edit({ booking_hours_mode: event.target.value as 'store_hours' | 'anytime' })}>
-              <option value="store_hours">Only during store hours</option>
-              <option value="anytime">Anytime (24/7, even when the store is closed)</option>
-            </select>
-          </label>
           <label>Bookings per hour
             <input type="number" min="1" step="1" placeholder="Enter a limit" required
               value={settings.hourly_limit ?? ''} onChange={event =>
                 edit({ hourly_limit: event.target.value === '' ? null : Number(event.target.value) })} />
           </label>
         </div>
-        <p>The AI checks these booking rules automatically. Store hours are managed above in Store Hours &amp; AI Answering.</p>
         <div className="appointmentActions">
           <button type="button" className="btn btnPrimary" onClick={() => void save()}>Save booking rules</button>
           {data.activePro && !dirty && needsSync && <button type="button" className="btn btnOutline"
