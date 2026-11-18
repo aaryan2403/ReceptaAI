@@ -735,6 +735,11 @@ test('settings save registers signed Retell tools, preserves other functions and
     const anyTimeAnswer=await (await invoke('recepta_check_availability',{})).json()
     assert.equal(anyTimeAnswer.booking_hours_mode,'anytime')
     assert.equal((await db.query("select weekly->'6'->>'open' as open from booking_settings where client_id=$1",[tenant])).rows[0].open,'true')
+    const night=await (await invoke('recepta_check_availability',{
+      requested_date:futureDate(80),requested_time:'23:45',
+    })).json()
+    assert.equal(night.booking_hours_mode,'anytime')
+    assert.equal(night.available,true,'anytime bookings should cross local midnight')
 
     const store=await dashboard('','tenant','PUT',{settings:rules({hourly_limit:4,booking_hours_mode:'store_hours'})})
     assert.equal(store.status,200)
