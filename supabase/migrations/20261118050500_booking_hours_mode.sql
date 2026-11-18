@@ -57,7 +57,7 @@ end $$;
 -- Preserve 24/7 availability for appointments that cross local midnight.
 create or replace function public.recepta_scheduling_slot(p_settings public.booking_settings, p_start timestamptz,
   p_exclude uuid default null, p_duration integer default null, p_buffer integer default null, p_existing boolean default false)
-returns jsonb language plpgsql stable security invoker set search_path = '' as $
+returns jsonb language plpgsql stable security invoker set search_path = '' as $$
 declare
   v_wall timestamp := p_start at time zone p_settings.time_zone;
   v_date date := v_wall::date;
@@ -163,7 +163,7 @@ begin
     'hourly_remaining',case when v_limit is not null then greatest(v_limit-v_starts,0) end,
     'hourly_limit',v_limit,'simultaneous_limit',p_settings.capacity,
     'simultaneous_remaining',case when p_settings.capacity is not null then greatest(p_settings.capacity-v_peak,0) end);
-end $;
+end $$;
 
 -- Only server-side authorized handlers can prepare an unpaid test account.
 revoke all on function public.recepta_save_scheduling_settings(uuid, jsonb, boolean) from public, anon, authenticated;
