@@ -53,6 +53,7 @@ const migrationFiles = [
   '20261113064703_tenant_appointment_scheduling.sql',
   '20261116074255_appointment_setup_and_paid_access.sql',
   '20261116113500_internal_appointment_test_entitlement.sql',
+  '20261118050500_booking_hours_mode.sql',
 ]
 
 const pgUrl = process.env.RECEPTA_TEST_PG_URL
@@ -696,10 +697,10 @@ test('settings save registers signed Retell tools, preserves other functions and
     assert.ok(written.general_tools.slice(existing.length).every(tool=>tool.args_at_root===false && tool.url==='https://example.test/.netlify/functions/retell-appointment'))
     assert.match(written.general_prompt,/Manual transfer instructions/)
     assert.match(written.general_prompt,/Confirm a booking only when the booking tool returns success with status booked/)
-    assert.match(written.general_prompt,/Appointment booking follows the configured store opening hours for this business/)
+    assert.match(written.general_prompt,/Appointment booking follows the configured booking-hours choice/)
     assert.match(written.general_prompt,/Keep email policy/)
     assert.doesNotMatch(written.general_prompt,/Legacy calendar|Legacy request instructions/)
-    const changed=await (await dashboard('','tenant','PUT',{settings:rules({hourly_limit:0})})).json()
+    const changed=await (await dashboard('','tenant','PUT',{settings:rules({hourly_limit:1})})).json()
     assert.equal(changed.synced,true)
     assert.equal(versions,1)
     const retry = await dashboard('clientId='+tenant, 'admin', 'POST')
@@ -719,13 +720,25 @@ test('settings save registers signed Retell tools, preserves other functions and
     assert.equal(versions,2)
     assert.match(written.general_tools.find(tool=>tool.name==='recepta_book_appointment').url,/example.test\/\.netlify/)
     const stopped=await (await invoke('recepta_check_availability',{requested_date:date,requested_time:'09:00'})).json()
-    assert.equal(stopped.reason,'hourly_capacity_reached')
-    assert.deepEqual(stopped.alternatives,[])
+    assert.equal(typeof stopped.available,'boolean')
+    assert.equal(stopped.booking_hours_mode,'store_hours')
     const ignored=await dashboard('','tenant','PUT',{settings:rules({time_zone:'bad/zone',hourly_limit:4})})
     assert.equal(ignored.status,200)
     const effective=await ignored.json()
     assert.equal(effective.settings.time_zone,'America/Toronto')
     assert.equal(effective.settings.weekly['6'].open,false)
+
+    // Switching modes changes persisted availability and the exact mode the AI sees.
+    const anytime=await dashboard('','tenant','PUT',{settings:rules({hourly_limit:4,booking_hours_mode:'anytime'})})
+    assert.equal(anytime.status,200)
+    assert.equal((await anytime.json()).settings.booking_hours_mode,'anytime')
+    const anyTimeAnswer=await (await invoke('recepta_check_availability',{})).json()
+    assert.equal(anyTimeAnswer.booking_hours_mode,'anytime')
+    assert.equal((await db.query("select weekly->'6'->>'open' as open from booking_settings where client_id=$1",[tenant])).rows[0].open,'true')
+
+    const store=await dashboard('','tenant','PUT',{settings:rules({hourly_limit:4,booking_hours_mode:'store_hours'})})
+    assert.equal(store.status,200)
+    assert.equal((await store.json()).settings.weekly['6'].open,false)
     await db.query("update agents set business_hours=null where client_id=$1",[tenant])
     const unconfigured=await dashboard('','tenant','PUT',{settings:rules({hourly_limit:4})})
     assert.equal(unconfigured.status,400)
