@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { bookingDay, schedulingReason, type AppointmentSlot, type BookingDay, type SchedulingSettings } from '../lib/appointmentScheduling'
+import { schedulingReason, type AppointmentSlot, type SchedulingSettings } from '../lib/appointmentScheduling'
 import { capturedDetails, formatAppointmentPreference, type AppointmentPreference, type AppointmentStatus } from '../lib/appointmentRequests'
 import { supabase } from '../lib/supabase'
 import './AppointmentScheduling.css'
@@ -32,7 +32,6 @@ type DashboardData = {
   more: boolean
 }
 
-const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const filters = [
   { value: 'upcoming', label: 'Upcoming' }, { value: 'pending', label: 'Awaiting Confirmation' },
   { value: 'booked', label: 'All confirmed' }, { value: 'cancelled', label: 'Cancelled' },
@@ -41,7 +40,6 @@ const filters = [
 const statuses: Record<AppointmentStatus, string> = {
   pending: 'Awaiting Confirmation', booked: 'Confirmed', cancelled: 'Cancelled', completed: 'Completed',
 }
-const timeZones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : []
 const localDate = (zone: string) => new Intl.DateTimeFormat('sv-SE', { timeZone: zone, dateStyle: 'short' }).format(new Date())
 const appointmentTime = (date: string, zone: string) => new Intl.DateTimeFormat('en-CA', {
   timeZone: zone, dateStyle: 'medium', timeStyle: 'short',
@@ -70,47 +68,6 @@ function Minutes({ label, value, min, max, onChange }: {
   </label>
 }
 
-function DayRules({ title, day, onChange }: { title: string; day: BookingDay; onChange: (day: BookingDay) => void }) {
-  return <fieldset className="appointmentDay">
-    <legend>{title}</legend>
-    <label className="appointmentCheck">
-      <input type="checkbox" checked={day.open} onChange={event => onChange({ ...day, open: event.target.checked })} />
-      {day.open ? 'Open for booking' : 'Closed'}
-    </label>
-    {day.open && <>
-      <div className="appointmentGrid">
-        <label>Opens<input type="time" value={day.start} onChange={event => onChange({ ...day, start: event.target.value })} /></label>
-        <label>Closes
-          <input type="time" disabled={day.end === '24:00'} value={day.end === '24:00' ? '00:00' : day.end}
-            onChange={event => onChange({ ...day, end: event.target.value })} />
-        </label>
-      </div>
-      <label className="appointmentCheck"><input type="checkbox" checked={day.end === '24:00'}
-        onChange={event => onChange({ ...day, end: event.target.checked ? '24:00' : '17:00' })} /> Closes at midnight</label>
-      {day.blocks.map((block, index) => <div className="appointmentBlock" key={index}>
-        <label>From<input type="time" value={block.start} onChange={event => onChange({
-          ...day, blocks: day.blocks.map((item, i) => i === index ? { ...item, start: event.target.value } : item),
-        })} /></label>
-        <label>Until<input type="time" value={block.end === '24:00' ? '00:00' : block.end} onChange={event => onChange({
-          ...day, blocks: day.blocks.map((item, i) => i === index ? { ...item, end: event.target.value === '00:00' ? '24:00' : event.target.value } : item),
-        })} /></label>
-        <label>Max starts<input type="number" min="0" value={Number.isNaN(block.limit) ? '' : block.limit} onChange={event => onChange({
-          ...day, blocks: day.blocks.map((item, i) => i === index ? { ...item, limit: event.target.valueAsNumber } : item),
-        })} /></label>
-        <button type="button" className="btn btnOutline" onClick={() => onChange({
-          ...day, blocks: day.blocks.filter((_, i) => i !== index),
-        })}>Remove</button>
-      </div>)}
-      <button type="button" className="btn btnOutline" disabled={day.blocks.length >= 24} onClick={() => {
-        const start = day.blocks.at(-1)?.end ?? day.start
-        const endHour = Number(start.slice(0, 2)) + 1
-        const end = `${String(endHour).padStart(2,'0')}:00`
-        onChange({ ...day, blocks: [...day.blocks, start >= day.end ? { start: day.start, end: day.end, limit: 1 } : { start, end: end < day.end ? end : day.end, limit: 1 }] })
-      }}>Add capacity block</button>
-    </>}
-  </fieldset>
-}
-
 export default function AppointmentScheduling({ clientId }: { clientId?: string }) {
   const [settings, setSettings] = useState<SchedulingSettings | null>(null)
   const [data, setData] = useState<DashboardData | null>(null)
@@ -118,7 +75,6 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
   const [page, setPage] = useState(0)
   const [loadedFilter, setLoadedFilter] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
-  const [exceptionDate, setExceptionDate] = useState('')
   const [availabilityDate, setAvailabilityDate] = useState('')
   const [slots, setSlots] = useState<AppointmentSlot[] | null>(null)
   const [selected, setSelected] = useState<Appointment | null>(null)
@@ -176,7 +132,7 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
     if (result.reason && result.reason !== 'choose_a_time') setMessage(schedulingReason(result.reason))
   }
   const save = () => run(async () => {
-    if (Number.isNaN(settings.capacity)) throw new Error('Enter a simultaneous appointment limit or select Unlimited.')
+    if (!Number.isInteger(settings.hourly_limit) || settings.hourly_limit! < 1) throw new Error('Enter how many bookings per hour are allowed.')
     const result = await callScheduling<{ settings: SchedulingSettings; synced: boolean; accessIssue?: string }>(clientId, {}, 'PUT', { settings })
     setSettings(result.settings); setNeedsSync(!result.synced); setDirty(false); setSlots(null)
     setData(previous => previous && { ...previous, settings: result.settings })
@@ -218,56 +174,33 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
     {(clientId || data.activePro) && <details className="appointmentPanel" open={clientId ? true : undefined}>
       <summary>{clientId ? 'Booking rules' : 'Appointment Scheduling Settings'}</summary>
       <fieldset className="appointmentSettings" disabled={busy}>
+        <p>Appointments automatically follow this client's Store Hours &amp; AI Answering schedule. Closed days are not bookable. Change the hours in Store Hours, not here.</p>
         <div className="appointmentGrid">
-          <label>Booking mode
-            <select value={settings.enabled ? 'automatic' : 'request-only'}
-              onChange={event => edit({ enabled: event.target.value === 'automatic' })}>
-              <option value="request-only">Request only</option>
-              <option value="automatic">Automatically confirm available bookings</option>
-            </select>
+          <label>Bookings per hour
+            <input type="number" min="1" max="10000" step="1" placeholder="Enter a limit" required
+              value={settings.hourly_limit ?? ''} onChange={event =>
+                edit({ hourly_limit: event.target.value === '' ? null : Number(event.target.value) })} />
           </label>
-          <Minutes label="Appointment duration" min={5} max={480} value={settings.duration_minutes}
-            onChange={duration_minutes => edit({ duration_minutes })} />
-          <Minutes label="Booking start interval" min={1} max={1440} value={settings.start_interval_minutes}
-            onChange={start_interval_minutes => edit({ start_interval_minutes })} />
-          <Minutes label="Buffer after appointments" min={0} max={120} value={settings.buffer_minutes}
-            onChange={buffer_minutes => edit({ buffer_minutes })} />
-          <label>Booking timezone
-            <input list={`appointment-time-zones-${clientId || 'pro'}`} value={settings.time_zone} onChange={event => edit({ time_zone: event.target.value })} />
-          </label>
-          <datalist id={`appointment-time-zones-${clientId || 'pro'}`}><option value="UTC" />{timeZones.map(zone => <option key={zone} value={zone} />)}</datalist>
-          <label>Maximum simultaneous appointments<input type="number" min="1" disabled={settings.capacity === null}
-            value={settings.capacity === null || Number.isNaN(settings.capacity) ? '' : settings.capacity}
-            onChange={event => edit({ capacity: event.target.valueAsNumber })} /></label>
-          <label>Bookings per hour<input type="number" min="0" placeholder="Unlimited"
-            value={settings.hourly_limit ?? ''} onChange={event => edit({ hourly_limit: event.target.value === '' ? null : Number(event.target.value) })} /></label>
         </div>
-        <label className="appointmentCheck"><input type="checkbox" checked={settings.capacity === null}
-          onChange={event => edit({ capacity: event.target.checked ? null : 1 })} /> Unlimited overlapping appointments</label>
-        <h3>Weekly booking hours</h3>
-        <p>Capacity blocks override the default hourly limit for starts within the block. Use 0 to block new starts.</p>
-        <div className="appointmentWeek">
-          {dayNames.map((name, index) => {
-            const day = String(index + 1)
-            return <DayRules key={name} title={name} day={settings.weekly[day]}
-              onChange={rule => edit({ weekly: { ...settings.weekly, [day]: rule } })} />
-          })}
-        </div>
-        <h3>Date exceptions</h3>
-        <div className="appointmentActions">
-          <label>Exception date<input type="date" value={exceptionDate} onChange={event => setExceptionDate(event.target.value)} /></label>
-          <button type="button" className="btn btnOutline" disabled={!exceptionDate || Boolean(settings.exceptions[exceptionDate])}
-            onClick={() => {
-              edit({ exceptions: { ...settings.exceptions, [exceptionDate]: bookingDay() } })
-              setExceptionDate('')
-            }}>Add exception</button>
-        </div>
-        {Object.entries(settings.exceptions).sort(([a], [b]) => a.localeCompare(b)).map(([key, rule]) => <div key={key}>
-          <DayRules title={key} day={rule} onChange={day => edit({ exceptions: { ...settings.exceptions, [key]: day } })} />
-          <button type="button" className="btn btnOutline" onClick={() => edit({
-            exceptions: Object.fromEntries(Object.entries(settings.exceptions).filter(([day]) => day !== key)),
-          })}>Remove {key} exception</button>
-        </div>)}
+        <p>This limits how many new appointments can START in an hour. Appointments can overlap; duration is configured below.</p>
+        <details>
+          <summary>Advanced booking settings</summary>
+          <div className="appointmentGrid">
+            <label>Booking mode
+              <select value={settings.enabled ? 'automatic' : 'request-only'}
+                onChange={event => edit({ enabled: event.target.value === 'automatic' })}>
+                <option value="request-only">Request only</option>
+                <option value="automatic">Automatically confirm available bookings</option>
+              </select>
+            </label>
+            <Minutes label="Appointment duration" min={5} max={480} value={settings.duration_minutes}
+              onChange={duration_minutes => edit({ duration_minutes })} />
+            <Minutes label="Booking start interval" min={1} max={1440} value={settings.start_interval_minutes}
+              onChange={start_interval_minutes => edit({ start_interval_minutes })} />
+            <Minutes label="Buffer after appointments" min={0} max={120} value={settings.buffer_minutes}
+              onChange={buffer_minutes => edit({ buffer_minutes })} />
+          </div>
+        </details>
         <h3>Appointment emails</h3>
         <label className="appointmentCheck"><input type="checkbox" checked={settings.email_owner}
           onChange={event => edit({ email_owner: event.target.checked })} /> Email the business about requests and confirmed bookings</label>
