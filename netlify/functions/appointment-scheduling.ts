@@ -134,6 +134,9 @@ export default async (request: Request) => {
     try {
       const calendar = bookingCalendarFromStoreHours(getStoredBusinessSchedule(agent.data?.business_hours))
       const requested = objectValue(body.settings)
+      if (requested.enabled === true && !Object.values(calendar.weekly).some(day => day.open)) {
+        return json(400, { error: 'Set at least one open day in Store Hours before enabling bookings.' })
+      }
       if (requested.enabled === true && (requested.hourly_limit === null || requested.hourly_limit === undefined)) {
         return json(400, { error: 'Set the number of bookings per hour.' })
       }
