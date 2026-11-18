@@ -132,7 +132,7 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
     if (result.reason && result.reason !== 'choose_a_time') setMessage(schedulingReason(result.reason))
   }
   const save = () => run(async () => {
-    if (!Number.isInteger(settings.hourly_limit) || settings.hourly_limit! < 1) throw new Error('Enter how many bookings per hour are allowed.')
+    if (settings.hourly_limit === null || !Number.isInteger(settings.hourly_limit) || settings.hourly_limit < 1) throw new Error('Enter how many bookings per hour are allowed.')
     const result = await callScheduling<{ settings: SchedulingSettings; synced: boolean; accessIssue?: string }>(clientId, {}, 'PUT', { settings })
     setSettings(result.settings); setNeedsSync(!result.synced); setDirty(false); setSlots(null)
     setData(previous => previous && { ...previous, settings: result.settings })
