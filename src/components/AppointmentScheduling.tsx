@@ -59,15 +59,6 @@ const callScheduling = async <T,>(clientId?: string, params: Record<string, stri
   return data
 }
 
-function Minutes({ label, value, min, max, onChange }: {
-  label: string; value: number; min: number; max: number; onChange: (value: number) => void
-}) {
-  return <label>{label} (minutes)
-    <input type="number" min={min} max={max} step={1} value={Number.isNaN(value) ? '' : value}
-      onChange={event => onChange(event.target.valueAsNumber)} />
-  </label>
-}
-
 export default function AppointmentScheduling({ clientId }: { clientId?: string }) {
   const [settings, setSettings] = useState<SchedulingSettings | null>(null)
   const [data, setData] = useState<DashboardData | null>(null)
@@ -132,8 +123,8 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
     if (result.reason && result.reason !== 'choose_a_time') setMessage(schedulingReason(result.reason))
   }
   const save = () => run(async () => {
-    if (settings.enabled && (settings.hourly_limit === null || !Number.isInteger(settings.hourly_limit) || settings.hourly_limit < 1)) throw new Error('Enter how many bookings per hour are allowed.')
-    const result = await callScheduling<{ settings: SchedulingSettings; synced: boolean; accessIssue?: string }>(clientId, {}, 'PUT', { settings })
+    if (settings.hourly_limit === null || !Number.isInteger(settings.hourly_limit) || settings.hourly_limit < 1) throw new Error('Enter how many bookings per hour are allowed.')
+    const result = await callScheduling<{ settings: SchedulingSettings; synced: boolean; accessIssue?: string }>(clientId, {}, 'PUT', { settings: { ...settings, enabled: true } })
     setSettings(result.settings); setNeedsSync(!result.synced); setDirty(false); setSlots(null)
     setData(previous => previous && { ...previous, settings: result.settings })
     setMessage(result.synced ? 'Appointment settings saved and synced with Retell.' :
@@ -174,40 +165,23 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
     {(clientId || data.activePro) && <details className="appointmentPanel" open={clientId ? true : undefined}>
       <summary>{clientId ? 'Booking rules' : 'Appointment Scheduling Settings'}</summary>
       <fieldset className="appointmentSettings" disabled={busy}>
-        <p>Appointments automatically follow this client's Store Hours &amp; AI Answering schedule. Closed days are not bookable. Change the hours in Store Hours, not here.</p>
         <div className="appointmentGrid">
+          <label>When can the AI book appointments?
+            <select value={settings.booking_hours_mode ?? 'store_hours'} onChange={event =>
+              edit({ booking_hours_mode: event.target.value as 'store_hours' | 'anytime' })}>
+              <option value="store_hours">Only during store hours</option>
+              <option value="anytime">Anytime (24/7, even when the store is closed)</option>
+            </select>
+          </label>
           <label>Bookings per hour
-            <input type="number" min="1" max="10000" step="1" placeholder="Enter a limit" required
+            <input type="number" min="1" step="1" placeholder="Enter a limit" required
               value={settings.hourly_limit ?? ''} onChange={event =>
                 edit({ hourly_limit: event.target.value === '' ? null : Number(event.target.value) })} />
           </label>
         </div>
-        <p>This limits how many new appointments can START in an hour. Appointments can overlap; duration is configured below.</p>
-        <details>
-          <summary>Advanced booking settings</summary>
-          <div className="appointmentGrid">
-            <label>Booking mode
-              <select value={settings.enabled ? 'automatic' : 'request-only'}
-                onChange={event => edit({ enabled: event.target.value === 'automatic' })}>
-                <option value="request-only">Request only</option>
-                <option value="automatic">Automatically confirm available bookings</option>
-              </select>
-            </label>
-            <Minutes label="Appointment duration" min={5} max={480} value={settings.duration_minutes}
-              onChange={duration_minutes => edit({ duration_minutes })} />
-            <Minutes label="Booking start interval" min={1} max={1440} value={settings.start_interval_minutes}
-              onChange={start_interval_minutes => edit({ start_interval_minutes })} />
-            <Minutes label="Buffer after appointments" min={0} max={120} value={settings.buffer_minutes}
-              onChange={buffer_minutes => edit({ buffer_minutes })} />
-          </div>
-        </details>
-        <h3>Appointment emails</h3>
-        <label className="appointmentCheck"><input type="checkbox" checked={settings.email_owner}
-          onChange={event => edit({ email_owner: event.target.checked })} /> Email the business about requests and confirmed bookings</label>
-        <label className="appointmentCheck"><input type="checkbox" checked={settings.email_customer}
-          onChange={event => edit({ email_customer: event.target.checked })} /> Email callers who agree to receive appointment updates</label>
+        <p>The AI checks these booking rules automatically. Store hours are managed above in Store Hours &amp; AI Answering.</p>
         <div className="appointmentActions">
-          <button type="button" className="btn btnPrimary" onClick={() => void save()}>Save appointment settings</button>
+          <button type="button" className="btn btnPrimary" onClick={() => void save()}>Save booking rules</button>
           {data.activePro && !dirty && needsSync && <button type="button" className="btn btnOutline"
             onClick={() => void retrySync()}>Retry Retell sync</button>}
         </div>
