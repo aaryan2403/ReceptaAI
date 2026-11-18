@@ -73,6 +73,12 @@ after(async () => { await db.close(); await native?.end() })
 const detail = { customer_name: 'Test Caller', customer_phone: '+14165550123', customer_email: 'buyer@example.test', email_consent: true }
 const allDays = () => Object.fromEntries(Array.from({ length: 7 }, (_, index) => [String(index + 1), bookingDay(true)]))
 const rules = (options = {}) => ({ ...defaultSchedulingSettings(), enabled: true, weekly: allDays(), ...options })
+const storeHours = JSON.stringify({
+  mode:'custom', answeringMode:'24/7', timeZone:'America/Toronto',
+  hours:['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((day,index)=>({
+    day,open:index<5,start:'09:00',end:'17:00',
+  })),
+})
 const futureDate = (days = 14) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10)
 const localStart = async (date, time, zone = 'America/Toronto') =>
   (await db.query("select public.recepta_schedule_stamp(t,$3) as stamp from public.recepta_wall_time($1::date+$2::time,$3) t order by t", [date, time, zone])).rows[0]?.stamp
@@ -620,6 +626,7 @@ test('internal appointment grants are admin-only, agent-bound, limited, auditabl
 test('admins can prepare an unpaid account while customers and callers still require paid Pro', async () => {
   if (!dashboardHandler) await initializeHandlers()
   await db.query("update subscriptions set current_period_end=now()-interval '1 hour' where client_id=$1",[tenant])
+  await db.query("update agents set business_hours=$2 where client_id=$1",[tenant,storeHours])
   try {
     const settings=rules({duration_minutes:37,start_interval_minutes:20,buffer_minutes:13,capacity:5,hourly_limit:7})
     const customer=await dashboard('','tenant','PUT',{settings})
@@ -631,7 +638,11 @@ test('admins can prepare an unpaid account while customers and callers still req
     const prepared=await prep.json()
     assert.equal(prepared.synced,false)
     assert.equal(prepared.settings.duration_minutes,37)
-    assert.equal(prepared.settings.capacity,5)
+    assert.equal(prepared.settings.capacity,null)
+    assert.equal(prepared.settings.hourly_limit,7)
+    assert.equal(prepared.settings.weekly['1'].open,true)
+    assert.equal(prepared.settings.weekly['6'].open,false)
+    assert.deepEqual(prepared.settings.exceptions,{})
     assert.equal((await invoke('recepta_check_availability',{})).status,403)
     await assert.rejects(save(tenant,settings),{code:'42501'})
     assert.equal((await dashboard('clientId='+tenant,'admin','POST')).status,403)
@@ -640,6 +651,7 @@ test('admins can prepare an unpaid account while customers and callers still req
     assert.equal(grants.prepare,false)
   } finally {
     await db.query("update subscriptions set current_period_end=now()+interval '1 month' where client_id=$1",[tenant])
+    await db.query("update agents set business_hours=null where client_id=$1",[tenant])
   }
 })
 
@@ -671,8 +683,9 @@ test('settings save registers signed Retell tools, preserves other functions and
     return Response.json({})
   }
   try {
+    await db.query("update agents set business_hours=$2 where client_id=$1",[tenant,storeHours])
     const date=futureDate(62)
-    const response=await (await dashboard('','tenant','PUT',{settings:rules()})).json()
+    const response=await (await dashboard('','tenant','PUT',{settings:rules({hourly_limit:4})})).json()
     assert.equal(response.synced,true,response.settings?.sync_error)
     assert.deepEqual(written.general_tools.slice(0,existing.length),existing)
     assert.equal(written.default_dynamic_variables.business,'sample')
@@ -707,11 +720,19 @@ test('settings save registers signed Retell tools, preserves other functions and
     const stopped=await (await invoke('recepta_check_availability',{requested_date:date,requested_time:'09:00'})).json()
     assert.equal(stopped.reason,'hourly_capacity_reached')
     assert.deepEqual(stopped.alternatives,[])
-    const invalid=await dashboard('','tenant','PUT',{settings:rules({time_zone:'bad/zone'})})
-    assert.equal(invalid.status,400)
+    const ignored=await dashboard('','tenant','PUT',{settings:rules({time_zone:'bad/zone',hourly_limit:4})})
+    assert.equal(ignored.status,200)
+    const effective=await ignored.json()
+    assert.equal(effective.settings.time_zone,'America/Toronto')
+    assert.equal(effective.settings.weekly['6'].open,false)
+    await db.query("update agents set business_hours=null where client_id=$1",[tenant])
+    const unconfigured=await dashboard('','tenant','PUT',{settings:rules({hourly_limit:4})})
+    assert.equal(unconfigured.status,400)
+    assert.match((await unconfigured.json()).error,/Configure the client/)
   } finally {
     globalThis.fetch=originalFetch
     if (originalUrl === undefined) delete process.env.URL
     else process.env.URL=originalUrl
+    await db.query("update agents set business_hours=null where client_id=$1",[tenant])
   }
 })
