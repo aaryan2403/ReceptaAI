@@ -696,7 +696,7 @@ test('settings save registers signed Retell tools, preserves other functions and
     assert.ok(written.general_tools.slice(existing.length).every(tool=>tool.args_at_root===false && tool.url==='https://example.test/.netlify/functions/retell-appointment'))
     assert.match(written.general_prompt,/Manual transfer instructions/)
     assert.match(written.general_prompt,/Confirm a booking only when the booking tool returns success with status booked/)
-    assert.match(written.general_prompt,/Appointment booking follows the business's configured store opening hours/)
+    assert.match(written.general_prompt,/Appointment booking follows the configured store opening hours for this business/)
     assert.match(written.general_prompt,/Keep email policy/)
     assert.doesNotMatch(written.general_prompt,/Legacy calendar|Legacy request instructions/)
     const changed=await (await dashboard('','tenant','PUT',{settings:rules({hourly_limit:0})})).json()
