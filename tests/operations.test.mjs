@@ -119,7 +119,8 @@ test.before(async()=>{
  create table agents(client_id uuid primary key references clients on delete cascade,agent_name text,retell_agent_id text,status text,phone_number text,business_hours text);
  create table booking_settings(client_id uuid primary key references clients on delete cascade,
     weekly jsonb not null default '{}'::jsonb, exceptions jsonb not null default '{}'::jsonb,
-    capacity integer, hourly_limit integer, time_zone text, updated_at timestamptz not null default now());
+    capacity integer, hourly_limit integer, time_zone text,
+    booking_hours_mode text not null default 'store_hours', updated_at timestamptz not null default now());
  create table agent_phone_numbers(client_id uuid references clients on delete cascade,phone_number text,source text,is_primary boolean);
  create table calls(id uuid primary key default gen_random_uuid(),client_id uuid references clients on delete cascade,retell_call_id text unique,call_status text,started_at timestamptz default now(),ended_at timestamptz,duration_seconds integer default 0,caller_name text,caller_number text,transcript text,recording_url text,summary text,outcome text,user_sentiment text,call_successful boolean,appointment_booked boolean default false,retell_agent_id text,disconnection_reason text,updated_at timestamptz default now());
  create table employees(id uuid,client_id uuid,name text,role text,is_active boolean);create table employee_schedules(employee_id uuid,day_of_week integer,is_working boolean,start_time text,end_time text);
