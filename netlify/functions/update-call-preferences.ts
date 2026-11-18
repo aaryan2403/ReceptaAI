@@ -1,5 +1,6 @@
 import { configuredRetellKey } from '../lib/emailEnvironment'
 import { getAnsweringMode } from '../lib/businessHours'
+import { bookingCalendarFromStoreHours } from '../lib/bookingStoreHours'
 import { requestAuth } from '../lib/requestAuth'
 import {
   normalizeEmailNotificationsEnabled,
@@ -187,10 +188,49 @@ export default async (request: Request) => {
 
   const businessHours = JSON.stringify(schedule)
 
+  // Keep the database booking engine on the SAME schedule used by the
+  // receptionist, for every tenant. A separate booking week must never
+  // silently permit times when the business is closed.
+  const existingRules = await supabaseAdmin.from('booking_settings')
+    .select('weekly, exceptions, capacity, time_zone, updated_at')
+    .eq('client_id', clientId).maybeSingle()
+  if (existingRules.error) return json(500, { error: 'Could not load appointment booking rules.' })
+  let calendar: ReturnType<typeof bookingCalendarFromStoreHours> | null = null
+  if (existingRules.data) {
+    try { calendar = bookingCalendarFromStoreHours(schedule) }
+    catch (error) {
+      return json(400, { error: error instanceof Error ? error.message : 'Invalid store hours for booking.' })
+    }
+  }
+
+  const restoreBookingRules = async () => {
+    if (!existingRules.data) return
+    const { error } = await supabaseAdmin.from('booking_settings').update({
+      weekly: existingRules.data.weekly, exceptions: existingRules.data.exceptions,
+      capacity: existingRules.data.capacity, time_zone: existingRules.data.time_zone,
+      updated_at: new Date().toISOString(),
+    }).eq('client_id', clientId)
+    if (error) console.error('Could not restore previous appointment rules', error.code)
+  }
+
+  // Save the matching booking rules first; if anything later fails, roll them
+  // back along with the existing agent-hours rollback path.
+  if (calendar) {
+    const updated = await supabaseAdmin.from('booking_settings').update({
+      ...calendar, capacity: null, updated_at: new Date().toISOString(),
+    }).eq('client_id', clientId).eq('updated_at', existingRules.data!.updated_at)
+      .select('client_id').maybeSingle()
+    if (updated.error) return json(500, { error: 'Could not align bookings to store hours.' })
+    if (!updated.data) return json(409, { error: 'Appointment settings changed. Reload and save again.' })
+  }
+
   // Admins can prepare store hours before a provider agent has been assigned.
   if (!retellAgentId) {
     const saved = await supabaseAdmin.from('agents').update({ business_hours: businessHours }).eq('client_id', clientId)
-    if (saved.error) return json(500, { error: 'Could not save store hours.' })
+    if (saved.error) {
+      await restoreBookingRules()
+      return json(500, { error: 'Could not save store hours.' })
+    }
     return json(200, { scheduleMode, answeringMode, scheduleEnabled: scheduleMode === 'custom', businessHours,
       timeZone: schedule.timeZone, retellSynced: false, employeeScheduleSynced: false })
   }
@@ -258,6 +298,7 @@ export default async (request: Request) => {
     .eq('client_id', clientId)
 
   if (updateError) {
+    await restoreBookingRules()
     return json(500, {
       error: 'Could not save the availability setting.',
     })
@@ -293,6 +334,7 @@ export default async (request: Request) => {
     if (rollbackError) {
       console.error('Schedule rollback failed:', rollbackError)
     }
+    await restoreBookingRules()
 
     console.error('Retell schedule sync failed:', error)
 
