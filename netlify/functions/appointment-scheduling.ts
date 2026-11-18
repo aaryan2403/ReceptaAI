@@ -132,15 +132,19 @@ export default async (request: Request) => {
     if (agent.error) throw agent.error
     let settings
     try {
-      const calendar = bookingCalendarFromStoreHours(getStoredBusinessSchedule(agent.data?.business_hours))
       const requested = objectValue(body.settings)
-      if (requested.enabled === true && !Object.values(calendar.weekly).some(day => day.open)) {
-        return json(400, { error: 'Set at least one open day in Store Hours before enabling bookings.' })
+      const mode = requested.booking_hours_mode ?? 'store_hours'
+      if (mode !== 'store_hours' && mode !== 'anytime') {
+        return json(400, { error: 'Choose valid appointment booking hours.' })
       }
-      if (requested.enabled === true && (requested.hourly_limit === null || requested.hourly_limit === undefined)) {
-        return json(400, { error: 'Set the number of bookings per hour.' })
+      const calendar = bookingCalendarFromStoreHours(getStoredBusinessSchedule(agent.data?.business_hours), mode)
+      if (!Object.values(calendar.weekly).some(day => day.open)) {
+        return json(400, { error: 'Set at least one open day in Store Hours or select Anytime booking.' })
       }
-      settings = validateSchedulingSettings({ ...requested, ...calendar, capacity: null })
+      if (typeof requested.hourly_limit !== 'number' || !Number.isInteger(requested.hourly_limit) || requested.hourly_limit < 1) {
+        return json(400, { error: 'Set a positive whole number of bookings per hour.' })
+      }
+      settings = { ...validateSchedulingSettings({ ...requested, ...calendar, capacity: null, enabled: true }), booking_hours_mode: mode }
     } catch (error) {
       return json(400, { error: error instanceof Error ? error.message : 'Invalid booking settings.' })
     }
