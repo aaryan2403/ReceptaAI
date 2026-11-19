@@ -1,0 +1,144 @@
+.callbackQueue {
+  margin-bottom: 24px;
+  padding: 20px clamp(14px, 2.4vw, 28px);
+  border: 1px solid #22372d;
+  border-radius: 20px;
+  background: #0c1913;
+  color: #f2f8f4;
+}
+
+.callbackQueueHeader,
+.callbackQueueTitle,
+.callbackQueueRow,
+.callbackQueueActions,
+.callbackQueueMeta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.callbackQueueHeader,
+.callbackQueueRow {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.callbackQueueTitle {
+  align-items: flex-start;
+}
+
+.callbackQueueTitle > svg {
+  flex: none;
+  margin-top: 4px;
+  color: #65e6a8;
+}
+
+.callbackQueueTitle h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.35;
+}
+
+.callbackQueueTitle p,
+.callbackQueueMeta,
+.callbackQueueMessage {
+  margin: 4px 0 0;
+  color: #aabdb2;
+  font-size: .875rem;
+}
+
+.callbackQueueCount {
+  padding: 4px 10px;
+  border: 1px solid #33493e;
+  border-radius: 999px;
+  color: #c2d3c8;
+  font-size: .8125rem;
+  white-space: nowrap;
+}
+
+.callbackQueueCount[data-pending="true"] {
+  background: #302717;
+  border-color: #66502b;
+  color: #ffe0a0;
+}
+
+.callbackQueueList {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.callbackQueueRow {
+  padding: 12px 0;
+  border-top: 1px solid #22372d;
+}
+
+.callbackQueueMeta {
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+
+.callbackQueueMeta time {
+  font-variant-numeric: tabular-nums;
+}
+
+.callbackQueueActions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.callbackQueueCall,
+.callbackQueueActions select,
+.callbackQueueToggle {
+  padding: 7px 10px;
+  border: 1px solid #33493e;
+  border-radius: 8px;
+  background: #12251b;
+  color: #e4f4ea;
+  font: inherit;
+  font-size: .875rem;
+}
+
+.callbackQueueCall {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #a1f4c4;
+  text-decoration: none;
+}
+
+.callbackQueueActions select {
+  color-scheme: dark;
+}
+
+.callbackQueueActions select[data-status="pending"] {
+  color: #ffe0a0;
+}
+
+.callbackQueueActions select:disabled {
+  opacity: .65;
+}
+
+.callbackQueueCall:hover,
+.callbackQueueToggle:hover {
+  background: #1b3829;
+}
+
+.callbackQueue :is(a, button, select):focus-visible {
+  outline: 2px solid #65e6a8;
+  outline-offset: 3px;
+}
+
+.callbackQueueToggle {
+  margin-top: 8px;
+  cursor: pointer;
+}
+
+.callbackQueueMessage,
+.callbackQueueError {
+  margin: 14px 0 0;
+}
+
+.callbackQueueError {
+  color: #ffb7b7;
+}
