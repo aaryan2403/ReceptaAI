@@ -1,4 +1,4 @@
-import { configuredRetellKey } from '../lib/emailEnvironment'
+import { serviceDeployment } from '../lib/serviceAccess'
 import { createClient } from '@supabase/supabase-js'
 import {
   formatAppointmentFields,
@@ -38,8 +38,8 @@ export default async (request: Request) => {
     process.env.SUPABASE_URL
   const supabaseSecretKey =
     process.env.SUPABASE_SECRET_KEY
-  const retellApiKey =
-    configuredRetellKey()
+  const { isolated, key: retellApiKey } = serviceDeployment(request)
+  if (!isolated) return json(503, { error: 'This preview must use Recepta Staging.' })
 
   if (
     !supabaseUrl ||
@@ -120,9 +120,7 @@ export default async (request: Request) => {
   let agent: {
     client_id: string
     retell_agent_id: string | null
-    phone_number: string | null
     business_hours: string | null
-    status: string | null
   } | null = null
 
   if (toNumber) {
@@ -143,7 +141,7 @@ export default async (request: Request) => {
       const { data, error } = await supabaseAdmin
         .from('agents')
         .select(
-          'client_id, retell_agent_id, phone_number, business_hours, status'
+          'client_id, retell_agent_id, business_hours'
         )
         .eq('client_id', assignedPhone.client_id)
         .maybeSingle()
@@ -161,7 +159,7 @@ export default async (request: Request) => {
       const { data, error } = await supabaseAdmin
         .from('agents')
         .select(
-          'client_id, retell_agent_id, phone_number, business_hours, status'
+          'client_id, retell_agent_id, business_hours'
         )
         .eq('phone_number', toNumber)
         .maybeSingle()
@@ -174,25 +172,6 @@ export default async (request: Request) => {
 
       agent = data
     }
-  }
-
-  if (!agent && requestedAgentId) {
-    const { data, error } =
-      await supabaseAdmin
-        .from('agents')
-        .select(
-          'client_id, retell_agent_id, phone_number, business_hours, status'
-        )
-        .eq('retell_agent_id', requestedAgentId)
-        .maybeSingle()
-
-    if (error) {
-      return json(500, {
-        error: 'Could not resolve Retell agent.',
-      })
-    }
-
-    agent = data
   }
 
   const decline = async (reason: 'agent_unavailable' | 'outside_answering_hours' | 'allowance_unavailable' | 'admission_unavailable') => {
@@ -209,12 +188,7 @@ export default async (request: Request) => {
     return json(200, { call_inbound: { reject:true } })
   }
 
-  // The designated founder account may receive calls while its subscription
-  // remains pending. This does not grant admission by itself: the reservation
-  // RPC separately requires an active, agent-bound founder grant and caps usage.
-  const founderSetup = agent?.client_id === '72e5b432-2e97-4882-a30d-7c9f756c2fc2' &&
-    agent.status === 'setup'
-  if (!agent?.retell_agent_id || (!['active', 'live'].includes(agent.status ?? '') && !founderSetup)) {
+  if (!agent?.retell_agent_id || (requestedAgentId && requestedAgentId !== agent.retell_agent_id)) {
     return decline('agent_unavailable')
   }
 

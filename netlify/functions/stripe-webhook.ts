@@ -1,5 +1,4 @@
 import { configuredStripeKey } from '../lib/subscriptionConfiguration'
-import { configuredRetellKey, isReceptaPreview } from '../lib/emailEnvironment'
 
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
@@ -13,6 +12,8 @@ import { normalizePhonePurchase } from '../lib/phoneNumbers'
 import { getInvoicePeriod, getInvoiceSubscriptionId } from '../lib/billingPeriods'
 import { deliverBillingNotices, getBillingUsage, queueBillingNotice } from '../lib/billingNotifications'
 import { isDeletingClient } from '../lib/requestAuth'
+import { repairAppointmentAgent } from '../lib/appointmentAgentSetup'
+import { loadServiceAccess, serviceDeployment } from '../lib/serviceAccess'
 
 export default async (request: Request) => {
   if (request.method !== 'POST') {
@@ -25,16 +26,18 @@ export default async (request: Request) => {
     )
   }
 
+  const deployment = serviceDeployment(request)
+  if (!deployment.isolated) return new Response('This preview must use Recepta Staging.', { status: 503 })
+
   const supabaseUrl =
     process.env.SUPABASE_URL
   const supabaseSecretKey =
     process.env.SUPABASE_SECRET_KEY
   const stripeSecretKey =
-    configuredStripeKey()
+    configuredStripeKey(deployment.preview)
   const webhookSecret =
     process.env.STRIPE_WEBHOOK_SECRET
-  const retellApiKey =
-    configuredRetellKey()
+  const retellApiKey = deployment.key
 
   if (
     !supabaseUrl ||
@@ -82,7 +85,7 @@ export default async (request: Request) => {
         webhookSecret
       )
 
-    if (isReceptaPreview() && event.livemode) {
+    if (deployment.preview && event.livemode) {
       return new Response('Live Stripe events are disabled in previews.', { status: 400 })
     }
 
@@ -412,6 +415,17 @@ export default async (request: Request) => {
           if (agentRestore.error) {
             throw agentRestore.error
           }
+
+          if (assignedAgent?.retell_agent_id) {
+            try {
+              const access = await loadServiceAccess(supabaseAdmin, clientId)
+              if (access.plan === 'Recepta Pro') await repairAppointmentAgent(supabaseAdmin, clientId, deployment)
+            } catch (error) {
+              // Billing is already confirmed. The admin readiness check can retry
+              // an unavailable Retell installation without replaying payment.
+              console.error('Paid Pro appointment tools need synchronization:', error)
+            }
+          }
         }
       }
     }
@@ -597,7 +611,7 @@ export default async (request: Request) => {
           (row) => row.phone_number
         )
 
-        if (assignedAgent?.retell_agent_id) {
+        if (assignedAgent?.retell_agent_id && !(await loadServiceAccess(supabaseAdmin, clientId)).grant_id) {
           if (!retellApiKey) {
             throw new Error(
               'RETELL_API_KEY is missing.'
@@ -616,51 +630,8 @@ export default async (request: Request) => {
           })
         }
 
-        const purchasedRows = phoneRows.filter(
-          (row) => row.source === 'retell'
-        )
-
-        if (purchasedRows.length > 0) {
-          if (!retellApiKey) {
-            throw new Error('RETELL_API_KEY is missing.')
-          }
-
-          for (const row of purchasedRows) {
-            await releaseRetellPhoneNumber({
-              apiKey: retellApiKey,
-              phoneNumber: row.phone_number,
-            })
-
-            const { error: deleteNumberError } = await supabaseAdmin
-              .from('agent_phone_numbers')
-              .delete()
-              .eq('client_id', clientId)
-              .eq('phone_number', row.phone_number)
-
-            if (deleteNumberError) throw deleteNumberError
-          }
-        }
-
-        const remainingNumbers = phoneRows
-          .filter((row) => row.source !== 'retell')
-          .map((row) => row.phone_number)
-
-        if (remainingNumbers[0]) {
-          const { error: primaryRowError } = await supabaseAdmin
-            .from('agent_phone_numbers')
-            .update({ is_primary: true })
-            .eq('client_id', clientId)
-            .eq('phone_number', remainingNumbers[0])
-
-          if (primaryRowError) throw primaryRowError
-        }
-
-        const { error: primaryPhoneError } = await supabaseAdmin
-          .from('agents')
-          .update({ phone_number: remainingNumbers[0] ?? null })
-          .eq('client_id', clientId)
-
-        if (primaryPhoneError) throw primaryPhoneError
+        // Keep existing phone inventory on cancellation. Automatic admission is
+        // blocked by billing; an authorized manual grant may still use this line.
       }
     }
 

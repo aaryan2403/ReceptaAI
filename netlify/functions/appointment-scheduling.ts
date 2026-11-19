@@ -1,9 +1,10 @@
 import { schedulingReason } from '../../src/lib/appointmentScheduling'
-import { appointmentAccessIssue, objectValue, schedulingSettingsForDashboard, uuid, validDate, validStart, validateSchedulingSettings } from '../lib/appointmentScheduling'
+import { objectValue, schedulingSettingsForDashboard, uuid, validDate, validStart, validateSchedulingSettings } from '../lib/appointmentScheduling'
 import { appointmentAgentReadiness, repairAppointmentAgent } from '../lib/appointmentAgentSetup'
 import { getStoredBusinessSchedule } from '../lib/employeeSchedule'
 import { retellScheduleSyncMessage } from '../lib/retell'
 import { json, requestAuth } from '../lib/requestAuth'
+import { appointmentServiceIssue, loadServiceAccess, serviceDeployment } from '../lib/serviceAccess'
 
 const PAGE_SIZE = 25
 const statusFilters = ['upcoming', 'pending', 'booked', 'cancelled', 'completed']
@@ -14,22 +15,26 @@ export default async (request: Request) => {
   const target = url.searchParams.get('clientId')
   if (target !== null && !uuid(target)) return json(400, { error: 'A valid client is required.' })
 
+  const deployment = serviceDeployment(request)
+  if (!deployment.isolated) return json(503, { error: 'This preview must use Recepta Staging.' })
+
   try {
     const auth = await requestAuth(request, target !== null)
     if (auth.response) return auth.response
     const { db, user } = auth
     const clientId = target ?? user.id
-    const [client, accessIssue] = await Promise.all([
+    const [client, access] = await Promise.all([
       db.from('clients').select('id, deletion_pending').eq('id', clientId).maybeSingle(),
-      appointmentAccessIssue(db, clientId),
+      loadServiceAccess(db, clientId),
     ])
     if (client.error) throw client.error
     if (!client.data) return json(404, { error: 'Client not found.' })
     if (client.data.deletion_pending) return json(409, { error: 'This account is awaiting deletion.' })
+    const accessIssue = appointmentServiceIssue(access)
     const activePro = accessIssue === null
     if (request.method === 'GET' && url.searchParams.get('readiness') === '1') {
       if (target === null) return json(403, { error: 'Admin access required.' })
-      return json(200, await appointmentAgentReadiness(db, clientId, accessIssue))
+      return json(200, await appointmentAgentReadiness(db, clientId, access, deployment))
     }
     if (!activePro && (target === null || ['POST', 'PATCH'].includes(request.method))) {
       return json(403, { error: accessIssue })
@@ -84,7 +89,7 @@ export default async (request: Request) => {
       const rules = await db.from('booking_settings').select('updated_at').eq('client_id', clientId).maybeSingle()
       if (rules.error) throw rules.error
       try {
-        const result = await repairAppointmentAgent(db, clientId)
+        const result = await repairAppointmentAgent(db, clientId, deployment)
         if (rules.data) {
           const saved = await db.from('booking_settings').update({
             sync_agent_id: result.agentId, synced_at: new Date().toISOString(), sync_error: null,
@@ -139,7 +144,7 @@ export default async (request: Request) => {
 
     let agentId: string | null = null
     try {
-      const result = await repairAppointmentAgent(db, clientId)
+      const result = await repairAppointmentAgent(db, clientId, deployment)
       agentId = result.agentId
       const syncedAt = new Date().toISOString()
       const sync = await db.from('booking_settings').update({ sync_agent_id: agentId, synced_at: syncedAt, sync_error: null })

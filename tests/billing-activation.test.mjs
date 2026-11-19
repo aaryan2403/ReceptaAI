@@ -63,6 +63,7 @@ globalThis.__paymentDb = {
     try {
       if (name === 'configure_recepta_subscription') return { data: (await db.query('select * from configure_recepta_subscription($1,$2)', [args.p_client_id, args.p_configuration])).rows, error: null }
       if (name === 'activate_recepta_checkout') return { data: (await db.query('select * from activate_recepta_checkout($1,$2,$3,$4,$5,$6,$7)', [args.p_client_id, args.p_stripe_subscription_id, args.p_customer_id, args.p_period_start, args.p_period_end, args.p_configuration, args.p_replaces_subscription_id])).rows, error: null }
+      if (name === 'recepta_service_access') return { data: (await db.query('select recepta_service_access($1) access', [args.p_client])).rows[0].access, error: null }
       if (name === 'recepta_period_usage') return { data: (await db.query('select recepta_period_usage($1,$2,$3) used', [args.p_client_id, args.p_period_start, args.p_period_end])).rows[0].used, error: null }
       throw new Error('Unexpected RPC: ' + name)
     } catch (error) { return { data: null, error: { message: error.message } } }
@@ -84,9 +85,17 @@ globalThis.__paymentStripe = class {
 const compile = async file => {
   const output = await build({ entryPoints: [file], bundle: true, platform: 'node', format: 'esm', write: false, plugins: [{ name: 'synthetic-services', setup(b) {
     b.onResolve({ filter: /^(stripe|@supabase\/supabase-js)$/ }, a => ({ path: a.path, namespace: 'mock' }))
-    b.onResolve({ filter: /^\.\.\/lib\/retell$/ }, () => ({ path: 'retell', namespace: 'mock' }))
+    b.onResolve({ filter: /^(?:\.\.\/lib\/retell|\.\/retell)$/ }, () => ({ path: 'retell', namespace: 'mock' }))
     b.onLoad({ filter: /.*/, namespace: 'mock' }, a => ({ loader: 'js', contents: a.path === 'stripe' ? 'export default globalThis.__paymentStripe' : a.path === 'retell' ? `
       export const assertRetellAgentAvailable = async () => {};
+      export const getPublishedRetellAgent = async () => {};
+      export const syncManagedRetellInboundRoute = async () => {};
+      export const inspectRetellAppointments = async () => {};
+      export const inspectRetellPhoneRoute = async () => {};
+      export const normalizeE164 = value => value;
+      export const receptaRetellOrigin = () => 'https://recepta.test';
+      export class RetellSetupError extends Error {}
+      export const retellScheduleSyncMessage = error => error.message;
       export const normalizeEmailNotificationsEnabled = value => value !== false;
       export const normalizeSmsNotificationsEnabled = value => value === true;
       export const normalizeAppointmentFields = value => Array.isArray(value) ? value : [];
@@ -133,7 +142,7 @@ test.before(async () => {
   await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
     alter default privileges in schema public grant all on tables to anon,authenticated,service_role;
     alter default privileges in schema public grant execute on functions to anon,authenticated,service_role;
-    create table clients(id uuid primary key,company_name text,contact_email text,status text,role text);
+    create table clients(id uuid primary key,company_name text,contact_email text,status text,role text,deletion_pending boolean not null default false);
     create table subscriptions(id uuid primary key default gen_random_uuid(),client_id uuid unique references clients,
       plan_name text,monthly_price numeric,monthly_minutes integer default 300,ai_model_id text,
       pii_redaction_enabled boolean default false,safety_guardrails_enabled boolean default false,extra_phone_numbers integer default 0,
@@ -145,7 +154,12 @@ test.before(async () => {
     create table employee_schedules(employee_id uuid,day_of_week integer,is_working boolean,start_time text,end_time text);
     create table ai_models(id text,customer_price_per_minute_cad numeric,is_active boolean,display_name text);
     insert into ai_models values('essential',0.117,true,'Essential'),('premium',0.217,true,'Premium');`)
-  for (const path of ['supabase_add_minute_enforcement.sql','supabase_add_billing_notifications.sql','supabase/migrations/20261014192813_align_minute_enforcement.sql','supabase/migrations/20261014201359_demo_only_call_limit.sql','supabase/migrations/20261016145008_payment_controlled_activation.sql']) await db.exec(await readFile(path,'utf8'))
+  for (const path of ['supabase_add_minute_enforcement.sql','supabase_add_billing_notifications.sql','supabase/migrations/20261014192813_align_minute_enforcement.sql','supabase/migrations/20261014201359_demo_only_call_limit.sql','supabase/migrations/20261016145008_payment_controlled_activation.sql',
+    'supabase/migrations/20261116113500_internal_appointment_test_entitlement.sql',
+    'supabase/migrations/20261117071812_owner_appointment_booking_access.sql',
+    'supabase/migrations/20261117083000_founder_metered_inbound_calls.sql',
+    'supabase/migrations/20261119185856_admin_service_access.sql',
+    'supabase/migrations/20261119204250_admin_client_status.sql']) await db.exec(await readFile(path,'utf8'))
 })
 test.after(async () => { await db.close() })
 
@@ -231,6 +245,7 @@ test('unpaid Checkout stays pending; verified paid Checkout applies exactly once
   const paid = await sub()
   assert.equal(paid.status, 'active'); assert.equal(paid.stripe_subscription_id, 'sub_after_payment')
   assert.equal(paid.plan_name, 'Recepta Pro'); assert.equal(paid.pending_configuration, null)
+  assert.ok(globalThis.__paymentRetell.some(call => call.kind === 'schedule' && call.appointmentScheduling && call.schedulingOnly))
   assert.equal((await db.query("select * from reserve_recepta_agent_call($1,'paid','agent_test')",[client])).rows.length, 1)
   assert.equal((await webhook(request({}))).status, 200)
   assert.deepEqual(await sub(), paid)
@@ -281,4 +296,75 @@ test('quotes cannot set payment fields; public roles cannot configure; active ac
   }
   assert.equal((await edit(request(editBody,false))).status, 403)
   assert.equal((await phones(request({ clientId: client, quantity: 1 },false))).status, 403)
+})
+
+test('Stripe records verified payment while preserving manual access and explicit pauses', async () => {
+  await fixture(false)
+  const admin = '00000000-0000-0000-0000-000000000010'
+  const authorize = (action, mode, revision) => db.query(`select recepta_save_service_access(
+    $1,$2,$3,$4,'Recepta Standard','agent_test','Test access',now()+interval '1 day',60,$5) as access`, [client, admin, action, mode, revision])
+  const effective = async () => (await db.query('select recepta_service_access($1) as access', [client])).rows[0].access
+
+  assert.equal((await authorize('activate_test', null, 0)).rows[0].access.source, 'internal_test')
+  await configure({ ...configuration, plan_name: 'Recepta Pro', monthly_price: 306.02 })
+  assert.equal((await checkout(request({ monthlyMinutes: 60 }, false))).status, 200)
+  event = { type: 'checkout.session.completed', data: { object: { mode: 'subscription', payment_status: 'paid',
+    subscription: 'sub_after_payment', customer: 'cus_original', invoice: 'in_synthetic', metadata: checkoutBody.metadata } } }
+  assert.equal((await webhook(request({}))).status, 200)
+  assert.equal((await sub()).status, 'active')
+  assert.equal((await effective()).source, 'internal_test')
+  assert.equal((await effective()).plan, 'Recepta Standard')
+  assert.equal((await effective()).appointments, false)
+
+  await authorize('pause', null, 1)
+  assert.equal((await webhook(request({}))).status, 200)
+  assert.equal((await effective()).status, 'paused')
+  assert.equal((await db.query("select * from reserve_recepta_agent_call($1,'paused-call','agent_test')", [client])).rows.length, 0)
+  assert.equal((await effective()).appointments, false)
+  await authorize('save', 'automatic', 2)
+  assert.equal((await effective()).source, 'stripe')
+  assert.equal((await effective()).status, 'active')
+  assert.equal((await effective()).appointments, true)
+})
+
+test('Stripe cancellation keeps an existing Retell number and does not interrupt a current manual grant', async () => {
+  await fixture()
+  await db.query("update agent_phone_numbers set source='retell' where client_id=$1", [client])
+  const admin = '00000000-0000-0000-0000-000000000010'
+  const grant = (await db.query(`select recepta_save_service_access(
+    $1,$2,'save','manual','Recepta Pro','agent_test','Authorized internal customer',
+    now()+interval '1 day',null,0) as access`, [client, admin])).rows[0].access
+  event = { type: 'customer.subscription.deleted', data: { object: { id: 'sub_original' } } }
+
+  const response = await webhook(request({}))
+  assert.equal(response.status, 200, await response.clone().text())
+  assert.equal((await sub()).status, 'cancelled')
+  assert.equal((await db.query('select phone_number from agent_phone_numbers where client_id=$1', [client])).rows[0].phone_number, '+14165550100')
+  assert.equal(globalThis.__paymentRetell.length, 0)
+  const after = (await db.query('select recepta_service_access($1) as access', [client])).rows[0].access
+  assert.equal(after.grant_id, grant.grant_id)
+  assert.equal(after.status, 'active')
+  assert.equal(after.source, 'manual_admin')
+  assert.equal((await db.query("select * from reserve_recepta_agent_call($1,'manual-paid-ended','agent_test')", [client])).rows.length, 1)
+})
+
+test('Stripe checkout honors an explicit agent pause and an independently selected service plan', async () => {
+  await fixture(false)
+  const actor = '00000000-0000-0000-0000-000000000010'
+  await db.query(`select recepta_manage_client_service($1,$2,'save','automatic','Recepta Standard',
+    'agent_test',null,null,null,0,'paused')`, [client, actor])
+  await configure({ ...configuration, plan_name: 'Recepta Pro', monthly_price: 306.02 })
+  assert.equal((await checkout(request({ monthlyMinutes: 60 }, false))).status, 200)
+  event = { type: 'checkout.session.completed', data: { object: { mode: 'subscription', payment_status: 'paid',
+    subscription: 'sub_after_payment', customer: 'cus_original', invoice: 'in_synthetic', metadata: checkoutBody.metadata } } }
+  assert.equal((await webhook(request({}))).status, 200)
+  const after = (await db.query('select recepta_service_access($1) as access', [client])).rows[0].access
+  assert.equal(after.billing_status, 'active')
+  assert.equal(after.billing_plan, 'Recepta Pro')
+  assert.equal(after.plan, 'Recepta Standard')
+  assert.equal(after.agent_status, 'paused')
+  assert.equal(after.reason, 'agent_paused')
+  assert.equal(after.can_reserve, false)
+  assert.equal(after.appointments, false)
+  assert.equal(globalThis.__paymentRetell.some(call => call.appointmentScheduling), false)
 })

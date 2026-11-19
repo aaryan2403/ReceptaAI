@@ -1,4 +1,5 @@
 import { configuredRetellKey } from '../lib/emailEnvironment'
+import { loadServiceAccess } from '../lib/serviceAccess'
 import { hasPaidSubscription, saveSubscriptionConfiguration } from '../lib/subscriptionConfiguration'
 
 import { createClient } from '@supabase/supabase-js'
@@ -554,16 +555,18 @@ export default async (request: Request) => {
         aiModelId: savedSubscription.ai_model_id,
       })
 
-      const scheduleContext = await loadClientScheduleContext({
-        supabase: supabaseAdmin,
-        clientId,
-      })
+      const [scheduleContext, serviceAccess] = await Promise.all([
+        loadClientScheduleContext({ supabase: supabaseAdmin, clientId }),
+        loadServiceAccess(supabaseAdmin, clientId),
+      ])
+      const schedulingPlan = serviceAccess.plan_override ?? (serviceAccess.grant_id ? serviceAccess.plan : savedSubscription.plan_name)
       await syncRetellSchedule({
         apiKey: retellApiKey,
         agentId: retellAgentId,
         ...scheduleContext,
         preserveAvailability: true,
-        appointmentScheduling: savedSubscription.plan_name === 'Recepta Pro',
+        appointmentScheduling: schedulingPlan === 'Recepta Pro',
+        servicePlan: serviceAccess.plan_override ?? undefined,
         appointmentFields,
         emailNotificationsEnabled:
           normalizeEmailNotificationsEnabled(

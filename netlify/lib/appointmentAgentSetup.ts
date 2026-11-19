@@ -1,12 +1,12 @@
 import { createHmac, randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { activeCallEmailSettings, normalizeCallEmailSettings } from '../../src/lib/callEmailSettings'
-import { configuredEmailApiKey, configuredRetellKey } from './emailEnvironment'
+import { configuredEmailApiKey } from './emailEnvironment'
 import { getStoredBusinessSchedule } from './employeeSchedule'
-import { hasPaidSubscription } from './subscriptionConfiguration'
+import { appointmentServiceIssue, loadServiceAccess, type ServiceAccess, type ServicePlan } from './serviceAccess'
 import {
-  inspectRetellAppointments, inspectRetellPhoneRoute, normalizeAppointmentFields, normalizeE164,
-  receptaRetellOrigin, RetellSetupError, retellScheduleSyncMessage, syncRetellSchedule,
+  getPublishedRetellAgent, inspectRetellAppointments, inspectRetellPhoneRoute, normalizeAppointmentFields, normalizeE164,
+  receptaRetellOrigin, RetellSetupError, retellScheduleSyncMessage, syncManagedRetellInboundRoute, syncRetellSchedule,
 } from './retell'
 
 const getAgentAssignment = async (db: SupabaseClient, clientId: string) => {
@@ -28,15 +28,19 @@ const assertAgentOwner = async (db: SupabaseClient, clientId: string, agentId: s
   }
 }
 
-const requireRetellKey = () => {
-  const key = configuredRetellKey()
+type RetellDeployment = { key: string | undefined; previewOrigin: string | undefined }
+const requireRetellKey = (key: string | undefined) => {
   if (!key) throw new RetellSetupError('The Retell workspace key for this deployment is missing from Netlify Functions.')
   return key
 }
 
-export const repairAppointmentAgent = async (db: SupabaseClient, clientId: string) => {
+export const repairAppointmentAgent = async (db: SupabaseClient, clientId: string, deployment: RetellDeployment,
+  options?: { agentId: string; plan: ServicePlan; revision: number }) => {
   const { agentId, agent } = await getAgentAssignment(db, clientId)
-  const apiKey = requireRetellKey()
+  if (options && options.agentId !== agentId) {
+    throw new RetellSetupError('The saved agent changed. Refresh before syncing.')
+  }
+  const apiKey = requireRetellKey(deployment.key)
   const account = await db.auth.admin.getUserById(clientId)
   if (account.error) throw account.error
 
@@ -45,11 +49,55 @@ export const repairAppointmentAgent = async (db: SupabaseClient, clientId: strin
     normalizeAppointmentFields(account.data.user?.user_metadata?.appointment_custom_fields)
   const result = await syncRetellSchedule({
     apiKey, agentId, schedule: getStoredBusinessSchedule(agent.business_hours),
-    appointmentFields, appointmentScheduling: true, schedulingOnly: true,
-    beforePublish: () => assertAgentOwner(db, clientId, agentId),
+    appointmentFields, appointmentScheduling: options?.plan !== 'Recepta Standard', schedulingOnly: true,
+    servicePlan: options?.plan, ensureCallEvents: Boolean(options), deploymentOrigin: deployment.previewOrigin,
+    beforePublish: async () => {
+      await assertAgentOwner(db, clientId, agentId)
+      if (options && (await loadServiceAccess(db, clientId)).revision !== options.revision) {
+        throw new RetellSetupError('Service settings changed during synchronization. Refresh to sync the current settings.')
+      }
+    },
   })
   await assertAgentOwner(db, clientId, agentId)
   return { agentId, version: result.version }
+}
+
+export const syncClientReceptionist = async (
+  db: SupabaseClient, clientId: string, access: ServiceAccess, plan: ServicePlan, deployment: RetellDeployment,
+) => {
+  const { agentId, agent } = await getAgentAssignment(db, clientId)
+  if (agentId !== access.agent_id) throw new RetellSetupError('The saved agent changed. Refresh before syncing.')
+  const key = requireRetellKey(deployment.key)
+  const origin = deployment.previewOrigin ?? receptaRetellOrigin(false)
+  const numbers = await db.from('agent_phone_numbers').select('phone_number').eq('client_id', clientId)
+  if (numbers.error) throw numbers.error
+  const phones = [...new Set([agent.phone_number, ...numbers.data.map(row => row.phone_number)]
+    .filter(Boolean).map(number => normalizeE164(number)))]
+  if (!phones.length || phones.some(number => !number)) throw new RetellSetupError('Assign a valid Retell phone number before activating service.')
+
+  const published = await getPublishedRetellAgent(key, agentId)
+  const callEvents = `${origin}/.netlify/functions/retell-webhook`
+  if (published.webhook_url && published.webhook_url !== callEvents) {
+    throw new RetellSetupError('The published agent uses a different call-event webhook. Review its Retell routing.')
+  }
+  const missingEvents = published.webhook_url !== callEvents ||
+    Boolean(published.webhook_events && ['call_started', 'call_ended', 'call_analyzed']
+      .some(event => !published.webhook_events?.includes(event)))
+  for (const phone of phones) {
+    if (!phone) continue
+    const [assigned, legacy] = await Promise.all([
+      db.from('agent_phone_numbers').select('client_id').eq('phone_number', phone).maybeSingle(),
+      db.from('agents').select('client_id').eq('phone_number', phone),
+    ])
+    if (assigned.error || legacy.error) throw assigned.error ?? legacy.error
+    if ((assigned.data && assigned.data.client_id !== clientId) || legacy.data.some(row => row.client_id !== clientId)) {
+      throw new RetellSetupError(`The Retell line ending in ${phone.slice(-4)} is assigned to another client.`)
+    }
+    await syncManagedRetellInboundRoute(key, phone, agentId, origin)
+  }
+  if (plan === 'Recepta Pro' || missingEvents || published.response_engine?.type === 'retell-llm') {
+    await repairAppointmentAgent(db, clientId, deployment, { agentId, plan, revision: access.revision })
+  }
 }
 
 type ReadinessCheck = { label: string; status: 'ready' | 'blocked' | 'unverified' | 'optional'; detail: string }
@@ -80,47 +128,46 @@ const probeSignedAppointmentEndpoint = async (origin: string, key: string, clien
   return { reason: payload.reason, alternatives: payload.alternatives }
 }
 
-export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: string, accessIssue: string | null) => {
+export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: string, access: ServiceAccess, deployment: RetellDeployment) => {
   const checks: ReadinessCheck[] = []
-  const [subscription, numbers, rules] = await Promise.all([
-    db.from('subscriptions').select('status, stripe_subscription_id, current_period_start, current_period_end, monthly_minutes')
-      .eq('client_id', clientId).maybeSingle(),
+  const accessIssue = appointmentServiceIssue(access)
+  const [numbers, rules] = await Promise.all([
     db.from('agent_phone_numbers').select('phone_number').eq('client_id', clientId),
     db.from('booking_settings').select('enabled, time_zone, email_owner, email_customer').eq('client_id', clientId).maybeSingle(),
   ])
-  if (subscription.error || numbers.error || rules.error) throw subscription.error ?? numbers.error ?? rules.error
-  const billing = subscription.data
-  const paid = hasPaidSubscription(billing) && (billing?.monthly_minutes ?? 0) > 0
-  // A founder grant authorizes appointment tools but does not fund inbound calls.
-  // Readiness must not mislabel this permanent owner permission as internal QA.
-  let ownerBooking = false
-  if (!paid && !accessIssue) {
-    const owner = await db.rpc('recepta_owner_booking_approved', { p_client: clientId })
-    ownerBooking = !owner.error && owner.data === true
+  if (numbers.error || rules.error) throw numbers.error ?? rules.error
+  const callIssues: Record<string, string> = {
+    paused: 'Service is paused by a Recepta administrator.',
+    suspended: 'Service is suspended by a Recepta administrator.',
+    cancelled: 'Service is cancelled in Recepta.',
+    agent_setup: 'The agent is in Setup. Set it to Live to receive calls.',
+    agent_paused: 'The agent is paused.',
+    agent_testing: 'The agent is in Testing. Choose temporary test access or set the agent to Live.',
+    pending: 'Service is awaiting activation.',
+    expired: 'The administrative authorization has expired.',
+    agent_assignment: 'Check that a unique Retell agent is assigned and ready for this service mode.',
+    billing_inactive: 'Automatic service requires a current paid Stripe period.',
+    allowance_unavailable: 'Less than one minute is currently available to reserve.',
+    appointment_only: 'This legacy grant authorizes appointment tools only.',
   }
-  checks.push(check('Call authorization', paid ? 'ready' : 'blocked', paid
-    ? 'The active billing period and minute allowance are configured. Each inbound call must still reserve minutes.'
-    : 'An active Stripe subscription, current paid billing period, and call minutes are required.'))
+  checks.push(check('Call authorization', access.reason === 'ready' ? 'ready' : 'blocked',
+    access.reason === 'ready' ? 'Service access and minutes are available for new calls.'
+      : callIssues[access.reason] ?? 'Service cannot currently admit new calls.'))
   checks.push(check('Appointment authorization', accessIssue ? 'blocked' : 'ready',
-    accessIssue ?? (paid ? 'This business has a current paid Recepta Pro subscription.' :
-      ownerBooking ? 'Founder-only appointment access is enabled. Billing remains pending and incoming phone calls remain blocked.' :
-      'Appointment tools are temporarily authorized for internal testing only. Billing and inbound call admission remain blocked.')))
+    accessIssue ?? 'The current Pro service access authorizes appointment tools.'))
 
   let assignment, apiKey, origin, webhookOrigin
   try {
     assignment = await getAgentAssignment(db, clientId)
-    apiKey = requireRetellKey()
-    origin = receptaRetellOrigin()
-    webhookOrigin = receptaRetellOrigin(false)
+    apiKey = requireRetellKey(deployment.key)
+    origin = deployment.previewOrigin ?? receptaRetellOrigin()
+    webhookOrigin = deployment.previewOrigin ?? receptaRetellOrigin(false)
   } catch (error) {
     checks.push(check('Agent connection', 'blocked', retellScheduleSyncMessage(error)))
     return { checks, canRetry: false }
   }
 
   const { agent, agentId } = assignment
-  if (!['active', 'live'].includes(agent.status ?? '')) {
-    checks.push(check('Inbound admission', 'blocked', 'The saved agent is not active. Complete the normal payment and activation flow.'))
-  }
   const phoneNumbers = [...new Set([...numbers.data.map(row => row.phone_number), agent.phone_number]
     .map(number => normalizeE164(number)).filter((number): number is string => Boolean(number)))]
   const [published, routes, signed] = await Promise.allSettled([
@@ -134,7 +181,7 @@ export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: st
         return check(label, 'blocked', retellScheduleSyncMessage(error))
       }
     })),
-    accessIssue ? Promise.resolve(null) : probeSignedAppointmentEndpoint(origin, apiKey, clientId, agentId,
+    accessIssue || access.grant_id ? Promise.resolve(null) : probeSignedAppointmentEndpoint(origin, apiKey, clientId, agentId,
       new Intl.DateTimeFormat('sv-SE', { timeZone: rules.data?.time_zone ?? 'UTC', dateStyle: 'short' }).format(new Date())),
   ])
 
@@ -159,7 +206,14 @@ export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: st
     checks.push(check('Inbound test call', 'unverified', 'Call the business number from an external line and verify that the assigned agent answers.'))
   }
 
-  if (!accessIssue) {
+  if (!accessIssue && access.grant_id) {
+    checks.push(check('Signed appointment endpoint', 'unverified',
+      'Place an admitted call and request an appointment to verify the signed tool and its call reservation.'))
+    checks.push(check('Booking mode', rules.data?.enabled ? 'ready' : 'optional', rules.data?.enabled
+      ? 'Automatic booking is enabled. Verify an available slot in a call.'
+      : 'Request-only mode is enabled. Requests await business confirmation.'))
+  }
+  if (!accessIssue && !access.grant_id) {
     const availability = signed.status === 'fulfilled' ? signed.value : null
     checks.push(check('Signed appointment endpoint', availability ? 'ready' : 'blocked',
       signed.status === 'rejected' ? retellScheduleSyncMessage(signed.reason) :
