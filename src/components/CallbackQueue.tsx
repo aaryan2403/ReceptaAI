@@ -1,47 +1,174 @@
 import { useEffect, useState } from 'react'
+import { ChevronDown, Phone, PhoneIncoming, PhoneMissed } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import './CallbackQueue.css'
 
-type Callback = { id:string; caller_number:string|null; reason:string; status:string; created_at:string }
-const reasons:Record<string,string> = { agent_unavailable:'Receptionist unavailable', outside_answering_hours:'Outside AI answering hours', allowance_unavailable:'Paid minutes unavailable or reserved by another call', admission_unavailable:'Temporary call admission problem' }
+const statuses = {
+  pending: 'Pending callback',
+  contacted: 'Contacted',
+  resolved: 'Resolved',
+  unreachable: 'Unreachable',
+}
+
+type CallbackStatus = keyof typeof statuses
+type Callback = {
+  id: string
+  caller_number: string | null
+  reason: string
+  status: CallbackStatus
+  created_at: string
+}
+
+const reasons: Record<string, string> = {
+  agent_unavailable: 'Receptionist unavailable',
+  outside_answering_hours: 'Outside AI answering hours',
+  allowance_unavailable: 'Paid minutes unavailable or reserved by another call',
+  admission_unavailable: 'Temporary call routing issue',
+}
+
+const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+const previewLength = 4
+
+async function requestCallbacks(update?: { id: string; status: CallbackStatus }, signal?: AbortSignal) {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Please sign in again.')
+
+  const response = await fetch('/.netlify/functions/callback-requests', {
+    method: update ? 'PATCH' : 'GET',
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: update ? JSON.stringify(update) : undefined,
+    signal,
+  })
+  const body = await response.json()
+  if (!response.ok) throw new Error(body.error || 'Could not load callbacks.')
+  return body.callbacks as Callback[]
+}
 
 export default function CallbackQueue() {
-  const [callbacks, setCallbacks] = useState<Callback[]>([])
-  const [error, setError] = useState('')
-  const [saving, setSaving] = useState<string|null>(null)
-  const request = async (id?:string, status?:string) => {
-    const { data:{ session } } = await supabase.auth.getSession()
-    if (!session) throw new Error('Please sign in again.')
-    const response = await fetch('/.netlify/functions/callback-requests', {
-      method:id ? 'PATCH' : 'GET', headers:{ Authorization:`Bearer ${session.access_token}`, 'Content-Type':'application/json' },
-      ...(id ? { body:JSON.stringify({ id,status }) } : {}),
-    })
-    const body = await response.json()
-    if (!response.ok) throw new Error(body.error || 'Could not load callbacks.')
-    setCallbacks(body.callbacks)
-    setError('')
-  }
+  const [callbacks, setCallbacks] = useState<Callback[] | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const [saveError, setSaveError] = useState('')
+  const [saving, setSaving] = useState<string | null>(null)
+  const [showAll, setShowAll] = useState(false)
+
   useEffect(() => {
-    const load = () => request().catch(failure => setError(failure.message))
+    if (saving) return
+
+    const controller = new AbortController()
+    let timer: number
+    async function load() {
+      try {
+        const results = await requestCallbacks(undefined, controller.signal)
+        if (controller.signal.aborted) return
+        setCallbacks(results)
+        setLoadError('')
+      } catch (failure) {
+        if (controller.signal.aborted) return
+        setLoadError(failure instanceof Error ? failure.message : 'Could not load callbacks.')
+      }
+      timer = window.setTimeout(load, 30_000)
+    }
+
     void load()
-    const timer = window.setInterval(load, 30000)
-    return () => window.clearInterval(timer)
-  }, [])
-  const update = async (id:string,status:string) => {
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [saving])
+
+  async function update(id: string, status: CallbackStatus) {
+    if (saving) return
     setSaving(id)
-    try { await request(id,status) } catch(failure) { setError(failure instanceof Error ? failure.message : 'Could not update callback.') }
-    finally { setSaving(null) }
+    setSaveError('')
+    try {
+      setCallbacks(await requestCallbacks({ id, status }))
+      setLoadError('')
+    } catch (failure) {
+      setSaveError(failure instanceof Error ? failure.message : 'Could not update callback.')
+    } finally {
+      setSaving(null)
+    }
   }
-  return <section className="agentPanel" aria-label="Callback queue" style={{ marginBottom:24 }}>
-    <span className="callsSectionLabel">FOLLOW-UP REQUIRED</span>
-    <h2>Missed calls &amp; callbacks</h2>
-    <p>Calls the AI could not accept appear here. These are callback requests, not answered calls, and use no AI minutes. Hidden caller IDs cannot be called back.</p>
-    {error && <p role="alert">{error}</p>}
-    {!callbacks.length && !error && <p>No missed calls waiting for follow-up.</p>}
-    {callbacks.map(callback => <article key={callback.id} style={{ display:'flex', flexWrap:'wrap', gap:16, justifyContent:'space-between', padding:'16px 0', borderTop:'1px solid #333' }}>
-      <div><strong>{callback.caller_number ? <a href={`tel:${callback.caller_number}`}>{callback.caller_number}</a> : 'Caller ID unavailable'}</strong><p>{reasons[callback.reason] ?? 'Receptionist unavailable'} · {new Date(callback.created_at).toLocaleString()}</p></div>
-      <label><span>Follow-up status </span><select value={callback.status} disabled={saving===callback.id} onChange={event => void update(callback.id,event.target.value)}>
-        <option value="pending">Pending callback</option><option value="contacted">Contacted</option><option value="resolved">Resolved</option><option value="unreachable">Unreachable</option>
-      </select></label>
-    </article>)}
-  </section>
+
+  const pendingCount = callbacks?.filter(callback => callback.status === 'pending').length ?? 0
+  // Keep the newest calls first within each group.
+  const ordered = [
+    ...(callbacks?.filter(callback => callback.status === 'pending') ?? []),
+    ...(callbacks?.filter(callback => callback.status !== 'pending') ?? []),
+  ]
+  const visible = showAll ? ordered : ordered.slice(0, previewLength)
+
+  return (
+    <section className="callbackQueue" aria-labelledby="callback-queue-title">
+      <header className="callbackQueueHeader">
+        <div className="callbackQueueTitle">
+          <PhoneMissed aria-hidden="true" size={19} />
+          <div>
+            <h2 id="callback-queue-title">Missed calls &amp; callbacks</h2>
+            <p>Follow up on calls the AI couldn’t answer. These calls use no AI minutes.</p>
+          </div>
+        </div>
+        {callbacks && <span className="callbackQueueCount" data-pending={pendingCount > 0}>{pendingCount} pending</span>}
+      </header>
+
+      {(saveError || loadError) && <p className="callbackQueueError" role="alert">{saveError || loadError}</p>}
+      {!callbacks && !loadError && <p className="callbackQueueMessage" role="status">Loading missed calls…</p>}
+      {callbacks?.length === 0 && <p className="callbackQueueMessage">No missed calls recorded.</p>}
+
+      {visible.length > 0 && (
+        <div className="callbackQueueEntries">
+          <div className="callbackQueueColumns" aria-hidden="true"><span>Caller</span><span>Received</span><span>Follow-up</span></div>
+          <ul className="callbackQueueList" id="callback-queue-list">
+            {visible.map(callback => {
+              const date = new Date(callback.created_at)
+              const caller = callback.caller_number
+              const displayNumber = caller?.replace(/^\+1(\d{3})(\d{3})(\d{4})$/, '+1 ($1) $2-$3')
+
+              return (
+                <li className="callbackQueueRow" key={callback.id}>
+                  <div className="callbackQueueCaller">
+                    <span className="callbackQueueCallerIcon"><PhoneIncoming aria-hidden="true" size={16} /></span>
+                    <div>
+                      <strong>{displayNumber || 'Caller ID unavailable'}</strong>
+                      <p className="callbackQueueMeta">{reasons[callback.reason] ?? 'Receptionist unavailable'}</p>
+                    </div>
+                  </div>
+                  <time className="callbackQueueTime" dateTime={callback.created_at}>{dateFormat.format(date)}</time>
+                  <div className="callbackQueueActions">
+                    {caller && (
+                      <a className="callbackQueueCall" href={`tel:${caller}`} aria-label={`Call back ${displayNumber}`}>
+                        <Phone aria-hidden="true" size={14} />
+                        <span>Call back</span>
+                      </a>
+                    )}
+                    <div className="callbackQueueStatus">
+                      <select
+                        aria-label={`Follow-up status for ${displayNumber || 'unknown caller'}, ${dateFormat.format(date)}`}
+                        value={callback.status}
+                        data-status={callback.status}
+                        disabled={saving !== null}
+                        onChange={event => void update(callback.id, event.target.value as CallbackStatus)}
+                      >
+                        {Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                      <ChevronDown aria-hidden="true" size={15} />
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+
+      {ordered.length > previewLength && (
+        <button className="callbackQueueToggle" type="button" aria-expanded={showAll} aria-controls="callback-queue-list" onClick={() => setShowAll(!showAll)}>
+          {showAll ? 'Show fewer calls' : `Show all ${ordered.length} calls`}
+        </button>
+      )}
+    </section>
+  )
 }
