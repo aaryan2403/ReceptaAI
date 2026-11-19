@@ -559,13 +559,14 @@ export default async (request: Request) => {
         loadClientScheduleContext({ supabase: supabaseAdmin, clientId }),
         loadServiceAccess(supabaseAdmin, clientId),
       ])
-      const schedulingPlan = serviceAccess.grant_id ? serviceAccess.plan : savedSubscription.plan_name
+      const schedulingPlan = serviceAccess.plan_override ?? (serviceAccess.grant_id ? serviceAccess.plan : savedSubscription.plan_name)
       await syncRetellSchedule({
         apiKey: retellApiKey,
         agentId: retellAgentId,
         ...scheduleContext,
         preserveAvailability: true,
         appointmentScheduling: schedulingPlan === 'Recepta Pro',
+        servicePlan: serviceAccess.plan_override ?? undefined,
         appointmentFields,
         emailNotificationsEnabled:
           normalizeEmailNotificationsEnabled(

@@ -62,6 +62,7 @@ const migrationFiles = [
   '20261116074255_appointment_setup_and_paid_access.sql',
   '20261116113500_internal_appointment_test_entitlement.sql',
   '20261119185856_admin_service_access.sql',
+  '20261119204250_admin_client_status.sql',
 ]
 
 const pgUrl = process.env.RECEPTA_TEST_PG_URL
@@ -317,6 +318,7 @@ const initializeHandlers = async () => {
     recepta_appointment_test_check:['p_client','p_agent'],
     recepta_service_access:['p_client','p_agent'],
     recepta_save_service_access:['p_client','p_actor','p_action','p_mode','p_plan','p_agent','p_reason','p_expires_at','p_max_minutes','p_revision'],
+    recepta_manage_client_service:['p_client','p_actor','p_action','p_mode','p_plan','p_agent','p_reason','p_expires_at','p_max_minutes','p_revision','p_agent_status'],
     reserve_recepta_agent_call:['p_client_id','p_call_id','p_agent_id'],
     recepta_grant_appointment_test:['p_client','p_agent','p_expires_at','p_max_calls','p_max_invocations','p_actor'],
     recepta_revoke_appointment_test:['p_client','p_agent','p_actor'],
@@ -848,5 +850,155 @@ test('service access uses verified admin, published Retell assignment, and the s
     await db.query("update agents set status='live', phone_number=null where client_id=$1", [tenant])
     await call('recepta_save_service_access', [tenant, '00000000-0000-0000-0000-000000000103', 'save', 'automatic', null, null, null, null, null,
       (await call('recepta_service_access', [tenant])).revision])
+  }
+})
+
+test('Admin activation synchronizes an existing Retell line and plan, and reactivation preserves the grant and usage', async () => {
+  if (!serviceHandler) await initializeHandlers()
+  const phone = '+14165550100'
+  const originalFetch = globalThis.fetch
+  const writes = []
+  const transfer = { type: 'transfer_call', name: 'transfer_to_staff', transfer_destination: { number: '+14165550109' } }
+  const route = { phone_number: phone, inbound_webhook_url: null, inbound_agents: [{ agent_id: 'agent_one' }],
+    outbound_agents: [{ agent_id: 'agent_one' }] }
+  const versions = new Map([[1, {
+    agent: { agent_id: 'agent_one', version: 1, response_engine: { type: 'retell-llm', llm_id: 'llm_one', version: 1 } },
+    llm: { general_prompt: 'Existing business script.', knowledge_base_ids: ['kb_existing'], general_tools: [transfer] },
+  }]])
+  let publishedVersion = 1
+  globalThis.fetch = async (url, request) => {
+    const { pathname, searchParams } = new URL(url)
+    const method = request.method ?? 'GET'
+    const payload = request.body ? JSON.parse(request.body) : null
+    if (method !== 'GET') writes.push({ pathname, payload })
+    const version = Number(searchParams.get('version')) || publishedVersion
+    if (pathname.startsWith('/get-agent/')) return Response.json({ ...versions.get(version).agent, is_published: version === publishedVersion })
+    if (pathname.startsWith('/create-agent-version/')) {
+      const nextVersion = versions.size + 1
+      const draft = structuredClone(versions.get(publishedVersion))
+      draft.agent = { ...draft.agent, version: nextVersion, response_engine: { ...draft.agent.response_engine, version: nextVersion } }
+      versions.set(nextVersion, draft)
+      return Response.json(draft.agent)
+    }
+    if (pathname.startsWith('/get-retell-llm/')) return Response.json(versions.get(version).llm)
+    if (pathname.startsWith('/update-retell-llm/')) Object.assign(versions.get(version).llm, payload)
+    else if (pathname.startsWith('/update-agent/')) Object.assign(versions.get(version).agent, payload)
+    else if (pathname.startsWith('/publish-agent-version/')) publishedVersion = payload.version
+    else if (pathname.startsWith('/get-phone-number/')) return Response.json(route)
+    else if (pathname.startsWith('/update-phone-number/')) Object.assign(route, payload)
+    else throw new Error('Unexpected request ' + url)
+    return Response.json({})
+  }
+  const request = (body, token = 'admin', history = false) => serviceHandler(new Request(
+    'https://recepta.ca/.netlify/functions/admin-service-access?clientId=' + tenant + (history ? '&history=1' : ''), {
+      method: body ? 'PUT' : 'GET', headers: { Authorization: 'Bearer ' + token },
+      body: body ? JSON.stringify(body) : undefined,
+    },
+  ))
+  const save = async fields => {
+    const current = await call('recepta_service_access', [tenant])
+    const response = await request({
+      action: 'save', mode: 'manual', agentStatus: 'live', agentId: 'agent_one',
+      servicePlan: 'Recepta Pro', reason: 'Authorized service for this business', revision: current.revision,
+      ...fields,
+    })
+    assert.equal(response.status, 200, await response.clone().text())
+    return (await response.json()).access
+  }
+  const admit = async id => {
+    const body = JSON.stringify({ event: 'call_inbound', call_inbound: { call_id: id, to_number: phone, from_number: '+14165550109' } })
+    const time = Date.now()
+    const digest = createHmac('sha256', secret).update(body + time).digest('hex')
+    const response = await inbound(new Request('https://recepta.ca/.netlify/functions/retell-inbound', {
+      method: 'POST', body, headers: { 'x-retell-signature': 'v=' + time + ',d=' + digest },
+    }))
+    assert.equal(response.status, 200)
+    return (await response.json()).call_inbound
+  }
+  const appointment = id => invoke('recepta_check_availability', { requested_date: futureDate() }, id)
+  await db.query("update subscriptions set status='pending', plan_name='Recepta Standard', stripe_subscription_id=null where client_id=$1", [tenant])
+  await db.query("update agents set status='setup', phone_number=$2 where client_id=$1", [tenant, phone])
+  const initialBilling = (await db.query('select * from subscriptions where client_id=$1', [tenant])).rows[0]
+  try {
+    const pending = await save({ mode: 'pending', agentStatus: 'setup' })
+    assert.equal(pending.plan, 'Recepta Pro')
+    assert.equal(pending.billing_plan, 'Recepta Standard')
+    assert.deepEqual(await admit('pending-managed-pro'), { reject: true })
+    assert.equal(writes.length, 0)
+    assert.equal((await request({ action: 'activate', mode: 'manual', agentStatus: 'live', revision: pending.revision }, 'tenant')).status, 403)
+
+    route.inbound_agents = [{ agent_id: 'unrelated_agent' }]
+    const conflicting = await request({ action: 'activate', mode: 'manual', agentStatus: 'live', agentId: 'agent_one',
+      revision: pending.revision, servicePlan: 'Recepta Pro', reason: 'Authorized', expiresAt: null })
+    assert.equal(conflicting.status, 409)
+    assert.equal((await call('recepta_service_access', [tenant])).revision, pending.revision)
+    route.inbound_agents = [{ agent_id: 'agent_one' }]
+
+    const active = await save({ action: 'activate' })
+    assert.equal(active.status, 'active')
+    assert.equal(active.agent_status, 'live')
+    assert.equal(active.expires_at, null)
+    assert.equal(active.source, 'manual_admin')
+    assert.equal(active.billing_current, false)
+    assert.equal(active.remaining_seconds, 6000)
+    assert.deepEqual(route.outbound_agents, [{ agent_id: 'agent_one' }])
+    assert.equal(route.inbound_webhook_url, 'https://recepta.ca/.netlify/functions/retell-inbound')
+    assert.equal(route.inbound_agents, null)
+    assert.deepEqual(versions.get(publishedVersion).llm.knowledge_base_ids, ['kb_existing'])
+    assert.deepEqual(versions.get(publishedVersion).llm.general_tools[0], transfer)
+    assert.match(versions.get(publishedVersion).llm.general_prompt, /Existing business script/)
+    assert.equal(versions.get(publishedVersion).agent.webhook_url, 'https://recepta.ca/.netlify/functions/retell-webhook')
+
+    const callId = 'standing-grant-call'
+    assert.equal((await admit(callId)).override_agent_id, 'agent_one')
+    assert.equal((await appointment(callId)).status, 200)
+    await db.query("update call_minute_reservations set status='completed', used_seconds=60 where retell_call_id=$1", [callId])
+    await db.query(`insert into call_minute_reservations(client_id, retell_call_id, period_start, reserved_seconds, used_seconds, status, service_grant_id)
+      values($1,'prior-month-standing-usage',$2::timestamptz - interval '1 month', 600, 600, 'completed', $3)`,
+    [tenant, active.period_start, active.grant_id])
+
+    const paused = await save({ action: 'deactivate' })
+    assert.equal(paused.status, 'paused')
+    assert.equal(paused.plan, 'Recepta Pro')
+    assert.deepEqual(await admit('standing-grant-paused'), { reject: true })
+    assert.equal((await appointment('standing-grant-paused')).status, 403)
+    const resumed = await save({ action: 'reactivate' })
+    assert.equal(resumed.grant_id, active.grant_id)
+    assert.equal(resumed.remaining_seconds, 5940)
+
+    const standard = await save({ servicePlan: 'Recepta Standard' })
+    assert.equal(standard.status, 'active')
+    assert.equal(standard.appointments, false)
+    assert.deepEqual(versions.get(publishedVersion).llm.general_tools, [transfer])
+    for (const mode of ['suspended', 'cancelled']) {
+      const held = await save({ mode, servicePlan: 'Recepta Standard' })
+      assert.equal(held.status, mode)
+      assert.deepEqual(await admit('standing-grant-' + mode), { reject: true })
+    }
+    for (const agentStatus of ['setup', 'paused', 'testing']) {
+      const held = await save({ agentStatus })
+      assert.equal(held.agent_status, agentStatus)
+      assert.equal(held.can_reserve, false)
+      assert.equal(held.appointments, false)
+    }
+    const testing = await save({ action: 'activate_test', mode: 'internal_test', agentStatus: 'testing',
+      expiresAt: new Date(Date.now() + 3600000).toISOString(), maxMinutes: 3 })
+    assert.equal(testing.agent_status, 'testing')
+    assert.equal(testing.remaining_seconds, 180)
+    assert.equal((await admit('managed-agent-testing')).override_agent_id, 'agent_one')
+    assert.deepEqual((await db.query('select * from subscriptions where client_id=$1', [tenant])).rows[0], initialBilling)
+    const response = await request(null, 'admin', true)
+    assert.equal(response.status, 200)
+    const { history } = await response.json()
+    assert.ok(history.some(item => item.action === 'reactivate'))
+    assert.ok(history.some(item => item.new_state.mode === 'suspended' && item.actor_id === '00000000-0000-0000-0000-000000000103'))
+    assert.equal((await request(null, 'tenant', true)).status, 403)
+  } finally {
+    globalThis.fetch = originalFetch
+    await db.query("update subscriptions set status='active', plan_name='Recepta Pro', stripe_subscription_id='sub_test_one' where client_id=$1", [tenant])
+    await db.query("update agents set status='live', phone_number=null where client_id=$1", [tenant])
+    const current = await call('recepta_service_access', [tenant])
+    await call('recepta_manage_client_service', [tenant, '00000000-0000-0000-0000-000000000103',
+      'save', 'automatic', null, null, null, null, null, current.revision, null])
   }
 })

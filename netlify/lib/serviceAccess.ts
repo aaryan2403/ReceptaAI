@@ -1,32 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isReceptaPreview } from './emailEnvironment'
 
-export type ServiceAccess = {
-  business_name: string
-  mode: 'automatic' | 'manual' | 'internal_test' | 'paused' | 'pending'
-  status: 'active' | 'pending' | 'paused' | 'expired' | 'inactive' | 'unavailable' | 'appointment_test'
-  source: 'stripe' | 'manual_admin' | 'internal_test'
-  reason: string
-  plan: 'Recepta Pro' | 'Recepta Standard' | null
-  billing_status: string | null
-  has_stripe_subscription: boolean
-  agent_id: string | null
-  assignment_valid: boolean
-  phone_number: string | null
-  can_reserve: boolean
-  appointments: boolean
-  remaining_seconds: number
-  expires_at: string | null
-  max_minutes: number | null
-  admin_reason: string | null
-  updated_at: string | null
-  updated_by: string | null
-  revision: number
-  grant_id: string | null
-  legacy_founder: boolean
-  legacy_appointment_test: boolean
-  legacy_test_usable: boolean
-}
+import type { ServiceAccess } from '../../src/lib/serviceAccess'
+export type { AgentStatus, ServiceAccess, ServiceMode, ServicePlan } from '../../src/lib/serviceAccess'
 
 export const loadServiceAccess = async (db: SupabaseClient, clientId: string): Promise<ServiceAccess> => {
   const { data, error } = await db.rpc('recepta_service_access', { p_client: clientId })
@@ -38,7 +14,8 @@ export const loadServiceAccess = async (db: SupabaseClient, clientId: string): P
 export const appointmentServiceIssue = (access: ServiceAccess): string | null => {
   if (access.legacy_appointment_test && !access.legacy_test_usable) return 'The appointment-only test allowance is exhausted.'
   if (access.appointments) return null
-  if (access.status === 'paused') return 'Service is paused by a Recepta administrator.'
+  if (['paused', 'suspended', 'cancelled'].includes(access.status)) return 'An administrator has placed this client’s service on hold.'
+  if (['agent_setup', 'agent_paused', 'agent_testing'].includes(access.reason)) return 'The selected agent status blocks appointment tools.'
   if (access.status === 'expired') return 'The service authorization has expired.'
   if (access.plan !== 'Recepta Pro') return 'Recepta Pro is required for appointment booking and request capture.'
   return 'The business needs active Recepta Pro billing or a current Pro service authorization.'

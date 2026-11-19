@@ -88,6 +88,8 @@ const compile = async file => {
     b.onResolve({ filter: /^(?:\.\.\/lib\/retell|\.\/retell)$/ }, () => ({ path: 'retell', namespace: 'mock' }))
     b.onLoad({ filter: /.*/, namespace: 'mock' }, a => ({ loader: 'js', contents: a.path === 'stripe' ? 'export default globalThis.__paymentStripe' : a.path === 'retell' ? `
       export const assertRetellAgentAvailable = async () => {};
+      export const getPublishedRetellAgent = async () => {};
+      export const syncManagedRetellInboundRoute = async () => {};
       export const inspectRetellAppointments = async () => {};
       export const inspectRetellPhoneRoute = async () => {};
       export const normalizeE164 = value => value;
@@ -156,7 +158,8 @@ test.before(async () => {
     'supabase/migrations/20261116113500_internal_appointment_test_entitlement.sql',
     'supabase/migrations/20261117071812_owner_appointment_booking_access.sql',
     'supabase/migrations/20261117083000_founder_metered_inbound_calls.sql',
-    'supabase/migrations/20261119185856_admin_service_access.sql']) await db.exec(await readFile(path,'utf8'))
+    'supabase/migrations/20261119185856_admin_service_access.sql',
+    'supabase/migrations/20261119204250_admin_client_status.sql']) await db.exec(await readFile(path,'utf8'))
 })
 test.after(async () => { await db.close() })
 
@@ -343,4 +346,25 @@ test('Stripe cancellation keeps an existing Retell number and does not interrupt
   assert.equal(after.status, 'active')
   assert.equal(after.source, 'manual_admin')
   assert.equal((await db.query("select * from reserve_recepta_agent_call($1,'manual-paid-ended','agent_test')", [client])).rows.length, 1)
+})
+
+test('Stripe checkout honors an explicit agent pause and an independently selected service plan', async () => {
+  await fixture(false)
+  const actor = '00000000-0000-0000-0000-000000000010'
+  await db.query(`select recepta_manage_client_service($1,$2,'save','automatic','Recepta Standard',
+    'agent_test',null,null,null,0,'paused')`, [client, actor])
+  await configure({ ...configuration, plan_name: 'Recepta Pro', monthly_price: 306.02 })
+  assert.equal((await checkout(request({ monthlyMinutes: 60 }, false))).status, 200)
+  event = { type: 'checkout.session.completed', data: { object: { mode: 'subscription', payment_status: 'paid',
+    subscription: 'sub_after_payment', customer: 'cus_original', invoice: 'in_synthetic', metadata: checkoutBody.metadata } } }
+  assert.equal((await webhook(request({}))).status, 200)
+  const after = (await db.query('select recepta_service_access($1) as access', [client])).rows[0].access
+  assert.equal(after.billing_status, 'active')
+  assert.equal(after.billing_plan, 'Recepta Pro')
+  assert.equal(after.plan, 'Recepta Standard')
+  assert.equal(after.agent_status, 'paused')
+  assert.equal(after.reason, 'agent_paused')
+  assert.equal(after.can_reserve, false)
+  assert.equal(after.appointments, false)
+  assert.equal(globalThis.__paymentRetell.some(call => call.appointmentScheduling), false)
 })

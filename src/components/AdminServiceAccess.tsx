@@ -1,36 +1,33 @@
 import { useEffect, useState } from 'react'
+import type { AgentStatus, ServiceAccess, ServiceMode, ServicePlan } from '../lib/serviceAccess'
 import { supabase } from '../lib/supabase'
 import AdminReceptionistReadiness from './AdminReceptionistReadiness'
 import './AdminServiceAccess.css'
 
-type Mode = 'automatic' | 'manual' | 'internal_test' | 'paused' | 'pending'
-type Plan = 'Recepta Standard' | 'Recepta Pro'
-type Action = 'save' | 'activate_test' | 'pause' | 'revoke'
-type Access = {
-  business_name: string
-  mode: Mode
-  status: string
-  source: 'stripe' | 'manual_admin' | 'internal_test'
-  reason: string
-  plan: Plan | null
-  billing_status: string | null
-  has_stripe_subscription: boolean
-  agent_id: string | null
-  assignment_valid: boolean
-  phone_number: string | null
-  remaining_seconds: number
-  expires_at: string | null
-  max_minutes: number | null
-  admin_reason: string | null
-  updated_at: string | null
-  updated_by: string | null
-  revision: number
+type Action = 'save' | 'activate_test' | 'revoke' | 'activate' | 'deactivate' | 'reactivate'
+type Audit = {
+  id: string
+  actor_id: string
+  action: string
+  occurred_at: string
+  previous_state: ServiceAccess
+  new_state: ServiceAccess
 }
 
-const sources = { stripe: 'Stripe', manual_admin: 'Manual Admin', internal_test: 'Internal Test' }
+const serviceModes: Record<ServiceMode, string> = {
+  automatic: 'Automatic — Follow Stripe', manual: 'Active — Manual authorization',
+  internal_test: 'Active — Temporary test', pending: 'Pending', paused: 'Paused',
+  suspended: 'Suspended', cancelled: 'Cancelled',
+}
+const agentStatuses: Record<AgentStatus, string> = { setup: 'Setup', testing: 'Testing', live: 'Live', paused: 'Paused' }
+const sources = { stripe: 'Stripe', manual_admin: 'Admin', internal_test: 'Internal Test' }
 const statusLabels: Record<string, string> = {
-  active: 'Active', pending: 'Pending', paused: 'Paused', expired: 'Expired',
-  unavailable: 'Unavailable', inactive: 'Inactive', appointment_test: 'Appointment test only',
+  active: 'Active', pending: 'Pending', paused: 'Paused', suspended: 'Suspended', cancelled: 'Cancelled',
+  expired: 'Expired', unavailable: 'Unavailable', inactive: 'Inactive', appointment_test: 'Appointment test only',
+}
+const auditActions: Record<string, string> = {
+  save: 'Saved settings', activate: 'Activated client', deactivate: 'Deactivated client',
+  reactivate: 'Reactivated client', activate_test: 'Authorized temporary test', pause: 'Paused service', revoke: 'Revoked authorization',
 }
 const minutes = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 })
 const formatDate = (value: string | null) => value ? new Date(value).toLocaleString(undefined, {
@@ -42,22 +39,26 @@ const localInput = (value: string | null) => {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 }
 
-const requestAccess = async (clientId: string, options: RequestInit = {}): Promise<Access> => {
+const requestAccess = async (clientId: string, options: RequestInit = {}, history = false): Promise<{ access: ServiceAccess; history?: Audit[] }> => {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session?.access_token) throw new Error('Please sign in again.')
-  const response = await fetch('/.netlify/functions/admin-service-access?' + new URLSearchParams({ clientId }), {
+  const params = new URLSearchParams({ clientId })
+  if (history) params.set('history', '1')
+  const response = await fetch('/.netlify/functions/admin-service-access?' + params, {
     ...options,
     headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
   })
   const result = await response.json().catch(() => null)
   if (!response.ok || !result?.access) throw new Error(result?.error || 'Service access could not be loaded.')
-  return result.access
+  return result
 }
 
 export default function AdminServiceAccess({ clientId, onSaved }: { clientId: string; onSaved: () => void }) {
-  const [access, setAccess] = useState<Access | null>(null)
-  const [mode, setMode] = useState<Mode>('automatic')
-  const [plan, setPlan] = useState<Plan>('Recepta Standard')
+  const [access, setAccess] = useState<ServiceAccess | null>(null)
+  const [history, setHistory] = useState<Audit[]>([])
+  const [mode, setMode] = useState<ServiceMode>('automatic')
+  const [plan, setPlan] = useState<ServicePlan | ''>('')
+  const [agentStatus, setAgentStatus] = useState<AgentStatus | ''>('')
   const [reason, setReason] = useState('')
   const [expires, setExpires] = useState('')
   const [allowance, setAllowance] = useState('60')
@@ -66,19 +67,23 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
   const [notice, setNotice] = useState('')
   const [refresh, setRefresh] = useState(0)
 
-  const show = (saved: Access) => {
+  const show = (saved: ServiceAccess) => {
     setAccess(saved)
     setMode(saved.mode)
-    setPlan(saved.plan ?? 'Recepta Standard')
+    setPlan(saved.plan_override ?? '')
+    setAgentStatus(saved.agent_status_override ?? '')
     setReason(saved.admin_reason ?? '')
-    setExpires(localInput(saved.expires_at))
-    setAllowance(saved.mode === 'internal_test' && saved.max_minutes ? String(saved.max_minutes) : '60')
+    setExpires(localInput(saved.saved_grant_expires_at))
+    setAllowance(String(saved.max_minutes ?? 60))
   }
 
   useEffect(() => {
     const controller = new AbortController()
-    requestAccess(clientId, { signal: controller.signal }).then(saved => {
-      if (!controller.signal.aborted) show(saved)
+    requestAccess(clientId, { signal: controller.signal }, true).then(result => {
+      if (!controller.signal.aborted) {
+        show(result.access)
+        setHistory(result.history ?? [])
+      }
     }).catch(failure => {
       if (!controller.signal.aborted) setError(failure.message)
     }).finally(() => {
@@ -96,16 +101,24 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
 
   const save = async (action: Action) => {
     if (!access || busy) return
-    if (action === 'activate_test' && mode !== 'internal_test') {
-      setMode('internal_test')
-      setError('')
-      setNotice('Enter the reason, expiration and minute limit to activate temporary access.')
-      return
+    const enabling = action === 'activate' || action === 'reactivate'
+    let nextMode = mode
+    if (action === 'activate_test') nextMode = 'internal_test'
+    if (action === 'deactivate') nextMode = 'paused'
+    if (action === 'revoke') nextMode = 'pending'
+    if (enabling && nextMode !== 'manual' && nextMode !== 'internal_test') {
+      nextMode = mode === 'automatic' && access.billing_current
+        ? 'automatic'
+        : access.saved_grant_mode ?? (access.billing_current ? 'automatic' : 'manual')
     }
-    const granting = action === 'activate_test' || (action === 'save' && (mode === 'manual' || mode === 'internal_test'))
-    const expiryTime = expires ? new Date(expires) : null
-    if (granting && (!reason.trim() || !expiryTime || !(expiryTime.getTime() > Date.now()))) {
-      setError('Enter an authorization reason and a future expiration.')
+    const granting = nextMode === 'manual' || nextMode === 'internal_test'
+    const expiryTime = granting && expires ? new Date(expires) : null
+    if (granting && (!reason.trim() || (expiryTime && !(expiryTime.getTime() > Date.now())) ||
+      (nextMode === 'internal_test' && !expiryTime))) {
+      setMode(nextMode)
+      setError(expiryTime && !(expiryTime.getTime() > Date.now())
+        ? 'Choose a future expiration for this authorization.'
+        : nextMode === 'internal_test' ? 'Enter a reason and expiration for temporary test access.' : 'Enter a reason for manual authorization.')
       setNotice('')
       return
     }
@@ -114,19 +127,27 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
     setError('')
     setNotice('')
     try {
-      const saved = await requestAccess(clientId, {
+      const { access: saved } = await requestAccess(clientId, {
         method: 'PUT',
         body: JSON.stringify({
-          action, mode, plan, reason, expiresAt: expiryTime?.toISOString(), maxMinutes: Number(allowance),
+          action, mode: nextMode, servicePlan: plan || null,
+          agentStatus: enabling ? 'live' : action === 'activate_test' ? 'testing' : agentStatus || null,
+          reason, expiresAt: expiryTime?.toISOString() ?? null, maxMinutes: Number(allowance),
           agentId: access.agent_id, revision: access.revision,
         }),
       })
       show(saved)
       onSaved()
-      if (action === 'revoke') setNotice('Manual access revoked. New calls are blocked while service is pending.')
-      else if (saved.mode === 'paused') setNotice('Service paused. New calls are blocked.')
-      else if (granting && saved.status === 'active') setNotice('Service authorization is active. Review the readiness results before placing a test call.')
-      else setNotice('Service access saved.')
+      if (action === 'revoke') setNotice('Manual authorization revoked. Service is pending.')
+      else if (saved.mode === 'paused') setNotice('Service paused. Recepta is blocking new calls and appointment tools.')
+      else if (saved.reason === 'ready') setNotice('Service is active. Review agent readiness and place a test call.')
+      else setNotice('Service settings saved. See the effective access and readiness checks below.')
+      try {
+        const audited = await requestAccess(clientId, {}, true)
+        setHistory(audited.history ?? [])
+      } catch {
+        setError('Settings were saved. Refresh Status to reload the audit history.')
+      }
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Service access could not be saved.')
     } finally {
@@ -135,13 +156,15 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
   }
 
   const granting = mode === 'manual' || mode === 'internal_test'
-  const canRevoke = access && (['manual', 'internal_test'].includes(access.mode) ||
-    (access.mode === 'automatic' && access.source !== 'stripe'))
+  const canRevoke = access && (access.saved_grant_mode || (access.mode === 'automatic' && access.source !== 'stripe'))
   const billingStatus = access?.billing_status?.replaceAll('_', ' ') ?? 'Unavailable'
+  const canReactivate = access && (['paused', 'suspended', 'cancelled', 'expired'].includes(access.status) ||
+    access.agent_status_override === 'paused')
+  const active = access?.status === 'active' && access.can_reserve
 
   return <section className="adminServiceAccess adminRetellPicker adminEditFullWidth" aria-labelledby="service-access-title" aria-busy={busy}>
     <header className="adminRetellPickerHeader">
-      <div><h3 id="service-access-title">Subscription &amp; Service Access</h3><p>Manage this business’s access to inbound calls and appointment tools.</p></div>
+      <div><h3 id="service-access-title">Subscription &amp; Service Access</h3><p>Manage this business’s AI receptionist and plan.</p></div>
       <button type="button" className="btn btnOutline" disabled={busy} onClick={reload}>Refresh Status</button>
     </header>
     {busy && !access && <p role="status">Loading service access…</p>}
@@ -149,57 +172,71 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
     {notice && <p role="status" className="adminRetellNotice adminRetellNotice--success">{notice}</p>}
     {access && <>
       <dl className="adminServiceAccessSummary">
-        <div><dt>Business</dt><dd>{access.business_name}</dd></div>
-        <div><dt>Billing</dt><dd className="adminServiceBilling">{billingStatus}{!access.has_stripe_subscription && ' · No Stripe payment'}</dd></div>
-        <div><dt>Service Access</dt><dd className={access.status === 'active' ? 'adminServiceActive' : undefined}>{statusLabels[access.status] ?? access.status} · {sources[access.source]}</dd></div>
-        <div><dt>Service Plan</dt><dd>{access.plan ?? 'Unassigned'}</dd></div>
-        <div><dt>Retell Agent</dt><dd>{access.agent_id ?? 'Unassigned'}{access.agent_id && !access.assignment_valid && ' · Check assignment'}</dd></div>
+        <div><dt>Effective Service Access</dt><dd className={active ? 'adminServiceActive' : undefined}>{statusLabels[access.status] ?? access.status} · {sources[access.source]}</dd></div>
+        <div><dt>Effective Service Plan</dt><dd>{access.plan ?? 'Unassigned'}</dd></div>
+        <div><dt>Stripe Subscription</dt><dd>{access.billing_plan ?? 'Unassigned'}</dd></div>
+        <div><dt>Stripe Payment Status</dt><dd className="adminServiceBilling">{billingStatus}{!access.has_stripe_subscription && ' · No Stripe subscription'}</dd></div>
+        <div><dt>Retell Agent</dt><dd>{agentStatuses[access.agent_status] ?? 'Setup'}{access.agent_id && ` · ${access.agent_id}`}</dd></div>
         <div><dt>Phone Number</dt><dd>{access.phone_number ?? 'Unassigned'}</dd></div>
-        <div><dt>{access.mode === 'internal_test' && access.source === 'internal_test' ? 'Remaining Test Minutes' : 'Available Minutes'}</dt><dd>{minutes.format(access.remaining_seconds / 60)}</dd></div>
-        <div><dt>Access Expires</dt><dd>{formatDate(access.expires_at)}</dd></div>
-        <div><dt>Last Administrative Change</dt><dd title={access.updated_by ?? undefined}>{access.updated_at ? formatDate(access.updated_at) : 'No changes recorded'}</dd></div>
+        <div><dt>{access.mode === 'internal_test' ? 'Remaining Test Minutes' : 'Available Minutes'}</dt><dd>{minutes.format(access.remaining_seconds / 60)}</dd></div>
+        <div><dt>Access Expires</dt><dd>{access.mode === 'manual' && access.status === 'active' && !access.expires_at ? 'Ongoing' : formatDate(access.expires_at)}</dd></div>
       </dl>
 
       <fieldset className="adminServiceAccessFields" disabled={busy}>
         <label>
-          <span>Service Access</span>
-          <select value={mode} onChange={event => setMode(event.target.value as Mode)}>
-            <option value="automatic">Automatic — Follow Stripe</option>
-            <option value="manual">Manually Active — Admin authorization</option>
-            <option value="internal_test">Temporarily Active — Internal testing</option>
-            <option value="paused">Paused — Disable service</option>
-            <option value="pending">Pending — Awaiting activation</option>
-          </select>
-        </label>
-        <label>
           <span>Subscription Plan</span>
-          <select value={granting ? plan : access.plan ?? 'Recepta Standard'} disabled={!granting} onChange={event => setPlan(event.target.value as Plan)}>
+          <select value={plan} onChange={event => setPlan(event.target.value as ServicePlan | '')}>
+            <option value="">Follow the billing plan</option>
             <option value="Recepta Standard">Recepta Standard</option>
             <option value="Recepta Pro">Recepta Pro</option>
           </select>
-          {!granting && <small>Automatic access follows the paid plan. Use Checkout plan above to prepare a billing change.</small>}
+        </label>
+        <label>
+          <span>Service Status</span>
+          <select value={mode} onChange={event => setMode(event.target.value as ServiceMode)}>
+            {Object.entries(serviceModes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Retell Agent Status</span>
+          <select value={agentStatus} onChange={event => setAgentStatus(event.target.value as AgentStatus | '')}>
+            <option value="">Follow Recepta provisioning</option>
+            {Object.entries(agentStatuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <small>Setup and Paused block inbound service. Testing requires temporary test access.</small>
         </label>
         {granting && <>
           <label className="adminEditFullWidth"><span>Authorization reason</span>
             <input value={reason} maxLength={1000} onChange={event => setReason(event.target.value)} placeholder="Why this business needs access" />
           </label>
-          <label><span>Access expiration (your local time)</span>
+          <label><span>{mode === 'manual' ? 'Expiration (optional)' : 'Test expiration'} · Your local time</span>
             <input type="datetime-local" value={expires} onChange={event => setExpires(event.target.value)} />
+            {mode === 'manual' && <small>Leave blank for ongoing access with a monthly minute allowance.</small>}
           </label>
-          {mode === 'internal_test' && <label><span>Maximum test minutes</span>
+          {(mode === 'internal_test' || !access.configured_minutes) && <label><span>{mode === 'internal_test' ? 'Maximum test minutes' : 'Minute allowance'}</span>
             <input type="number" min="1" max="100000000" step="1" value={allowance} onChange={event => setAllowance(event.target.value)} />
           </label>}
         </>}
       </fieldset>
-      <p className="adminRetellPickerFootnote">Manual and test access authorize Recepta service. Stripe payment status changes only through Stripe.</p>
+      <p className="adminRetellPickerFootnote">These settings control Recepta service. Manage Stripe charges and subscriptions in Billing.</p>
       <div className="adminServiceAccessActions">
-        <button type="button" className="btn btnPrimary" disabled={busy} onClick={() => void save('save')}>Save Service Access</button>
+        <button type="button" className="btn btnPrimary" disabled={busy} onClick={() => void save('save')}>Save &amp; Sync</button>
+        {canReactivate
+          ? <button type="button" className="btn btnOutline" disabled={busy || !access.assignment_valid} onClick={() => void save('reactivate')}>Reactivate Client</button>
+          : <button type="button" className="btn btnOutline" disabled={busy || !access.assignment_valid} onClick={() => void save('activate')}>Activate Client</button>}
+        <button type="button" className="btn btnOutline" disabled={busy || access.mode === 'paused'} onClick={() => void save('deactivate')}>Deactivate Client</button>
         <button type="button" className="btn btnOutline" disabled={busy || !access.assignment_valid} onClick={() => void save('activate_test')}>Activate Temporary Test Access</button>
-        <button type="button" className="btn btnOutline" disabled={busy || access.mode === 'paused'} onClick={() => void save('pause')}>Pause Service</button>
         {canRevoke && <button type="button" className="btn btnOutline" disabled={busy} onClick={() => void save('revoke')}>Revoke Manual Access</button>}
       </div>
+      <details className="adminServiceAudit">
+        <summary>Audit history</summary>
+        {history.length ? <ul aria-label="Recent service changes">{history.map(entry => <li key={entry.id}>
+          <strong>{auditActions[entry.action] ?? entry.action}</strong>
+          <span title={entry.actor_id}>{formatDate(entry.occurred_at)}</span>
+          <span>{serviceModes[entry.previous_state.mode]} → {serviceModes[entry.new_state.mode]} · {entry.new_state.plan ?? 'Unassigned'}</span>
+        </li>)}</ul> : <p>No administrative changes recorded.</p>}
+      </details>
     </>}
-    <AdminReceptionistReadiness key={access?.revision ?? 0} clientId={clientId}
-      autoCheck={access?.status === 'active' && (access.mode === 'internal_test' || access.mode === 'manual') && access.source !== 'stripe'} />
+    <AdminReceptionistReadiness key={access?.revision ?? 0} clientId={clientId} autoCheck={Boolean(active && access?.revision)} />
   </section>
 }

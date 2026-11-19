@@ -416,9 +416,10 @@ export default async (request: Request) => {
             throw agentRestore.error
           }
 
-          if (assignedAgent?.retell_agent_id && activatedSubscription.plan_name === 'Recepta Pro') {
+          if (assignedAgent?.retell_agent_id) {
             try {
-              await repairAppointmentAgent(supabaseAdmin, clientId, deployment)
+              const access = await loadServiceAccess(supabaseAdmin, clientId)
+              if (access.plan === 'Recepta Pro') await repairAppointmentAgent(supabaseAdmin, clientId, deployment)
             } catch (error) {
               // Billing is already confirmed. The admin readiness check can retry
               // an unavailable Retell installation without replaying payment.

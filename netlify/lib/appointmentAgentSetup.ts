@@ -3,10 +3,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { activeCallEmailSettings, normalizeCallEmailSettings } from '../../src/lib/callEmailSettings'
 import { configuredEmailApiKey } from './emailEnvironment'
 import { getStoredBusinessSchedule } from './employeeSchedule'
-import { appointmentServiceIssue, type ServiceAccess } from './serviceAccess'
+import { appointmentServiceIssue, loadServiceAccess, type ServiceAccess, type ServicePlan } from './serviceAccess'
 import {
-  inspectRetellAppointments, inspectRetellPhoneRoute, normalizeAppointmentFields, normalizeE164,
-  receptaRetellOrigin, RetellSetupError, retellScheduleSyncMessage, syncRetellSchedule,
+  getPublishedRetellAgent, inspectRetellAppointments, inspectRetellPhoneRoute, normalizeAppointmentFields, normalizeE164,
+  receptaRetellOrigin, RetellSetupError, retellScheduleSyncMessage, syncManagedRetellInboundRoute, syncRetellSchedule,
 } from './retell'
 
 const getAgentAssignment = async (db: SupabaseClient, clientId: string) => {
@@ -34,8 +34,12 @@ const requireRetellKey = (key: string | undefined) => {
   return key
 }
 
-export const repairAppointmentAgent = async (db: SupabaseClient, clientId: string, deployment: RetellDeployment) => {
+export const repairAppointmentAgent = async (db: SupabaseClient, clientId: string, deployment: RetellDeployment,
+  options?: { agentId: string; plan: ServicePlan; revision: number }) => {
   const { agentId, agent } = await getAgentAssignment(db, clientId)
+  if (options && options.agentId !== agentId) {
+    throw new RetellSetupError('The saved agent changed. Refresh before syncing.')
+  }
   const apiKey = requireRetellKey(deployment.key)
   const account = await db.auth.admin.getUserById(clientId)
   if (account.error) throw account.error
@@ -45,11 +49,55 @@ export const repairAppointmentAgent = async (db: SupabaseClient, clientId: strin
     normalizeAppointmentFields(account.data.user?.user_metadata?.appointment_custom_fields)
   const result = await syncRetellSchedule({
     apiKey, agentId, schedule: getStoredBusinessSchedule(agent.business_hours),
-    appointmentFields, appointmentScheduling: true, schedulingOnly: true, deploymentOrigin: deployment.previewOrigin,
-    beforePublish: () => assertAgentOwner(db, clientId, agentId),
+    appointmentFields, appointmentScheduling: options?.plan !== 'Recepta Standard', schedulingOnly: true,
+    servicePlan: options?.plan, ensureCallEvents: Boolean(options), deploymentOrigin: deployment.previewOrigin,
+    beforePublish: async () => {
+      await assertAgentOwner(db, clientId, agentId)
+      if (options && (await loadServiceAccess(db, clientId)).revision !== options.revision) {
+        throw new RetellSetupError('Service settings changed during synchronization. Refresh to sync the current settings.')
+      }
+    },
   })
   await assertAgentOwner(db, clientId, agentId)
   return { agentId, version: result.version }
+}
+
+export const syncClientReceptionist = async (
+  db: SupabaseClient, clientId: string, access: ServiceAccess, plan: ServicePlan, deployment: RetellDeployment,
+) => {
+  const { agentId, agent } = await getAgentAssignment(db, clientId)
+  if (agentId !== access.agent_id) throw new RetellSetupError('The saved agent changed. Refresh before syncing.')
+  const key = requireRetellKey(deployment.key)
+  const origin = deployment.previewOrigin ?? receptaRetellOrigin(false)
+  const numbers = await db.from('agent_phone_numbers').select('phone_number').eq('client_id', clientId)
+  if (numbers.error) throw numbers.error
+  const phones = [...new Set([agent.phone_number, ...numbers.data.map(row => row.phone_number)]
+    .filter(Boolean).map(number => normalizeE164(number)))]
+  if (!phones.length || phones.some(number => !number)) throw new RetellSetupError('Assign a valid Retell phone number before activating service.')
+
+  const published = await getPublishedRetellAgent(key, agentId)
+  const callEvents = `${origin}/.netlify/functions/retell-webhook`
+  if (published.webhook_url && published.webhook_url !== callEvents) {
+    throw new RetellSetupError('The published agent uses a different call-event webhook. Review its Retell routing.')
+  }
+  const missingEvents = published.webhook_url !== callEvents ||
+    Boolean(published.webhook_events && ['call_started', 'call_ended', 'call_analyzed']
+      .some(event => !published.webhook_events?.includes(event)))
+  for (const phone of phones) {
+    if (!phone) continue
+    const [assigned, legacy] = await Promise.all([
+      db.from('agent_phone_numbers').select('client_id').eq('phone_number', phone).maybeSingle(),
+      db.from('agents').select('client_id').eq('phone_number', phone),
+    ])
+    if (assigned.error || legacy.error) throw assigned.error ?? legacy.error
+    if ((assigned.data && assigned.data.client_id !== clientId) || legacy.data.some(row => row.client_id !== clientId)) {
+      throw new RetellSetupError(`The Retell line ending in ${phone.slice(-4)} is assigned to another client.`)
+    }
+    await syncManagedRetellInboundRoute(key, phone, agentId, origin)
+  }
+  if (plan === 'Recepta Pro' || missingEvents || published.response_engine?.type === 'retell-llm') {
+    await repairAppointmentAgent(db, clientId, deployment, { agentId, plan, revision: access.revision })
+  }
 }
 
 type ReadinessCheck = { label: string; status: 'ready' | 'blocked' | 'unverified' | 'optional'; detail: string }
@@ -90,6 +138,11 @@ export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: st
   if (numbers.error || rules.error) throw numbers.error ?? rules.error
   const callIssues: Record<string, string> = {
     paused: 'Service is paused by a Recepta administrator.',
+    suspended: 'Service is suspended by a Recepta administrator.',
+    cancelled: 'Service is cancelled in Recepta.',
+    agent_setup: 'The agent is in Setup. Set it to Live to receive calls.',
+    agent_paused: 'The agent is paused.',
+    agent_testing: 'The agent is in Testing. Choose temporary test access or set the agent to Live.',
     pending: 'Service is awaiting activation.',
     expired: 'The administrative authorization has expired.',
     agent_assignment: 'Check that a unique Retell agent is assigned and ready for this service mode.',

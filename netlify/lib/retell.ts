@@ -804,18 +804,37 @@ export const inspectRetellAppointments = async (apiKey: string, agentId: string,
   }
 }
 
-export const inspectRetellPhoneRoute = async (apiKey: string, phoneNumber: string, siteUrl: string) => {
-  const route = await retellRequest<{
+const getRetellInboundRoute = (apiKey: string, phoneNumber: string) =>
+  retellRequest<{
     phone_number?: string
     inbound_webhook_url?: string | null
-    inbound_agents?: unknown[] | null
+    inbound_agents?: Array<{ agent_id?: string }> | null
   }>(apiKey, `/get-phone-number/${encodeURIComponent(phoneNumber)}`)
+
+export const inspectRetellPhoneRoute = async (apiKey: string, phoneNumber: string, siteUrl: string) => {
+  const route = await getRetellInboundRoute(apiKey, phoneNumber)
   if (route?.phone_number !== phoneNumber) return 'Retell did not return the assigned number.'
   if (route.inbound_webhook_url !== `${siteUrl}/.netlify/functions/retell-inbound`) {
     return 'The number’s inbound webhook points to the wrong deployment or is missing.'
   }
   if (route.inbound_agents?.length) return 'The number has a fallback agent that could answer without Recepta call authorization.'
   return null
+}
+
+export const syncManagedRetellInboundRoute = async (apiKey: string, phoneNumber: string, agentId: string, siteUrl: string) => {
+  const route = await getRetellInboundRoute(apiKey, phoneNumber)
+  const webhook = `${siteUrl}/.netlify/functions/retell-inbound`
+  if (route?.phone_number !== phoneNumber ||
+    (route.inbound_webhook_url && route.inbound_webhook_url !== webhook) ||
+    route.inbound_agents?.some(agent => agent.agent_id !== agentId)) {
+    throw new RetellSetupError(`The Retell line ending in ${phoneNumber.slice(-4)} has a different agent or inbound webhook. Review its routing before activation.`)
+  }
+  if (route.inbound_webhook_url === webhook && !route.inbound_agents?.length) return
+  await retellRequest(apiKey, `/update-phone-number/${encodeURIComponent(phoneNumber)}`, {
+    method: 'PATCH', body: JSON.stringify({ inbound_webhook_url: webhook, inbound_agents: null }),
+  })
+  const issue = await inspectRetellPhoneRoute(apiKey, phoneNumber, siteUrl)
+  if (issue) throw new RetellSetupError(issue)
 }
 
 const LEGACY_MANAGED_PROMPT_LINES: Record<string, string[][]> = {
@@ -962,6 +981,8 @@ export const syncRetellSchedule = async ({
   preserveAvailability = false,
   appointmentScheduling = false,
   schedulingOnly = false,
+  servicePlan,
+  ensureCallEvents = false,
   deploymentOrigin,
   beforePublish,
   emailNotificationsEnabled = true,
@@ -978,6 +999,8 @@ export const syncRetellSchedule = async ({
   preserveAvailability?: boolean
   appointmentScheduling?: boolean
   schedulingOnly?: boolean
+  servicePlan?: 'Recepta Standard' | 'Recepta Pro'
+  ensureCallEvents?: boolean
   deploymentOrigin?: string
   beforePublish?: () => Promise<void>
   emailNotificationsEnabled?: boolean
@@ -998,9 +1021,23 @@ export const syncRetellSchedule = async ({
     throw new RetellSetupError('Retell did not return an editable version of the assigned receptionist.')
   }
   const baseVersion = baseAgent.version
+  const eventWebhook = new URL('/.netlify/functions/retell-webhook', deploymentOrigin ?? receptaRetellOrigin(false)).toString()
+  const requiredEvents = ['call_started', 'call_ended', 'call_analyzed']
+  const hasCallEvents = (agent: RetellAgent) => agent.webhook_url === eventWebhook &&
+    (!agent.webhook_events || requiredEvents.every(event => agent.webhook_events?.includes(event)))
+  if (ensureCallEvents && baseAgent.webhook_url && baseAgent.webhook_url !== eventWebhook) {
+    throw new RetellSetupError('The agent uses a different call-event webhook. Review its Retell routing before activation.')
+  }
   const baseLlm = schedulingOnly ? await readRetellLlm(apiKey, baseAgent) : null
-  if (published && baseLlm && siteUrl && !appointmentToolIssue(baseLlm, siteUrl, true) &&
-      (appointmentFields === undefined || baseLlm.default_dynamic_variables?.recepta_appointment_fields === formatAppointmentFields(appointmentFields))) {
+  const standard = servicePlan === 'Recepta Standard'
+  const hasManagedTools = (llm: RetellLlm) =>
+    [...(llm.general_tools ?? []), ...(llm.states ?? []).flatMap(state => state.tools ?? [])]
+      .some(tool => typeof tool.name === 'string' && RECEPTA_APPOINTMENT_TOOL_NAMES.has(tool.name))
+  const toolsReady = baseLlm && siteUrl && (standard
+    ? !hasManagedTools(baseLlm) && baseLlm.default_dynamic_variables?.recepta_scheduling_tools !== 'enabled'
+    : !appointmentToolIssue(baseLlm, siteUrl, true))
+  if (published && baseLlm && toolsReady && (!ensureCallEvents || hasCallEvents(published)) &&
+      (standard || appointmentFields === undefined || baseLlm.default_dynamic_variables?.recepta_appointment_fields === formatAppointmentFields(appointmentFields))) {
     return { agentUpdated: false, version: published.version }
   }
 
@@ -1013,7 +1050,6 @@ export const syncRetellSchedule = async ({
     }
   )
 
-  const eventWebhook = new URL('/.netlify/functions/retell-webhook', deploymentOrigin ?? receptaRetellOrigin(false)).toString()
   const responseEngine = draftAgent?.response_engine
   if (draftAgent?.agent_id !== agentId || typeof draftAgent.version !== 'number' || draftAgent.version === baseVersion ||
       !responseEngine?.llm_id || typeof responseEngine.version !== 'number' ||
@@ -1108,8 +1144,18 @@ export const syncRetellSchedule = async ({
 
   }
 
+  if (ensureCallEvents && !hasCallEvents(draftAgent)) {
+    await retellRequest(apiKey, `/update-agent/${encodeURIComponent(agentId)}?version=${draftAgent.version}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        webhook_url: eventWebhook,
+        webhook_events: [...new Set([...requiredEvents, ...(draftAgent.webhook_events ?? [])])],
+      }),
+    })
+  }
+
   const existingTools = currentLlm.general_tools ?? []
-  const scheduling = appointmentScheduling || currentLlm.default_dynamic_variables?.recepta_scheduling_tools === 'enabled'
+  const scheduling = !standard && (appointmentScheduling || currentLlm.default_dynamic_variables?.recepta_scheduling_tools === 'enabled')
   let generalTools = existingTools
   const isManagedTool = (tool: Record<string, unknown>) =>
     typeof tool.name === 'string' && RECEPTA_APPOINTMENT_TOOL_NAMES.has(tool.name)
@@ -1128,7 +1174,7 @@ export const syncRetellSchedule = async ({
     generalPrompt = replaceManagedPrompt(
       generalPrompt,
       APPOINTMENT_BOOKING_PROMPT_MARKER,
-      scheduling ? APPOINTMENT_SCHEDULING_INSTRUCTIONS : [
+      standard ? ['Use the business’s existing contact or transfer options for appointment enquiries.'] : scheduling ? APPOINTMENT_SCHEDULING_INSTRUCTIONS : [
         'Recepta does not provide a live calendar or reserve time slots.',
         'For an appointment request, collect the caller’s name, available contact details, reason, preferred date and time, and every field listed in {{recepta_appointment_fields}}. Ask about timezone when needed; do not invent a preference or availability.',
         'Read back the important details and ask the caller to confirm them.',
@@ -1139,7 +1185,7 @@ export const syncRetellSchedule = async ({
     )
     generalTools = [
       ...existingTools.filter(tool => !isManagedTool(tool)),
-      ...buildReceptaAppointmentTools(siteUrl, scheduling),
+      ...(standard ? [] : buildReceptaAppointmentTools(siteUrl, scheduling)),
     ]
   }
 
@@ -1156,6 +1202,7 @@ export const syncRetellSchedule = async ({
         ...(cleanedStates ? { states: cleanedStates } : {}),
         default_dynamic_variables: {
           ...(currentLlm.default_dynamic_variables ?? {}),
+          ...(standard ? { recepta_scheduling_tools: 'disabled' } : {}),
           ...(scheduling && !emailOnly ? { recepta_scheduling_tools: 'enabled' } : {}),
           ...(emailConfigured && !schedulingOnly ? { recepta_call_email_settings: JSON.stringify(emailSettings) } : {}),
           ...(!emailOnly && !schedulingOnly && !preserveAvailability ? {
@@ -1216,8 +1263,11 @@ export const syncRetellSchedule = async ({
     if (live.version !== draftAgent.version) {
       throw new RetellSetupError('Retell’s live version did not match the published draft. Check the live configuration and retry.')
     }
-    const issue = appointmentToolIssue(await readRetellLlm(apiKey, live), siteUrl, scheduling)
+    const liveLlm = await readRetellLlm(apiKey, live)
+    const issue = standard ? hasManagedTools(liveLlm) && 'The published agent still has Recepta appointment tools.'
+      : appointmentToolIssue(liveLlm, siteUrl, scheduling)
     if (issue) throw new RetellSetupError(issue)
+    if (ensureCallEvents && !hasCallEvents(live)) throw new RetellSetupError('The published agent is missing Recepta call-event routing.')
   }
 
   return {
