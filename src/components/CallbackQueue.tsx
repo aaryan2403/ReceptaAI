@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Phone, PhoneMissed } from 'lucide-react'
+import { ChevronDown, Phone, PhoneIncoming, PhoneMissed } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import './CallbackQueue.css'
 
@@ -119,42 +119,49 @@ export default function CallbackQueue() {
       {callbacks?.length === 0 && <p className="callbackQueueMessage">No missed calls recorded.</p>}
 
       {visible.length > 0 && (
-        <ul className="callbackQueueList" id="callback-queue-list">
-          {visible.map(callback => {
-            const date = new Date(callback.created_at)
-            const caller = callback.caller_number
-            const displayNumber = caller?.replace(/^\+1(\d{3})(\d{3})(\d{4})$/, '+1 ($1) $2-$3')
+        <div className="callbackQueueEntries">
+          <div className="callbackQueueColumns" aria-hidden="true"><span>Caller</span><span>Received</span><span>Follow-up</span></div>
+          <ul className="callbackQueueList" id="callback-queue-list">
+            {visible.map(callback => {
+              const date = new Date(callback.created_at)
+              const caller = callback.caller_number
+              const displayNumber = caller?.replace(/^\+1(\d{3})(\d{3})(\d{4})$/, '+1 ($1) $2-$3')
 
-            return (
-              <li className="callbackQueueRow" key={callback.id}>
-                <div>
-                  <strong>{displayNumber || 'Caller ID unavailable'}</strong>
-                  <div className="callbackQueueMeta">
-                    <span>{reasons[callback.reason] ?? 'Receptionist unavailable'}</span>
-                    <time dateTime={callback.created_at}>{dateFormat.format(date)}</time>
+              return (
+                <li className="callbackQueueRow" key={callback.id}>
+                  <div className="callbackQueueCaller">
+                    <span className="callbackQueueCallerIcon"><PhoneIncoming aria-hidden="true" size={16} /></span>
+                    <div>
+                      <strong>{displayNumber || 'Caller ID unavailable'}</strong>
+                      <p className="callbackQueueMeta">{reasons[callback.reason] ?? 'Receptionist unavailable'}</p>
+                    </div>
                   </div>
-                </div>
-                <div className="callbackQueueActions">
-                  {caller && (
-                    <a className="callbackQueueCall" href={`tel:${caller}`} aria-label={`Call back ${displayNumber}`}>
-                      <Phone aria-hidden="true" size={14} />
-                      <span>Call back</span>
-                    </a>
-                  )}
-                  <select
-                    aria-label={`Follow-up status for ${displayNumber || 'unknown caller'}, ${dateFormat.format(date)}`}
-                    value={callback.status}
-                    data-status={callback.status}
-                    disabled={saving !== null}
-                    onChange={event => void update(callback.id, event.target.value as CallbackStatus)}
-                  >
-                    {Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                  </select>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
+                  <time className="callbackQueueTime" dateTime={callback.created_at}>{dateFormat.format(date)}</time>
+                  <div className="callbackQueueActions">
+                    {caller && (
+                      <a className="callbackQueueCall" href={`tel:${caller}`} aria-label={`Call back ${displayNumber}`}>
+                        <Phone aria-hidden="true" size={14} />
+                        <span>Call back</span>
+                      </a>
+                    )}
+                    <div className="callbackQueueStatus">
+                      <select
+                        aria-label={`Follow-up status for ${displayNumber || 'unknown caller'}, ${dateFormat.format(date)}`}
+                        value={callback.status}
+                        data-status={callback.status}
+                        disabled={saving !== null}
+                        onChange={event => void update(callback.id, event.target.value as CallbackStatus)}
+                      >
+                        {Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                      <ChevronDown aria-hidden="true" size={15} />
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
       )}
 
       {ordered.length > previewLength && (

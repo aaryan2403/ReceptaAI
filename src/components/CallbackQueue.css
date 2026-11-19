@@ -142,3 +142,124 @@
 .callbackQueueError {
   color: #ffb7b7;
 }
+
+.callbackQueue {
+  background: linear-gradient(135deg, #102219, #0b1711 72%);
+}
+
+.callbackQueueHeader {
+  gap: 16px;
+}
+
+.callbackQueueTitle > svg {
+  box-sizing: content-box;
+  margin: 0;
+  padding: 10px;
+  background: #163a29;
+  border: 1px solid #24543d;
+  border-radius: 12px;
+}
+
+.callbackQueueEntries {
+  margin-top: 18px;
+  overflow: hidden;
+  border: 1px solid #263b30;
+  border-radius: 12px;
+  background: #0a1510;
+}
+
+.callbackQueueColumns,
+.callbackQueueRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 16rem;
+  column-gap: 16px;
+  align-items: center;
+  padding: 10px 14px;
+}
+
+.callbackQueueColumns {
+  background: #12231a;
+  color: #aabdb2;
+  font-size: .75rem;
+  font-weight: 600;
+}
+
+.callbackQueueList {
+  margin: 0;
+}
+
+.callbackQueueCaller {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.callbackQueueCallerIcon {
+  display: grid;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 50%;
+  background: #162a20;
+  color: #a0c5af;
+}
+
+.callbackQueueMeta,
+.callbackQueueTime {
+  font-size: .8125rem;
+  color: #aabdb2;
+}
+
+.callbackQueueActions {
+  justify-content: flex-end;
+}
+
+.callbackQueueStatus {
+  position: relative;
+}
+
+.callbackQueueStatus select {
+  appearance: none;
+  min-height: 36px;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+.callbackQueueStatus > svg {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: #aabdb2;
+}
+
+@media (max-width: 850px) {
+  .callbackQueueColumns {
+    display: none;
+  }
+
+  .callbackQueueRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .callbackQueueRow:first-child {
+    border-top: 0;
+  }
+
+  .callbackQueueActions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 500px) {
+  .callbackQueueRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .callbackQueueTime {
+    padding-left: 42px;
+  }
+}
