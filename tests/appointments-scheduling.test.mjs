@@ -19,9 +19,17 @@ const fixture = `
   grant usage on schema public to service_role;
   create table clients(id uuid primary key, deletion_pending boolean not null default false, company_name text, contact_email text);
   create table subscriptions(client_id uuid primary key, plan_name text, status text, stripe_subscription_id text,
-    current_period_start timestamptz, current_period_end timestamptz, monthly_minutes integer);
-  create table agents(client_id uuid primary key, retell_agent_id text, business_hours text, status text, phone_number text);
-  create table agent_phone_numbers(client_id uuid, phone_number text);
+    current_period_start timestamptz, current_period_end timestamptz, monthly_minutes integer, rollover_seconds bigint);
+  create table agents(client_id uuid primary key, retell_agent_id text, business_hours text, status text, phone_number text, demo_mode boolean not null default false);
+  create table agent_phone_numbers(client_id uuid, phone_number text, is_primary boolean);
+  create table call_minute_reservations(id uuid primary key default gen_random_uuid(), client_id uuid,
+    retell_call_id text unique, period_start timestamptz, period_end timestamptz, reserved_seconds integer,
+    used_seconds integer, status text not null default 'active', retell_agent_id text, demo_mode boolean);
+  create table calls(client_id uuid, retell_call_id text, call_status text);
+  create table employees(id uuid, client_id uuid, name text, role text, is_active boolean, created_at timestamptz);
+  grant select on employees to service_role;
+  create function recepta_committed_usage(uuid,timestamptz,timestamptz) returns bigint language sql as 'select 0::bigint';
+  grant select, insert, update on call_minute_reservations, calls to service_role;
   grant select on agent_phone_numbers to service_role;
   create table appointments(id uuid primary key default gen_random_uuid(),client_id uuid not null references clients(id),
     retell_call_id text,customer_name text,customer_email text,customer_phone text,company_name text,service text,notes text,
@@ -53,6 +61,7 @@ const migrationFiles = [
   '20261113064703_tenant_appointment_scheduling.sql',
   '20261116074255_appointment_setup_and_paid_access.sql',
   '20261116113500_internal_appointment_test_entitlement.sql',
+  '20261119185856_admin_service_access.sql',
 ]
 
 const pgUrl = process.env.RECEPTA_TEST_PG_URL
@@ -65,7 +74,7 @@ const base = async (database) => {
   await database.query(`insert into subscriptions(client_id,plan_name,status,stripe_subscription_id,current_period_start,current_period_end,monthly_minutes)
     values($1,'Recepta Pro','active','sub_test_one',now()-interval '1 day',now()+interval '1 month',100),
           ($2,'Recepta Pro','active','sub_test_two',now()-interval '1 day',now()+interval '1 month',100)`, [tenant, other])
-  await database.query("insert into agents(client_id,retell_agent_id,business_hours) values($1,'agent_one',null),($2,'agent_two',null)", [tenant, other])
+  await database.query("insert into agents(client_id,retell_agent_id,business_hours,status,phone_number) values($1,'agent_one',null,'live',null),($2,'agent_two',null,'live',null)", [tenant, other])
 }
 before(async () => { await base(db); await db.exec('set role service_role') })
 after(async () => { await db.close(); await native?.end() })
@@ -277,7 +286,7 @@ test('two concurrent signed QA authorizations cannot consume more than one remai
   }
 })
 
-let signedHandler, dashboardHandler, adminTestHandler, emailBuilder, jobRunner
+let signedHandler, dashboardHandler, adminTestHandler, serviceHandler, inbound, emailBuilder, jobRunner
 const bundle = async (path) => {
   const output = await build({ entryPoints:[path], bundle:true, platform:'node', format:'esm',write:false,
     plugins:[{ name:'test-database',setup(builder) {
@@ -306,6 +315,9 @@ const initializeHandlers = async () => {
     capture_recepta_appointment_request:['p_client_id','p_call_id','p_details'],
     recepta_authorize_appointment_tool:['p_client','p_agent','p_call_id','p_tool'],
     recepta_appointment_test_check:['p_client','p_agent'],
+    recepta_service_access:['p_client','p_agent'],
+    recepta_save_service_access:['p_client','p_actor','p_action','p_mode','p_plan','p_agent','p_reason','p_expires_at','p_max_minutes','p_revision'],
+    reserve_recepta_agent_call:['p_client_id','p_call_id','p_agent_id'],
     recepta_grant_appointment_test:['p_client','p_agent','p_expires_at','p_max_calls','p_max_invocations','p_actor'],
     recepta_revoke_appointment_test:['p_client','p_agent','p_actor'],
     recepta_appointment_conflicts:['p_client','p_ids'],
@@ -351,11 +363,12 @@ const initializeHandlers = async () => {
       return builder
     },
     async rpc(name, args) {
+      if (name === 'record_recepta_callback') return { data:null,error:null }
       const fields = columnsFor[name].filter(field=>field in args)
       const references=fields.map((field,index)=>field+' => $'+(index+1)).join(',')
       const parameters=fields.map(field=>args[field])
       try {
-        if (name === 'recepta_appointment_conflicts' || name === 'claim_recepta_service_jobs') {
+        if (name === 'recepta_appointment_conflicts' || name === 'claim_recepta_service_jobs' || name === 'reserve_recepta_agent_call') {
           return { data:(await db.query('select * from public.'+name+'('+references+')',parameters)).rows,error:null }
         }
         const result=(await db.query('select to_jsonb(public.'+name+'('+references+')) as result',parameters)).rows[0].result
@@ -366,6 +379,8 @@ const initializeHandlers = async () => {
   signedHandler = (await bundle('netlify/functions/retell-appointment.ts')).default
   dashboardHandler = (await bundle('netlify/functions/appointment-scheduling.ts')).default
   adminTestHandler = (await bundle('netlify/functions/admin-appointment-test-entitlement.ts')).default
+  serviceHandler = (await bundle('netlify/functions/admin-service-access.ts')).default
+  inbound = (await bundle('netlify/functions/retell-inbound.ts')).default
   emailBuilder = (await bundle('netlify/lib/appointmentNotification.ts')).loadAppointmentEmail
   jobRunner = (await bundle('netlify/lib/serviceJobs.ts')).processServiceJobs
 }
@@ -624,7 +639,7 @@ test('admins can prepare an unpaid account while customers and callers still req
     const settings=rules({duration_minutes:37,start_interval_minutes:20,buffer_minutes:13,capacity:5,hourly_limit:7})
     const customer=await dashboard('','tenant','PUT',{settings})
     assert.equal(customer.status,403)
-    assert.match((await customer.json()).error,/no current paid period/)
+    assert.match((await customer.json()).error,/active Recepta Pro billing/)
     assert.equal((await dashboard('clientId='+tenant,'other','PUT',{settings})).status,403)
     const prep=await dashboard('clientId='+tenant,'admin','PUT',{settings})
     assert.equal(prep.status,200)
@@ -682,7 +697,7 @@ test('settings save registers signed Retell tools, preserves other functions and
     ])
     assert.ok(written.general_tools.slice(existing.length).every(tool=>tool.args_at_root===false && tool.url==='https://example.test/.netlify/functions/retell-appointment'))
     assert.match(written.general_prompt,/Manual transfer instructions/)
-    assert.match(written.general_prompt,/only when that tool returns success with status booked/)
+    assert.match(written.general_prompt,/only when the booking tool returns success with status booked/)
     assert.match(written.general_prompt,/Keep email policy/)
     assert.doesNotMatch(written.general_prompt,/Legacy calendar|Legacy request instructions/)
     const changed=await (await dashboard('','tenant','PUT',{settings:rules({hourly_limit:0})})).json()
@@ -713,5 +728,125 @@ test('settings save registers signed Retell tools, preserves other functions and
     globalThis.fetch=originalFetch
     if (originalUrl === undefined) delete process.env.URL
     else process.env.URL=originalUrl
+  }
+})
+
+test('service access uses verified admin, published Retell assignment, and the same inbound and appointment entitlement', async () => {
+  if (!serviceHandler) await initializeHandlers()
+  const originalFetch = globalThis.fetch
+  const requests = []
+  const requestService = (body, token = 'admin') => serviceHandler(new Request(
+    'https://recepta.ca/.netlify/functions/admin-service-access?clientId=' + tenant, {
+      method: body ? 'PUT' : 'GET', headers: { Authorization: 'Bearer ' + token },
+      body: body ? JSON.stringify(body) : undefined,
+    },
+  ))
+  const requestCall = async (id, to = '+14165550100') => {
+    const body = JSON.stringify({ event: 'call_inbound', call_inbound: { call_id: id, to_number: to, from_number: '+14165550109' } })
+    const time = Date.now()
+    const digest = createHmac('sha256', secret).update(body + time).digest('hex')
+    const response = await inbound(new Request('https://recepta.ca/.netlify/functions/retell-inbound', {
+      method: 'POST', body, headers: { 'x-retell-signature': 'v=' + time + ',d=' + digest },
+    }))
+    assert.equal(response.status, 200)
+    return (await response.json()).call_inbound
+  }
+  const body = { action: 'activate_test', plan: 'Recepta Pro', agentId: 'agent_one',
+    reason: 'Staging phone and appointment test', maxMinutes: 2, expiresAt: new Date(Date.now() + 3600000).toISOString() }
+  const availability = id => invoke('recepta_check_availability', { requested_date: futureDate() }, id)
+  await db.query("update subscriptions set status='pending', stripe_subscription_id=null where client_id=$1", [tenant])
+  await db.query("update agents set status='setup', business_hours=null, phone_number='+14165550100' where client_id=$1", [tenant])
+  let published = false
+  globalThis.fetch = async (url, options) => {
+    assert.equal(options?.method, undefined)
+    requests.push(String(url))
+    assert.equal(options.headers.Authorization, 'Bearer ' + secret)
+    if (url.includes('/get-agent/agent_one?version=latest_published')) {
+      return Response.json({ agent_id: 'agent_one', version: 5, is_published: published })
+    }
+    if (url.includes('/get-phone-number/')) {
+      return Response.json({ phone_number: '+14165550100', inbound_agents: [],
+        inbound_webhook_url: 'https://recepta.ca/.netlify/functions/retell-inbound' })
+    }
+    throw new Error('Unexpected provider request ' + url)
+  }
+  try {
+    const blocked = await requestCall('admin-access-before-grant')
+    assert.deepEqual(blocked, { reject: true })
+    assert.equal((await availability('admin-access-before-grant')).status, 403)
+    assert.equal((await requestService({ ...body, revision: 0 }, 'tenant')).status, 403)
+    assert.equal(requests.length, 0)
+    assert.equal((await requestService({ ...body, revision: 0, reason: ' ' })).status, 400)
+    assert.equal((await requestService({ ...body, revision: 0, maxMinutes: 0 })).status, 400)
+    assert.equal((await requestService({ ...body, revision: 0, agentId: 'agent_two' })).status, 409)
+    assert.equal((await requestService({ ...body, revision: 0 })).status, 409)
+    assert.equal((await call('recepta_service_access', [tenant])).revision, 0)
+    published = true
+
+    const response = await requestService({ ...body, revision: 0 })
+    assert.equal(response.status, 200, await response.clone().text())
+    const { access } = await response.json()
+    assert.equal(access.mode, 'internal_test')
+    assert.equal(access.status, 'active')
+    assert.equal(access.source, 'internal_test')
+    assert.equal(access.billing_status, 'pending')
+    assert.equal(access.has_stripe_subscription, false)
+    assert.equal(access.remaining_seconds, 120)
+    assert.equal((await requestService({ ...body, revision: 0 })).status, 409)
+    assert.deepEqual((await db.query('select status, retell_agent_id, phone_number, business_hours from agents where client_id=$1', [tenant])).rows[0],
+      { status: 'setup', retell_agent_id: 'agent_one', phone_number: '+14165550100', business_hours: null })
+    assert.equal((await availability('no-phone-reservation')).status, 403)
+    assert.deepEqual(await requestCall('wrong-number-reservation', '+14165550999'), { reject: true })
+
+    const admitted = await requestCall('test-allowance')
+    assert.equal(admitted.override_agent_id, 'agent_one')
+    assert.equal(admitted.agent_override.agent.max_call_duration_ms, 120000)
+    assert.equal((await requestCall('test-allowance')).metadata.recepta_reservation_id, admitted.metadata.recepta_reservation_id)
+    assert.equal((await availability('test-allowance')).status, 200)
+    assert.deepEqual(await requestCall('allowance-held'), { reject: true })
+    await db.query("update call_minute_reservations set status='completed', used_seconds=60 where retell_call_id='test-allowance'")
+    assert.equal((await call('recepta_service_access', [tenant])).remaining_seconds, 60)
+
+    const edited = await requestService({ ...body, revision: 1, reason: 'Reviewed staging test' })
+    assert.equal(edited.status, 200)
+    assert.equal((await edited.json()).access.remaining_seconds, 60)
+    assert.equal((await requestCall('remaining-allowance')).agent_override.agent.max_call_duration_ms, 60000)
+    assert.deepEqual(await requestCall('allowance-depleted'), { reject: true })
+
+    const revoked = await requestService({ action: 'revoke', revision: 2 })
+    assert.equal(revoked.status, 200)
+    assert.equal((await revoked.json()).access.status, 'pending')
+    assert.deepEqual(await requestCall('after-revocation'), { reject: true })
+    assert.equal((await availability('remaining-allowance')).status, 403)
+    const log = (await db.query('select actor_id, action, previous_state, new_state from recepta_service_access_audit where client_id=$1 order by occurred_at', [tenant])).rows
+    assert.deepEqual(log.map(item => item.action), ['activate_test', 'activate_test', 'revoke'])
+    assert.ok(log.every(item => item.actor_id === '00000000-0000-0000-0000-000000000103'))
+    assert.equal(log[2].previous_state.mode, 'internal_test')
+    assert.equal(log[2].new_state.mode, 'pending')
+
+    const manual = await requestService({ ...body, action: 'save', mode: 'manual', plan: 'Recepta Standard', revision: 3 })
+    assert.equal(manual.status, 200)
+    const { access: grant } = await manual.json()
+    assert.equal(grant.source, 'manual_admin')
+    assert.equal(grant.remaining_seconds, 6000)
+    assert.equal((await requestCall('manual-standard')).override_agent_id, 'agent_one')
+    assert.equal((await availability('manual-standard')).status, 403)
+    await db.query("update recepta_service_overrides set started_at=now()-interval '2 days', expires_at=now()-interval '1 day' where client_id=$1", [tenant])
+    assert.equal((await call('recepta_service_access', [tenant])).status, 'expired')
+    assert.deepEqual(await requestCall('after-expiry'), { reject: true })
+
+    const permissions = (await db.query(`select
+      has_table_privilege('authenticated', 'recepta_service_overrides', 'update') as can_update,
+      has_table_privilege('authenticated', 'recepta_service_access_audit', 'select') as can_read_audit,
+      has_function_privilege('authenticated',
+        'recepta_save_service_access(uuid,uuid,text,text,text,text,text,timestamptz,integer,integer)', 'execute') as can_grant`)).rows[0]
+    assert.deepEqual(permissions, { can_update: false, can_read_audit: false, can_grant: false })
+    assert.ok(requests.every(url => /\/get-(agent|phone-number)\//.test(url)))
+  } finally {
+    globalThis.fetch = originalFetch
+    await db.query("update subscriptions set status='active', stripe_subscription_id='sub_test_one' where client_id=$1", [tenant])
+    await db.query("update agents set status='live', phone_number=null where client_id=$1", [tenant])
+    await call('recepta_save_service_access', [tenant, '00000000-0000-0000-0000-000000000103', 'save', 'automatic', null, null, null, null, null,
+      (await call('recepta_service_access', [tenant])).revision])
   }
 })

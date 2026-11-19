@@ -97,8 +97,8 @@ export default async (request: Request) => {
       return json(403, { success: false, code: 'tenant_mismatch',
         error: 'This call does not match the assigned business.' })
     }
-    // Authorize *each signed tool invocation*. The RPC atomically records bounded QA
-    // usage, or validates a genuinely paid Pro subscription without consuming QA credits.
+    // Each signed action must have current Pro service access. An administrative
+    // grant also requires a reservation for this call, client, and agent.
     const access = await db.rpc('recepta_authorize_appointment_tool', {
       p_client: clientId, p_agent: agentId, p_call_id: callId, p_tool: name,
     })

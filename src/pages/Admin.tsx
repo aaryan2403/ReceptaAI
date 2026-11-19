@@ -1,4 +1,4 @@
-import AdminReceptionistReadiness from '../components/AdminReceptionistReadiness'
+import AdminServiceAccess from '../components/AdminServiceAccess'
 import InternalAppointmentTestAccess from '../components/InternalAppointmentTestAccess'
 import AppointmentScheduling from '../components/AppointmentScheduling'
 import './AdminClientEditor.css'
@@ -303,6 +303,7 @@ export default function Admin() {
 
   const [editingClient, setEditingClient] =
     useState<ClientWithSubscription | null>(null)
+  const [serviceAccessRevision, setServiceAccessRevision] = useState(0)
   const editDialogRef = useRef<HTMLElement>(null)
   const editClientOpen = Boolean(editingClient)
   useEffect(() => {
@@ -2090,7 +2091,7 @@ export default function Admin() {
                 </label>
 
                 <label>
-                  <span>Plan</span>
+                  <span>Checkout plan</span>
                   <select
                     value={editPlanName}
                     onChange={(event) =>
@@ -2190,7 +2191,8 @@ export default function Admin() {
                   </small>
                 </label>
 
-                <AdminReceptionistReadiness key={editingClient.id} clientId={editingClient.id} />
+                <AdminServiceAccess key={editingClient.id} clientId={editingClient.id}
+                  onSaved={() => setServiceAccessRevision(current => current + 1)} />
                 {editingClient.agent ? (
                   <AdminStoreHours
                     key={editingClient.id}
@@ -2218,7 +2220,7 @@ export default function Admin() {
                 <AdminCallEmailSettings key={editingClient.id} clientId={editingClient.id} />
                 <details className="adminEditFullWidth appointmentAdminPanel">
                   <summary>Appointment Scheduling Settings</summary>
-                  <AppointmentScheduling key={editingClient.id} clientId={editingClient.id} />
+                  <AppointmentScheduling key={editingClient.id + ":" + serviceAccessRevision} clientId={editingClient.id} />
                 </details>
 
                 <label className="adminEditCheck adminEditFullWidth">

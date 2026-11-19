@@ -11,7 +11,7 @@ type Readiness = { checks: ReadinessCheck[]; canRetry: boolean }
 
 const statusText = { ready: 'Verified', blocked: 'Blocked', unverified: 'Test required', optional: 'Optional' }
 
-export default function AdminReceptionistReadiness({ clientId }: { clientId: string }) {
+export default function AdminReceptionistReadiness({ clientId, autoCheck }: { clientId: string; autoCheck: boolean }) {
   const [readiness, setReadiness] = useState<Readiness | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -47,16 +47,17 @@ export default function AdminReceptionistReadiness({ clientId }: { clientId: str
   }, [clientId])
 
   useEffect(() => {
+    if (!autoCheck) return
     const controller = new AbortController()
     void run(false, controller.signal)
     return () => controller.abort()
-  }, [run])
+  }, [autoCheck, run])
 
   return <section className="adminRetellPicker adminEditFullWidth" aria-busy={busy}>
     <div className="adminRetellPickerHeader">
-      <div><strong>Receptionist setup</strong><p>Checks the saved agent, billing, phone routing and appointment tools.</p></div>
+      <div><strong>Receptionist setup</strong><p>Checks service access, phone routing and published appointment tools.</p></div>
       <button type="button" className="btn btnOutline" disabled={busy} onClick={() => void run()}>
-        {busy ? 'Checking setup…' : 'Check setup again'}
+        {busy ? 'Checking setup…' : 'Check Agent Readiness'}
       </button>
     </div>
     {error && <p role="alert" className="adminRetellNotice adminRetellNotice--error">{error}</p>}

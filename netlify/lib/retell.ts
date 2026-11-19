@@ -752,7 +752,7 @@ const readRetellLlm = (apiKey: string, agent: RetellAgent) => {
   return retellRequest<RetellLlm>(apiKey, `/get-retell-llm/${encodeURIComponent(engine.llm_id)}?version=${engine.version}`)
 }
 
-const getPublishedRetellAgent = async (apiKey: string, agentId: string) => {
+export const getPublishedRetellAgent = async (apiKey: string, agentId: string) => {
   const agent = await retellRequest<RetellAgent>(apiKey, `/get-agent/${encodeURIComponent(agentId)}?version=latest_published`)
   if (agent?.agent_id !== agentId || agent.is_published !== true || typeof agent.version !== 'number') {
     throw new RetellSetupError('Retell did not return a published version of the assigned agent.')
@@ -962,6 +962,7 @@ export const syncRetellSchedule = async ({
   preserveAvailability = false,
   appointmentScheduling = false,
   schedulingOnly = false,
+  deploymentOrigin,
   beforePublish,
   emailNotificationsEnabled = true,
   smsNotificationsEnabled = false,
@@ -977,11 +978,12 @@ export const syncRetellSchedule = async ({
   preserveAvailability?: boolean
   appointmentScheduling?: boolean
   schedulingOnly?: boolean
+  deploymentOrigin?: string
   beforePublish?: () => Promise<void>
   emailNotificationsEnabled?: boolean
   smsNotificationsEnabled?: boolean
 }) => {
-  const siteUrl = !emailOnly ? receptaRetellOrigin() : null
+  const siteUrl = !emailOnly ? deploymentOrigin ?? receptaRetellOrigin() : null
   const published = await getPublishedRetellAgent(apiKey, agentId).catch(async error => {
     // A first-time setup may start with an unpublished Retell draft.
     if (!(error instanceof RetellRequestError) || error.status !== 404) throw error
@@ -1011,7 +1013,7 @@ export const syncRetellSchedule = async ({
     }
   )
 
-  const eventWebhook = new URL('/.netlify/functions/retell-webhook', receptaRetellOrigin(false)).toString()
+  const eventWebhook = new URL('/.netlify/functions/retell-webhook', deploymentOrigin ?? receptaRetellOrigin(false)).toString()
   const responseEngine = draftAgent?.response_engine
   if (draftAgent?.agent_id !== agentId || typeof draftAgent.version !== 'number' || draftAgent.version === baseVersion ||
       !responseEngine?.llm_id || typeof responseEngine.version !== 'number' ||
