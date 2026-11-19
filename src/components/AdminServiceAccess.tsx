@@ -160,7 +160,10 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
   const billingStatus = access?.billing_status?.replaceAll('_', ' ') ?? 'Unavailable'
   const canReactivate = access && (['paused', 'suspended', 'cancelled', 'expired'].includes(access.status) ||
     access.agent_status_override === 'paused')
-  const active = access?.status === 'active' && access.can_reserve
+  const active = access?.reason === 'ready'
+  const effectiveStatus = access?.status === 'active' && !active
+    ? access.reason === 'allowance_unavailable' ? 'Calls temporarily unavailable' : 'Awaiting agent readiness'
+    : access && (statusLabels[access.status] ?? access.status)
 
   return <section className="adminServiceAccess adminRetellPicker adminEditFullWidth" aria-labelledby="service-access-title" aria-busy={busy}>
     <header className="adminRetellPickerHeader">
@@ -172,7 +175,7 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
     {notice && <p role="status" className="adminRetellNotice adminRetellNotice--success">{notice}</p>}
     {access && <>
       <dl className="adminServiceAccessSummary">
-        <div><dt>Effective Service Access</dt><dd className={active ? 'adminServiceActive' : undefined}>{statusLabels[access.status] ?? access.status} · {sources[access.source]}</dd></div>
+        <div><dt>Effective Service Access</dt><dd className={active ? 'adminServiceActive' : undefined}>{effectiveStatus} · {sources[access.source]}</dd></div>
         <div><dt>Effective Service Plan</dt><dd>{access.plan ?? 'Unassigned'}</dd></div>
         <div><dt>Stripe Subscription</dt><dd>{access.billing_plan ?? 'Unassigned'}</dd></div>
         <div><dt>Stripe Payment Status</dt><dd className="adminServiceBilling">{billingStatus}{!access.has_stripe_subscription && ' · No Stripe subscription'}</dd></div>

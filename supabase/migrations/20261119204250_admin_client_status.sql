@@ -383,4 +383,3 @@ begin
   return query select v_id, v_seconds, v_demo;
 end;
 $$;
-
