@@ -36,7 +36,8 @@ export default async (request: Request) => {
       if (target === null) return json(403, { error: 'Admin access required.' })
       return json(200, await appointmentAgentReadiness(db, clientId, access, deployment))
     }
-    if (!activePro && (target === null || ['POST', 'PATCH'].includes(request.method))) {
+    if (!activePro && (['POST', 'PATCH'].includes(request.method) ||
+      (target === null && !(request.method === 'GET' && access.plan === 'Recepta Pro' && access.reason === 'subscription_cancelled')))) {
       return json(403, { error: accessIssue })
     }
 

@@ -1,3 +1,4 @@
+import { startProProvisioning } from '../lib/provisionPro'
 import { configuredRetellKey } from '../lib/emailEnvironment'
 import { loadServiceAccess } from '../lib/serviceAccess'
 import { hasPaidSubscription, saveSubscriptionConfiguration } from '../lib/subscriptionConfiguration'
@@ -434,7 +435,13 @@ export default async (request: Request) => {
     return json(400, { error: error instanceof Error ? error.message : 'Could not save billing configuration.' })
   }
   const subscriptionIsActive = hasPaidSubscription(savedSubscription)
-  const nextAgentStatus = subscriptionIsActive ? retellAgentId ? 'live' : 'setup' : 'setup'
+  const accessBefore = await loadServiceAccess(supabaseAdmin, clientId)
+  const automaticallyProvision = savedSubscription.plan_name === 'Recepta Pro' &&
+    savedSubscription.status === 'pending' && !savedSubscription.stripe_subscription_id &&
+    accessBefore.mode === 'automatic' && !accessBefore.agent_status_override && !['paused', 'testing'].includes(accessBefore.agent_status)
+  const existingPro = accessBefore.provisioned_pro && retellAgentId === accessBefore.agent_id
+  const nextAgentStatus = retellAgentId && (subscriptionIsActive || existingPro) ? 'live'
+    : accessBefore.agent_status === 'paused' ? 'paused' : 'setup'
 
   const removedManualPhoneNumbers = (existingPhoneRows ?? [])
     .filter(
@@ -540,7 +547,11 @@ export default async (request: Request) => {
     })
   }
 
-  if (retellAgentId) {
+  if (automaticallyProvision && !existingPro) {
+    const queued = await supabaseAdmin.rpc('recepta_resume_provisioning', { p_client: clientId })
+    if (queued.error) return json(503, { error: 'Client saved, but the provisioning job could not be queued.' })
+    if (queued.data) await startProProvisioning(request, clientId)
+  } else if (retellAgentId && accessBefore.reason !== 'subscription_cancelled') {
     if (!retellApiKey) return json(500, { error: 'RETELL_API_KEY is missing.' })
     try {
       await syncRetellSubscription({
@@ -548,7 +559,7 @@ export default async (request: Request) => {
         agentId: retellAgentId,
         phoneNumber,
         phoneNumbers,
-        active: subscriptionIsActive,
+        active: subscriptionIsActive || existingPro,
         demoMode,
         piiRedactionEnabled: savedSubscription.pii_redaction_enabled,
         safetyGuardrailsEnabled: savedSubscription.safety_guardrails_enabled,
@@ -599,7 +610,7 @@ export default async (request: Request) => {
   return json(200, {
     success: true,
     monthlyPrice,
-    paymentRequired: savedSubscription.status !== 'active' || Boolean(savedSubscription.pending_configuration),
+    paymentRequired: !automaticallyProvision && (savedSubscription.status !== 'active' || Boolean(savedSubscription.pending_configuration)),
     phoneNumbers,
     buyerEmailNotificationsEnabled,
     buyerSmsNotificationsEnabled,

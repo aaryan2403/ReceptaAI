@@ -1,3 +1,4 @@
+import type { CustomerService } from './serviceAccess'
 import { supabase } from './supabase'
 
 export type BillingSubscription = {
@@ -27,7 +28,7 @@ export type BillingSubscription = {
   cancel_at_period_end: boolean
 }
 
-export const fetchBillingStatus = async (): Promise<{ subscription: BillingSubscription | null; usedSeconds: number }> => {
+export const fetchBillingStatus = async (): Promise<{ subscription: BillingSubscription | null; usedSeconds: number; service: CustomerService }> => {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session?.access_token) throw new Error('Please sign in again.')
   const response = await fetch('/.netlify/functions/billing-status', {

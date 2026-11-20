@@ -1,3 +1,4 @@
+import { loadServiceAccess } from '../lib/serviceAccess'
 import { configuredRetellKey } from '../lib/emailEnvironment'
 import { createClient } from '@supabase/supabase-js'
 import {
@@ -52,27 +53,10 @@ export default async (request: Request) => {
     return json(401, { error: 'Unauthorized.' })
   }
 
-  const [{ data: subscription, error: subscriptionError }, { data: agent, error: agentError }] =
-    await Promise.all([
-      supabaseAdmin
-        .from('subscriptions')
-        .select('status')
-        .eq('client_id', user.id)
-        .maybeSingle(),
-      supabaseAdmin
-        .from('agents')
-        .select('retell_agent_id, business_hours')
-        .eq('client_id', user.id)
-        .maybeSingle(),
-    ])
-
-  if (subscriptionError) {
-    return json(500, { error: 'Could not verify synchronization access.' })
-  }
-
-  if (subscription?.status !== 'active') {
-    return json(403, { error: 'An active Recepta subscription is required.' })
-  }
+  const access = await loadServiceAccess(supabaseAdmin, user.id).catch(() => null)
+  if (!access || !access.can_reserve) return json(403, { error: 'Active Recepta service is required.' })
+  const { data: agent, error: agentError } = await supabaseAdmin.from('agents')
+    .select('retell_agent_id, business_hours').eq('client_id', user.id).maybeSingle()
 
   if (agentError || !agent) {
     return json(404, { error: 'No receptionist is assigned to this customer.' })

@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { isDeletingClient } from '../lib/requestAuth'
+import { loadServiceAccess } from '../lib/serviceAccess'
 import { getBillingUsage } from '../lib/billingNotifications'
 
 const json = (status: number, body: object) => new Response(JSON.stringify(body), {
@@ -22,7 +23,17 @@ export default async (request: Request) => {
       .eq('client_id', user.id).maybeSingle()
     if (error) throw error
     const usedSeconds = subscription ? await getBillingUsage(db, subscription) : 0
-    return json(200, { subscription, usedSeconds })
+    const access = await loadServiceAccess(db, user.id)
+    const service = {
+      status: access.status, reason: access.reason, plan: access.plan, source: access.source, agent_status: access.agent_status,
+      can_reserve: access.can_reserve, appointments: access.appointments, remaining_seconds: access.remaining_seconds,
+      service_allowance_seconds: access.service_allowance_seconds, period_start: access.period_start, period_end: access.period_end,
+      service_status: access.service_status, retention_reason: access.retention_reason,
+      retention_started_at: access.retention_started_at, retention_deadline: access.retention_deadline,
+      retention_operation: access.retention_operation, payment_grace_ends_at: access.payment_grace_ends_at,
+      provisioning_status: access.provisioning_status, cancellation_effective_at: access.cancellation_effective_at,
+    }
+    return json(200, { subscription, usedSeconds, service })
   } catch (error) {
     console.error('Could not load billing balance:', error)
     return json(500, { error: 'Could not load your minute balance. Please contact Recepta.' })

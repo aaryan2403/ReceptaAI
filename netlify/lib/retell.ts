@@ -153,7 +153,7 @@ export const getRetellModel = (
   return retellModel
 }
 
-class RetellRequestError extends Error {
+export class RetellRequestError extends Error {
   constructor(readonly status: number, message: string) {
     super(message)
   }
@@ -230,7 +230,7 @@ export const receptaRetellOrigin = (appointment = true) => {
   return url.origin
 }
 
-const retellRequest = async <T>(
+export const retellRequest = async <T>(
   apiKey: string,
   path: string,
   init: RequestInit = {}
@@ -744,7 +744,7 @@ const buildReceptaAppointmentTools = (siteUrl: string, scheduling: boolean) => {
   }]
 }
 
-const readRetellLlm = (apiKey: string, agent: RetellAgent) => {
+export const readRetellLlm = (apiKey: string, agent: RetellAgent) => {
   const engine = agent.response_engine
   if (engine?.type !== 'retell-llm' || !engine.llm_id || typeof engine.version !== 'number') {
     throw new RetellSetupError('The assigned agent must use a versioned Retell LLM response engine.')
@@ -821,12 +821,13 @@ export const inspectRetellPhoneRoute = async (apiKey: string, phoneNumber: strin
   return null
 }
 
-export const syncManagedRetellInboundRoute = async (apiKey: string, phoneNumber: string, agentId: string, siteUrl: string) => {
+export const syncManagedRetellInboundRoute = async (apiKey: string, phoneNumber: string, agentId: string, siteUrl: string,
+  archivedAgentId?: string) => {
   const route = await getRetellInboundRoute(apiKey, phoneNumber)
   const webhook = `${siteUrl}/.netlify/functions/retell-inbound`
   if (route?.phone_number !== phoneNumber ||
     (route.inbound_webhook_url && route.inbound_webhook_url !== webhook) ||
-    route.inbound_agents?.some(agent => agent.agent_id !== agentId)) {
+    route.inbound_agents?.some(agent => agent.agent_id !== agentId && agent.agent_id !== archivedAgentId)) {
     throw new RetellSetupError(`The Retell line ending in ${phoneNumber.slice(-4)} has a different agent or inbound webhook. Review its routing before activation.`)
   }
   if (route.inbound_webhook_url === webhook && !route.inbound_agents?.length) return
@@ -983,6 +984,7 @@ export const syncRetellSchedule = async ({
   schedulingOnly = false,
   servicePlan,
   ensureCallEvents = false,
+  provisionProtection,
   deploymentOrigin,
   beforePublish,
   emailNotificationsEnabled = true,
@@ -1001,6 +1003,7 @@ export const syncRetellSchedule = async ({
   schedulingOnly?: boolean
   servicePlan?: 'Recepta Standard' | 'Recepta Pro'
   ensureCallEvents?: boolean
+  provisionProtection?: Pick<RetellSyncOptions, 'aiModelId' | 'piiRedactionEnabled' | 'safetyGuardrailsEnabled' | 'demoMode'>
   deploymentOrigin?: string
   beforePublish?: () => Promise<void>
   emailNotificationsEnabled?: boolean
@@ -1144,10 +1147,11 @@ export const syncRetellSchedule = async ({
 
   }
 
-  if (ensureCallEvents && !hasCallEvents(draftAgent)) {
+  if ((ensureCallEvents && !hasCallEvents(draftAgent)) || provisionProtection) {
     await retellRequest(apiKey, `/update-agent/${encodeURIComponent(agentId)}?version=${draftAgent.version}`, {
       method: 'PATCH',
       body: JSON.stringify({
+        ...(provisionProtection ? buildRetellProtectionConfig(provisionProtection) : {}),
         webhook_url: eventWebhook,
         webhook_events: [...new Set([...requiredEvents, ...(draftAgent.webhook_events ?? [])])],
       }),
@@ -1198,6 +1202,7 @@ export const syncRetellSchedule = async ({
       method: 'PATCH',
       body: JSON.stringify({
         general_prompt: generalPrompt,
+        ...(provisionProtection?.aiModelId ? { model: getRetellModel(provisionProtection.aiModelId) } : {}),
         general_tools: generalTools,
         ...(cleanedStates ? { states: cleanedStates } : {}),
         default_dynamic_variables: {
@@ -1430,21 +1435,46 @@ export const syncRetellPhoneBindings = async ({
   return results
 }
 
+export const findProvisionedRetellPhone = async (apiKey: string, nickname: string, agentId: string) => {
+  type Phone = { phone_number: string; nickname?: string; outbound_agents?: Array<{ agent_id?: string }> }
+  const matches: Phone[] = []
+  let cursor: string | undefined
+  do {
+    const path = cursor ? `/v2/list-phone-numbers?pagination_key=${encodeURIComponent(cursor)}` : '/v2/list-phone-numbers'
+    const page = await retellRequest<{ items?: Phone[]; has_more?: boolean; pagination_key?: string }>(
+      apiKey, path, { method: 'POST', body: JSON.stringify({
+        filter_criteria: { outbound_agents: [{ agent_id: agentId }] },
+      }) },
+    )
+    if (!Array.isArray(page.items) || (page.has_more && (!page.pagination_key || page.pagination_key === cursor))) {
+      throw new RetellSetupError('Retell did not return a complete phone inventory.')
+    }
+    matches.push(...page.items.filter(phone => phone.nickname === nickname))
+    cursor = page.has_more ? page.pagination_key : undefined
+  } while (cursor)
+  if (matches.length > 1 || (matches[0] && !matches[0].outbound_agents?.some(agent => agent.agent_id === agentId))) {
+    throw new RetellSetupError('A prior Retell purchase has an unexpected assignment. Review the phone inventory.')
+  }
+  return normalizeE164(matches[0]?.phone_number)
+}
+
 export const purchaseRetellPhoneNumber = async ({
   apiKey,
   agentId,
   countryCode,
   areaCode,
   nickname,
+  deploymentOrigin,
 }: {
   apiKey: string
   agentId: string
   countryCode: 'CA' | 'US'
   areaCode?: number | null
   nickname: string
+  deploymentOrigin?: string
 }) => {
   const inboundWebhookUrl = new URL('/.netlify/functions/retell-inbound',
-    receptaRetellOrigin(false)).toString()
+    deploymentOrigin ?? receptaRetellOrigin(false)).toString()
   const agents = [
     {
       agent_id: agentId,

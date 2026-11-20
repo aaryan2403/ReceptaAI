@@ -1,4 +1,5 @@
-import { configuredRetellKey } from '../lib/emailEnvironment'
+import { loadServiceAccess, serviceDeployment } from '../lib/serviceAccess'
+import { json } from '../lib/requestAuth'
 import { configuredStripeKey } from '../lib/subscriptionConfiguration'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
@@ -22,16 +23,14 @@ export default async (request: Request) => {
     const supabaseUrl = process.env.SUPABASE_URL
     const supabaseSecretKey =
       process.env.SUPABASE_SECRET_KEY
-    const stripeSecretKey =
-      configuredStripeKey()
-    const retellApiKey =
-      configuredRetellKey()
+    const deployment = serviceDeployment(request)
+    if (!deployment.isolated) return json(503, { error: 'This preview must use Recepta Staging.' })
+    const stripeSecretKey = configuredStripeKey(deployment.preview)
 
     if (
       !supabaseUrl ||
       !supabaseSecretKey ||
-      !stripeSecretKey ||
-      !retellApiKey
+      !stripeSecretKey
     ) {
       return new Response(
         JSON.stringify({
@@ -214,7 +213,10 @@ export default async (request: Request) => {
       )
     }
 
-    if (!assignedAgent?.retell_agent_id) {
+    const lifecycleCheckout = currentSubscription.plan_name === 'Recepta Pro' || planName === 'Recepta Pro'
+    const recovery = !assignedAgent?.retell_agent_id && lifecycleCheckout
+      ? (await loadServiceAccess(supabaseAdmin,user.id)).retention_operation : null
+    if (!assignedAgent?.retell_agent_id && recovery !== 'deleted' && recovery !== 'restoring') {
       return new Response(
         JSON.stringify({
           error:
@@ -441,9 +443,18 @@ export default async (request: Request) => {
         : null,
     ].filter(Boolean)
 
+    const checkoutExpiry = Math.floor(Date.now()/1000) + 35*60
+    if (lifecycleCheckout) {
+      const hold = await supabaseAdmin.rpc('recepta_pro_begin_checkout',{
+        p_client:user.id,p_until:new Date(checkoutExpiry*1000).toISOString(),
+      })
+      if (hold.error) throw hold.error
+      if (!hold.data) return json(409,{ error:'Your receptionist retention status is being updated. Please try again shortly.' })
+    }
     const checkoutSession =
       await stripe.checkout.sessions.create({
         mode: 'subscription',
+        ...(lifecycleCheckout ? { expires_at:checkoutExpiry } : {}),
         integration_identifier: `recepta_checkout_${Array.from(randomBytes(8), (byte) => String.fromCharCode(97 + byte % 26)).join('')}`,
         customer:
           currentSubscription.stripe_customer_id || undefined,
