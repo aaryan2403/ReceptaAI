@@ -19,7 +19,7 @@ export default async (request:Request) => {
       } else if (body.action==='retry_cleanup') {
         const job=await db.from('service_jobs').select('kind,status').eq('job_key',body.jobKey).maybeSingle()
         if (job.error) throw job.error
-        if (!job.data || !['delete_client','retention_call'].includes(job.data.kind) || job.data.status!=='needs_attention') return json(409,{ error:'Only paused cleanup jobs can be resumed here.' })
+        if (!job.data || !['delete_client','retention_call','provision_pro'].includes(job.data.kind) || job.data.status!=='needs_attention') return json(409,{ error:'Only paused service jobs can be resumed here.' })
         const result=await db.from('service_jobs').update({ status:'queued',attempts:0,next_attempt_at:new Date().toISOString(),last_error:null }).eq('job_key',body.jobKey).eq('status','needs_attention')
         if (result.error) throw result.error
       } else return json(400,{ error:'Unknown operations action.' })

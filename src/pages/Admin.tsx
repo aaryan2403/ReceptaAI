@@ -3,7 +3,8 @@ import InternalAppointmentTestAccess from '../components/InternalAppointmentTest
 import AppointmentScheduling from '../components/AppointmentScheduling'
 import './AdminClientEditor.css'
 import AdminCallEmailSettings from '../components/AdminCallEmailSettings'
-import AdminStoreHours from '../components/AdminStoreHours'
+import AdminStoreHours, { StoreHoursFields } from '../components/AdminStoreHours'
+import { readStoreHours } from '../lib/storeHours'
 import {
   useCallback,
   useEffect,
@@ -252,6 +253,7 @@ export default function Admin() {
   const [loggingIn, setLoggingIn] =
     useState(false)
 
+  const [newStoreHours, setNewStoreHours] = useState(() => readStoreHours())
   const [companyName, setCompanyName] =
     useState('')
   const [email, setEmail] =
@@ -696,6 +698,7 @@ export default function Admin() {
             retellAgentId:
               normalizedRetellId || null,
             demoMode,
+            storeHours: newStoreHours,
             phoneNumbers:
               existingPhoneNumbers,
             purchasePhoneNumbers:
@@ -730,10 +733,13 @@ export default function Admin() {
       }
 
       setCreateSuccess(
-        `${companyName.trim()} created pending payment. Ask the client to sign in and complete Checkout from Billing.`
+        result.aiConfigurationStatus === 'queued'
+          ? `${companyName.trim()} created. Pro configuration is running automatically. Check progress in Edit Client or Operations.`
+          : `${companyName.trim()} created. Standard service starts after Checkout.`
       )
 
       setCompanyName('')
+      setNewStoreHours(readStoreHours())
       setEmail('')
       setPassword('')
       setPlanName(
@@ -1300,8 +1306,7 @@ export default function Admin() {
             </h1>
 
             <p>
-              Create a client once. Their
-              configuration is prepared immediately; paid access starts after successful Checkout.
+              Pro receptionists are configured automatically after you add the client and their Retell assignment.
             </p>
           </div>
 
@@ -1494,7 +1499,7 @@ export default function Admin() {
             <label>
               <span>
                 Retell Agent ID{' '}
-                <small>(optional)</small>
+                <small>{planName === 'Recepta Pro' ? '(required for Pro)' : '(optional)'}</small>
               </span>
               <input
                 value={retellAgentId}
@@ -1508,8 +1513,9 @@ export default function Admin() {
                 placeholder="agent_xxxxxxxxx"
               />
               <small id="createRetellHelp">
-                Optional for a pending client. Leave blank to connect Retell later.
-                A connected agent must belong to the workspace used by Recepta’s server API key.
+                {planName === 'Recepta Pro'
+                  ? 'Select the Retell agent you want Recepta to configure and publish.'
+                  : 'Leave blank to connect Retell later.'}
               </small>
             </label>
             <AdminRetellAgentPicker agentId={retellAgentId} disabled={creating} onSelect={id => {
@@ -1610,9 +1616,17 @@ export default function Admin() {
                   color: '#ffcf66',
                 }}
               >
-                After successful payment, Checkout will provision {Math.floor(Number(purchasePhoneNumbers) || 0)}
+                {planName === 'Recepta Pro' ? 'Pro setup will provision' : 'Paid Checkout will provision'} {Math.floor(Number(purchasePhoneNumbers) || 0)}
                 {' '}number{Math.floor(Number(purchasePhoneNumbers) || 0) === 1 ? '' : 's'} from Retell.
               </p>
+            )}
+
+            {planName === 'Recepta Pro' && (
+              <fieldset className="adminNotificationPanel adminStoreHours" style={{ gridColumn: '1 / -1', display: 'grid', gap: 12 }}>
+                <legend>Store hours</legend>
+                <StoreHoursFields schedule={newStoreHours} onChange={setNewStoreHours} />
+                <small>Recepta can confirm bookings during the hours you supply. If hours are pending, the receptionist captures requests for your team.</small>
+              </fieldset>
             )}
 
             <NotificationSettingsPanel

@@ -101,6 +101,17 @@ export default async (request: Request) => {
         }
       )
 
+    const finishBilling = async () => {
+      try { await deliverBillingNotices(supabaseAdmin, 1) }
+      catch (notificationError) { console.error('Billing notice delivery deferred:', notificationError) }
+      return new Response(null, { status: 200 })
+    }
+
+    const resumePaidProvisioning = async (clientId: string) => {
+      const result = await supabaseAdmin.rpc('recepta_resume_provisioning', { p_client: clientId, p_allow_paid: true })
+      if (result.error) throw result.error
+    }
+
     const loadPhoneRows = async (
       clientId: string,
       legacyPhoneNumber?: string | null
@@ -243,6 +254,11 @@ export default async (request: Request) => {
           const invoiceLines = await stripe.invoices.listLineItems(invoiceId, { limit: 100 })
           const period = getInvoicePeriod(invoiceLines.data, subscriptionId)
           if (new Date(period.end).getTime() <= Date.now()) return new Response(null, { status: 200 })
+          const priorResult = await supabaseAdmin.from('subscriptions')
+            .select('status, stripe_subscription_id, plan_name, ai_model_id, pii_redaction_enabled, safety_guardrails_enabled, extra_phone_numbers')
+            .eq('client_id', clientId).maybeSingle()
+          if (priorResult.error) throw priorResult.error
+          const prior = priorResult.data
           const { data: activatedRows, error: updateError } = await supabaseAdmin.rpc('activate_recepta_checkout', {
             p_client_id: clientId,
             p_stripe_subscription_id: subscriptionId,
@@ -282,10 +298,32 @@ export default async (request: Request) => {
             await supabaseAdmin
               .from('agents')
               .select(
-                'retell_agent_id, phone_number, demo_mode'
+                'retell_agent_id, phone_number, demo_mode, status'
               )
               .eq('client_id', clientId)
               .maybeSingle()
+
+          const provisioning = await loadServiceAccess(supabaseAdmin, clientId)
+          if (['paused', 'suspended', 'pending', 'cancelled'].includes(provisioning.mode) ||
+            provisioning.agent_status_override === 'paused') return finishBilling()
+          // Checkout settles real billing even when the onboarding worker is
+          // still setting up Retell. Only that worker can declare this line ready.
+          if (provisioning.mode === 'automatic' && provisioning.provisioning_status &&
+            !provisioning.provisioned_pro && provisioning.plan === 'Recepta Pro') {
+            if (provisioning.provisioning_status === 'complete') await resumePaidProvisioning(clientId)
+            return finishBilling()
+          }
+          const sameConfiguration = prior?.plan_name === planName && prior.ai_model_id === aiModelId &&
+            Boolean(prior.pii_redaction_enabled) === piiRedactionEnabled &&
+            Boolean(prior.safety_guardrails_enabled) === safetyGuardrailsEnabled &&
+            Number(prior.extra_phone_numbers ?? 0) === extraPhoneNumbers
+          // A cancellation leaves the live Retell configuration in place. A
+          // paid resubscription of the same plan needs only the billing update.
+          if (sameConfiguration && assignedAgent?.retell_agent_id && assignedAgent.phone_number &&
+            (provisioning.provisioned_pro || (assignedAgent.status === 'live' &&
+              (prior.status === 'cancelled' || prior.stripe_subscription_id === subscriptionId)))) {
+            return finishBilling()
+          }
 
           if (
             assignedAgent?.retell_agent_id
@@ -458,6 +496,14 @@ export default async (request: Request) => {
           }
 
           if (renewedSubscription?.client_id) {
+            const access = await loadServiceAccess(supabaseAdmin, renewedSubscription.client_id)
+            if (access.provisioning_status || access.can_reserve || ['paused', 'suspended', 'pending', 'cancelled'].includes(access.mode) ||
+              access.status === 'paused' || access.agent_status_override === 'paused') {
+              if (access.reason === 'provisioning' && access.provisioning_status === 'complete') {
+                await resumePaidProvisioning(renewedSubscription.client_id)
+              }
+              return finishBilling()
+            }
             const { data: assignedAgent } =
               await supabaseAdmin
                 .from('agents')
@@ -536,103 +582,23 @@ export default async (request: Request) => {
       const changedSubscription = event.data.object as Stripe.Subscription
       const latest = await stripe.subscriptions.retrieve(changedSubscription.id)
       const { error } = await supabaseAdmin.from('subscriptions')
-        .update({ cancel_at_period_end: Boolean(latest.cancel_at_period_end || latest.cancel_at) })
+        .update({
+          cancel_at_period_end: Boolean(latest.cancel_at_period_end || latest.cancel_at),
+          provider_cancel_at: latest.cancel_at ? new Date(latest.cancel_at * 1000).toISOString() : null,
+          ...(latest.status === 'canceled' ? { status: 'cancelled', rollover_seconds: 0 } : {}),
+        })
         .eq('stripe_subscription_id', latest.id)
       if (error) throw error
     }
 
-    if (
-      event.type ===
-      'customer.subscription.deleted'
-    ) {
-      const subscription =
-        event.data.object as
-          Stripe.Subscription
-
-      const {
-        data: cancelledSubscription,
-        error,
-      } =
-        await supabaseAdmin
-          .from('subscriptions')
-          .update({
-            status: 'cancelled',
-            rollover_seconds: 0,
-          })
-          .eq(
-            'stripe_subscription_id',
-            subscription.id
-          )
-          .select('client_id')
-          .maybeSingle()
-
-      if (error) {
-        throw error
-      }
-
-      if (cancelledSubscription?.client_id) {
-        const clientId =
-          cancelledSubscription.client_id
-
-        const [clientPause, agentPause] =
-          await Promise.all([
-            supabaseAdmin
-              .from('clients')
-              .update({ status: 'paused' })
-              .eq('id', clientId),
-            supabaseAdmin
-              .from('agents')
-              .update({ status: 'paused' })
-              .eq('client_id', clientId),
-          ])
-
-        if (clientPause.error) {
-          throw clientPause.error
-        }
-
-        if (agentPause.error) {
-          throw agentPause.error
-        }
-
-        const { data: assignedAgent } =
-          await supabaseAdmin
-            .from('agents')
-            .select(
-              'retell_agent_id, phone_number, demo_mode'
-            )
-            .eq('client_id', clientId)
-            .maybeSingle()
-
-        const phoneRows = await loadPhoneRows(
-          clientId,
-          assignedAgent?.phone_number
-        )
-        const allPhoneNumbers = phoneRows.map(
-          (row) => row.phone_number
-        )
-
-        if (assignedAgent?.retell_agent_id && !(await loadServiceAccess(supabaseAdmin, clientId)).grant_id) {
-          if (!retellApiKey) {
-            throw new Error(
-              'RETELL_API_KEY is missing.'
-            )
-          }
-
-          await syncRetellSubscription({
-            apiKey: retellApiKey,
-            agentId:
-              assignedAgent.retell_agent_id,
-            phoneNumber: allPhoneNumbers[0] ?? null,
-            phoneNumbers: allPhoneNumbers,
-            active: false,
-            piiRedactionEnabled: false,
-            safetyGuardrailsEnabled: false,
-          })
-        }
-
-        // Keep existing phone inventory on cancellation. Automatic admission is
-        // blocked by billing; an authorized manual grant may still use this line.
-      }
+    if (event.type === 'customer.subscription.deleted') {
+      const subscription = event.data.object as Stripe.Subscription
+      // Close only the matched Stripe subscription. Recepta's authorization
+      // gate pauses service while the published agent and number remain intact.
+      const { error } = await supabaseAdmin.from('subscriptions')
+        .update({ status: 'cancelled', rollover_seconds: 0 })
+        .eq('stripe_subscription_id', subscription.id)
+      if (error) throw error
     }
 
     if (

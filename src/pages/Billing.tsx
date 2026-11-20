@@ -1,3 +1,4 @@
+import type { CustomerService } from '../lib/serviceAccess'
 import BillingAccessNotice from '../components/BillingAccessNotice'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
@@ -12,6 +13,7 @@ const EXTRA_NUMBER_MONTHLY_CAD = 20
 const MINUTE_OPTIONS = [100, 300, 500, 1000, 2500, 5000]
 
 export default function Billing() {
+  const [service, setService] = useState<CustomerService | null>(null)
   const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [secondsUsed, setSecondsUsed] = useState(0)
   const [managingBilling, setManagingBilling] = useState(false)
@@ -39,6 +41,7 @@ export default function Billing() {
         const loadedSubscription = billingStatus.subscription
         setSecondsUsed(billingStatus.usedSeconds)
         setSubscription(loadedSubscription)
+        setService(billingStatus.service)
         const configured = { ...loadedSubscription, ...(loadedSubscription?.pending_configuration ?? {}) }
         setSelectedMinutes(String(configured.monthly_minutes ?? 300))
 
@@ -95,6 +98,31 @@ export default function Billing() {
       window.location.href = body.url
     } catch (portalError) {
       setError(portalError instanceof Error ? portalError.message : 'Could not open billing management.')
+      setManagingBilling(false)
+    }
+  }
+
+  const cancelSubscription = async (timing: 'immediate' | 'period_end') => {
+    const when = timing === 'immediate' ? 'now' : 'at the end of your current billing period'
+    if (!window.confirm(`Cancel your Recepta subscription ${when}? Your receptionist will pause and your history will be kept.`)) return
+    setManagingBilling(true)
+    setError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error('Please sign in again.')
+      const response = await fetch('/.netlify/functions/cancel-subscription', {
+        method: 'POST', body: JSON.stringify({ timing }),
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || 'Could not confirm cancellation.')
+      const updated = await fetchBillingStatus()
+      setSubscription(updated.subscription)
+      setService(updated.service)
+      setSecondsUsed(updated.usedSeconds)
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Could not confirm cancellation.')
+    } finally {
       setManagingBilling(false)
     }
   }
@@ -172,7 +200,7 @@ export default function Billing() {
       </aside>
 
       <section className="dashboardMain">
-        <BillingAccessNotice subscription={subscription} />
+        <BillingAccessNotice subscription={subscription} service={service} />
 
         <div className="dashboardHeader">
           <div>
@@ -202,6 +230,14 @@ export default function Billing() {
                     <button type="button" className="btn btnPrimary" onClick={openBillingPortal} disabled={managingBilling}>
                       {managingBilling ? 'Opening billing...' : 'Manage payment method & subscription'}
                     </button>
+                  )}
+                  {subscription.stripe_subscription_id && ['active', 'past_due'].includes(subscription.status) && (
+                    <div className="billingCancelActions" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                      {!subscription.cancel_at_period_end && <button type="button" className="btn btnOutline" disabled={managingBilling}
+                        onClick={() => void cancelSubscription('period_end')}>Cancel at period end</button>}
+                      <button type="button" className="btn btnOutline" disabled={managingBilling}
+                        onClick={() => void cancelSubscription('immediate')}>Cancel now</button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -337,7 +373,7 @@ export default function Billing() {
                   <a className="btn btnPrimary billingUpdateSubscription" href="mailto:receptahelp02@gmail.com">Contact Recepta</a>
                 )}
 
-                <p className="billingCheckoutDisclaimer">Service activation and billable changes require successful Stripe payment. A cancelled or failed Checkout does not grant new minutes or features.</p>
+                <p className="billingCheckoutDisclaimer">Stripe billing changes take effect after successful payment. Your current service access appears above.</p>
               </div>
             </section>
           </>

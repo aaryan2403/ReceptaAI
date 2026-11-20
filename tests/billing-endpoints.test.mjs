@@ -27,7 +27,7 @@ const query = (table) => {
     }
     if (action === 'upsert') state.notices.push(values)
     return { data: table === 'subscriptions' ? { ...state.subscription }
-      : table === 'agent_phone_numbers' ? [] : null, error: null }
+      : table === 'agent_phone_numbers' ? [] : table === 'clients' ? {deletion_pending:false} : null, error: null }
   }
   const api = {
     select: () => api,
@@ -45,12 +45,17 @@ globalThis.__billingTestDb = {
   from: query,
   rpc: async (name, args) => {
     state.rpcs.push({ name, args })
+    if (name === 'recepta_service_access') return { data: {status: 'active', can_reserve: true }, error: null }
     return { data: name === 'recepta_period_usage' ? 600 : name === 'claim_recepta_billing_notifications' ? [] : [{ ...state.subscription }], error: null }
   },
 }
 globalThis.__billingTestStripe = class {
   webhooks = { constructEvent: () => state.event }
-  subscriptions = { retrieve: async () => ({ id: 'sub_test', status: state.remoteStatus, cancel_at_period_end: state.cancelAtPeriodEnd ?? false }) }
+  subscriptions = {
+    retrieve: async () => ({ id: 'sub_test', customer: state.customer ?? 'cus_a', status: state.remoteStatus, cancel_at_period_end: state.cancelAtPeriodEnd ?? false }),
+    update: async () => ({status: 'active', cancel_at_period_end: true }),
+    cancel: async () => ({status: 'canceled'}),
+  }
   invoices = {
     retrieve: async (id) => ({ id, status: state.invoiceStatus, hosted_invoice_url: 'https://invoice.stripe.test/in_test' }),
     listLineItems: async () => ({ data: [{ period, parent: { type: 'subscription_item_details', subscription_item_details: { subscription: 'sub_test', proration: false } } }] }),
@@ -74,6 +79,7 @@ const compile = async (file) => {
   return (await import(`data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString('base64')}`)).default
 }
 const webhook = await compile('netlify/functions/stripe-webhook.ts')
+const cancel = await compile('netlify/functions/cancel-subscription.ts')
 const portal = await compile('netlify/functions/create-billing-portal-session.ts')
 const status = await compile('netlify/functions/billing-status.ts')
 process.env.SUPABASE_URL = 'https://database.example.test'
@@ -161,7 +167,7 @@ test('subscription termination clears rollover and pauses service', async () => 
   assert.equal((await webhook(signedRequest())).status, 200)
   assert.equal(state.subscription.status, 'cancelled')
   assert.equal(state.subscription.rollover_seconds, 0)
-  assert.ok(state.updates.some((update) => update.table === 'agents' && update.values.status === 'paused'))
+  assert.deepEqual(state.updates.map(update => update.table), ['subscriptions'])
 })
 
 test('scheduled cancellation is reflected without granting minutes or ending the paid cycle early', async () => {
@@ -195,4 +201,21 @@ test('billing usage is aggregated only for the authenticated client and its paid
   const usage = state.rpcs.find((call) => call.name === 'recepta_period_usage')
   assert.equal(usage.args.p_client_id, 'customer_a')
   assert.equal(usage.args.p_period_end, base.current_period_end)
+})
+
+test('the authenticated customer can schedule cancellation or cancel now without touching Retell', async () => {
+  const send = timing => cancel(new Request('https://recepta.test', {
+    method: 'POST', headers: { Authorization: 'Bearer synthetic' }, body: JSON.stringify({ timing, customer_id: 'cus_other' }),
+  }))
+  reset()
+  assert.equal((await send('period_end')).status, 200)
+  assert.equal(state.subscription.status, 'active')
+  assert.equal(state.subscription.cancel_at_period_end, true)
+  assert.equal((await send('immediate')).status, 200)
+  assert.equal(state.subscription.status, 'cancelled')
+  assert.ok(state.updates.every(entry => entry.table === 'subscriptions'))
+  reset()
+  state.customer = 'cus_other'
+  assert.equal((await send('immediate')).status, 409)
+  assert.equal(state.updates.length, 0)
 })
