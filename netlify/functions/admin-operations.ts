@@ -1,6 +1,8 @@
 import { configuredEmailApiKey, configuredEmailWebhookSecret } from '../lib/emailEnvironment'
 import { requestAuth,json } from '../lib/requestAuth'
 import { configureEmailDelivery } from '../lib/emailDelivery'
+import { startProProvisioning } from '../lib/provisionPro'
+import { serviceDeployment } from '../lib/serviceAccess'
 
 export default async (request:Request) => {
   if (!['GET','POST'].includes(request.method)) return json(405,{ error:'Method not allowed.' })
@@ -17,11 +19,12 @@ export default async (request:Request) => {
         const result=await db.from('clients').update({ call_retention_days:days }).eq('id',body.clientId)
         if (result.error) throw result.error
       } else if (body.action==='retry_cleanup') {
-        const job=await db.from('service_jobs').select('kind,status').eq('job_key',body.jobKey).maybeSingle()
+        const job=await db.from('service_jobs').select('kind,status,client_id').eq('job_key',body.jobKey).maybeSingle()
         if (job.error) throw job.error
         if (!job.data || !['delete_client','retention_call','provision_pro'].includes(job.data.kind) || job.data.status!=='needs_attention') return json(409,{ error:'Only paused service jobs can be resumed here.' })
         const result=await db.from('service_jobs').update({ status:'queued',attempts:0,next_attempt_at:new Date().toISOString(),last_error:null }).eq('job_key',body.jobKey).eq('status','needs_attention')
         if (result.error) throw result.error
+        if (job.data.kind === 'provision_pro') await startProProvisioning(request, job.data.client_id)
       } else return json(400,{ error:'Unknown operations action.' })
     }
     const bad='delivery_status.in.(bounced,complained,failed,suppressed,delivery_delayed)'
@@ -35,6 +38,6 @@ export default async (request:Request) => {
     ])
     for (const result of results) if (result.error) throw result.error
     return json(200,{ jobs:results[0].data,callAlerts:results[1].data,billingAlerts:results[2].data,clients:results[3].data,
-      configuration:{ emailSending:Boolean(configuredEmailApiKey()),deliveryTracking:Boolean(configuredEmailWebhookSecret() || results[4].data),deliveryTrackingError:!configuredEmailWebhookSecret() && !results[4].data && typeof results[5].data?.value?.error==='string' ? results[5].data.value.error : null,retell:Boolean(process.env.RETELL_API_KEY),stripe:Boolean(process.env.STRIPE_SECRET_KEY) } })
+      configuration:{ emailSending:Boolean(configuredEmailApiKey()),deliveryTracking:Boolean(configuredEmailWebhookSecret() || results[4].data),deliveryTrackingError:!configuredEmailWebhookSecret() && !results[4].data && typeof results[5].data?.value?.error==='string' ? results[5].data.value.error : null,retell:Boolean(serviceDeployment(request).key),stripe:Boolean(process.env.STRIPE_SECRET_KEY) } })
   } catch(error) { return json(500,{ error:error instanceof Error ? error.message : 'Could not load operations.' }) }
 }

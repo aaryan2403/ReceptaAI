@@ -1524,12 +1524,12 @@ export default function Admin() {
             }} />
             {createError && /retell|agent id/i.test(createError) && <div className="adminFormMessage adminFormMessage--error" style={{ gridColumn: '1 / -1' }}>
               <p role="alert" style={{ margin: '0 0 12px' }}><strong>Agent connection needs attention.</strong> {createError}</p>
-              <button type="button" className="btn btnOutline" disabled={creating} onClick={() => {
+              {planName !== 'Recepta Pro' && <button type="button" className="btn btnOutline" disabled={creating} onClick={() => {
                 setRetellAgentId(''); setCreateError('')
                 const hadPurchase = Number(purchasePhoneNumbers) > 0
                 if (hadPurchase) setPurchasePhoneNumbers('0')
                 setCreateSuccess(`Retell connection deferred. You can create the pending client now and assign its agent later.${hadPurchase ? ' New-number quantity was reset to 0.' : ''} Calls remain inactive until setup and payment are complete.`)
-              }}>Connect Retell later</button>
+              }}>Connect Retell later</button>}
             </div>}
 
             <label style={{ display: 'grid', gridTemplateColumns: '18px 1fr', alignItems: 'center', gap: '8px' }}>
@@ -1732,7 +1732,7 @@ export default function Admin() {
               >
                 {creating
                   ? 'Creating...'
-                  : 'Create Pending Client'}
+                  : planName === 'Recepta Pro' ? 'Create Pro Client' : 'Create Pending Client'}
               </button>
             </div>
           </form>
