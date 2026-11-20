@@ -1,3 +1,4 @@
+import { provisionPro } from './provisionPro'
 import { configuredRetellKey } from './emailEnvironment'
 import { configuredStripeKey } from './subscriptionConfiguration'
 import { emailApiKey, assertEmailRecipients, emailProviderError } from './emailEnvironment'
@@ -176,14 +177,23 @@ const eraseRetainedCall = async (db:SupabaseClient,job:ServiceJob) => {
   check(erased.error)
 }
 
-export const processServiceJobs = async (db:SupabaseClient, key?:string) => {
+export const processServiceJobs = async (db:SupabaseClient, key?:string, deployment = {
+  key: configuredRetellKey(), previewOrigin: undefined as string | undefined,
+}) => {
   const deadline=Date.now()+22_000
   const claimed=await db.rpc('claim_recepta_service_jobs',{ p_limit:2,p_key:key ?? null })
   check(claimed.error)
   for (const job of (claimed.data ?? []) as ServiceJob[]) {
     if (Date.now()>deadline-4500) break
     try {
-      if (job.kind==='callback_email') await callbackEmail(db,job)
+      if (job.kind==='provision_pro') {
+        await provisionPro(db, job, deployment)
+        // Successful provisioning commits readiness and finishes its own lease atomically.
+        const finished = await db.from('service_jobs').select('status').eq('job_key',job.job_key).maybeSingle()
+        check(finished.error)
+        if (finished.data?.status==='complete') continue
+      }
+      else if (job.kind==='callback_email') await callbackEmail(db,job)
       else if (job.kind==='appointment_email') await appointmentEmail(db,job)
       else if (job.kind==='delete_client') await deleteClient(db,job,deadline)
       else if (job.kind==='retention_call') await eraseRetainedCall(db,job)
@@ -194,7 +204,9 @@ export const processServiceJobs = async (db:SupabaseClient, key?:string) => {
       if (error instanceof ContinueWork) {
         await checkpoint(db,job,{ status:'queued',lease_token:null,lease_expires_at:null,attempts:Math.max(0,job.attempts-1),last_error:error.message || null,next_attempt_at:new Date(Date.now()+5000).toISOString() })
       } else {
-        const message=error instanceof Error ? error.message : 'Service cleanup failed.'
+        const message = error instanceof Error ? error.message
+          : error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
+            ? error.message : 'Service job failed.'
         const saved=await db.rpc('finish_recepta_service_job',{ p_key:job.job_key,p_lease:job.lease_token,p_error:message })
         if (saved.error) console.error('Could not record service-job failure; lease will expire.')
       }

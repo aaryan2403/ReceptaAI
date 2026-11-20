@@ -11,11 +11,11 @@ test('cancelled and unpaid customers retain their workspace with a payment notic
  for(const subscription of [null,{status:'pending'},{status:'cancelled',...period},{status:'past_due',...period}]){
   const notice=billingAccessNotice(subscription,now)
   assert.ok(notice)
-  assert.match(notice.message,/dashboard and pages remain available/)
-  assert.match(notice.message,/Complete payment in Billing to use/)
-  assert.equal(notice.action,'Review Billing & Pay')
+  assert.match(notice.message,subscription?.status==='cancelled' ? /reactivate your subscription/i : /dashboard and pages remain available/)
+  if (subscription?.status !== 'cancelled') assert.match(notice.message,/Complete payment in Billing to use/)
+  assert.equal(notice.action,subscription?.status==='cancelled' ? 'Reactivate subscription' : 'Review Billing & Pay')
  }
- assert.equal(billingAccessNotice({status:'cancelled',...period},now).title,'Billing cancelled')
+ assert.equal(billingAccessNotice({status:'cancelled',...period},now).title,'AI receptionist paused')
 })
 
 test('paid service is not blocked, including a cancellation scheduled for period end',()=>{
@@ -31,4 +31,23 @@ test('an expired or unverified paid period requires payment even if status still
   {current_period_start:new Date(now+1000).toISOString(),current_period_end:new Date(now+86400000).toISOString()}]){
   assert.equal(billingAccessNotice({status:'active',...period},now).action,'Review Billing & Pay')
  }
+})
+
+test('automatically authorized pending Pro customers see their service status instead of a payment warning', () => {
+  const pending = { status: 'pending' }
+  const active = { status: 'active', reason: 'ready', source: 'automatic_pro' }
+  assert.equal(billingAccessNotice(pending, now, active), null)
+  assert.equal(billingAccessNotice(pending, now, { ...active, reason: 'allowance_unavailable' }).title, 'Minute limit reached')
+  assert.equal(billingAccessNotice(pending, now, { status: 'pending', reason: 'provisioning', provisioning_status: 'queued' }).title, 'Configuring your AI receptionist')
+})
+
+test('Pro service exposes Ongoing without a payment action, and Paused with reactivation', () => {
+  const pending = { status:'pending' }
+  assert.equal(billingAccessNotice(pending,Date.now(),{ service_status:'ongoing',plan:'Recepta Pro' }),null)
+  const paused = billingAccessNotice(pending,Date.now(),{ service_status:'paused',plan:'Recepta Pro',
+    retention_reason:'cancellation',retention_deadline:'2030-01-31T12:00:00Z',reason:'subscription_cancelled' })
+  assert.equal(paused.title,'AI Receptionist Paused')
+  assert.equal(paused.action,'Reactivate subscription')
+  const deleted = billingAccessNotice(pending,Date.now(),{ service_status:'paused',plan:'Recepta Pro',retention_operation:'deleted' })
+  assert.match(deleted.message,/saved settings/)
 })

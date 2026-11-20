@@ -1,3 +1,5 @@
+import type Stripe from 'stripe'
+
 type Reference = string | { id?: string } | null
 type InvoiceReference = {
   subscription?: Reference
@@ -33,3 +35,11 @@ export const getInvoicePeriod = (lines: Array<{
     end: new Date(line.period.end * 1000).toISOString(),
   }
 }
+
+export const stripeInvoiceDueAt = (invoice: Pick<Stripe.Invoice,'due_date'|'status_transitions'|'created'>) => {
+  const value = invoice.due_date ?? invoice.status_transitions?.finalized_at ?? invoice.created
+  return Number.isFinite(value) ? new Date(value * 1000).toISOString() : null
+}
+
+export const stripeServiceCancelledAt = (subscription: Stripe.Subscription, fallback: number) =>
+  new Date((subscription.ended_at ?? subscription.cancel_at ?? subscription.canceled_at ?? fallback) * 1000).toISOString()

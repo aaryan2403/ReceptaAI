@@ -37,6 +37,34 @@ export default async (request: Request) => {
     }
 
     const body = objectValue(await request.json().catch(() => null))
+    if (body.action === 'pro_lifecycle') {
+      const status = body.serviceStatus
+      if (current.plan !== 'Recepta Pro' || typeof status !== 'string' || !['ongoing','paused','deadline'].includes(status) ||
+        !Number.isInteger(body.revision) || body.revision !== current.lifecycle_revision || body.agentId !== current.agent_id) {
+        return json(409, { error: 'Service settings changed. Refresh and try again.' })
+      }
+      const cutoff = typeof body.retentionDeadline === 'string' ? Date.parse(body.retentionDeadline) : NaN
+      if (status === 'deadline' && !Number.isFinite(cutoff)) return json(400, { error: 'Select a retention deadline.' })
+      if (status === 'ongoing' && current.retention_operation !== 'deleted') {
+        if (current.retention_operation) return json(409, { error: 'The existing agent is being updated. Try again shortly.' })
+        try {
+          await syncClientReceptionist(db,clientId,current,'Recepta Pro',deployment)
+        } catch (error) {
+          return json(409,{ error:retellScheduleSyncMessage(error) })
+        }
+      }
+      const result = await db.rpc('recepta_manage_pro_service',{
+        p_client:clientId,p_actor:user.id,p_status:status,p_revision:body.revision,
+        p_retention:Number.isFinite(cutoff) ? new Date(cutoff).toISOString() : null,
+        p_reason:typeof body.reason==='string' ? body.reason.trim() : null,p_agent:current.agent_id,
+      })
+      if (result.error) {
+        if (['40001','22023'].includes(result.error.code)) return json(409,{ error:result.error.message })
+        throw result.error
+      }
+      return json(200,{ access:result.data })
+    }
+
     const { action, mode, revision, maxMinutes } = body
     if (typeof action !== 'string' || !actions.includes(action) ||
       typeof revision !== 'number' || !Number.isInteger(revision) || revision < 0) {

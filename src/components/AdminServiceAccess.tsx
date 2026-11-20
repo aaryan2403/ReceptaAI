@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AgentStatus, ServiceAccess, ServiceMode, ServicePlan } from '../lib/serviceAccess'
+import { retentionDays, type AgentStatus, type ServiceAccess, type ServiceMode, type ServicePlan } from '../lib/serviceAccess'
 import { supabase } from '../lib/supabase'
 import AdminReceptionistReadiness from './AdminReceptionistReadiness'
 import './AdminServiceAccess.css'
@@ -20,13 +20,14 @@ const serviceModes: Record<ServiceMode, string> = {
   suspended: 'Suspended', cancelled: 'Cancelled',
 }
 const agentStatuses: Record<AgentStatus, string> = { setup: 'Setup', testing: 'Testing', live: 'Live', paused: 'Paused' }
-const sources = { stripe: 'Stripe', manual_admin: 'Admin', internal_test: 'Internal Test' }
+const sources = { stripe: 'Stripe', manual_admin: 'Admin', internal_test: 'Internal Test', automatic_pro: 'Automatic Pro' }
 const statusLabels: Record<string, string> = {
   active: 'Active', pending: 'Pending', paused: 'Paused', suspended: 'Suspended', cancelled: 'Cancelled',
   expired: 'Expired', unavailable: 'Unavailable', inactive: 'Inactive', appointment_test: 'Appointment test only',
 }
 const auditActions: Record<string, string> = {
   save: 'Saved settings', activate: 'Activated client', deactivate: 'Deactivated client',
+  pro_ongoing: 'Set service to Ongoing', pro_paused: 'Set service to Paused', pro_deadline: 'Adjusted retention deadline',
   reactivate: 'Reactivated client', activate_test: 'Authorized temporary test', pause: 'Paused service', revoke: 'Revoked authorization',
 }
 const minutes = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 })
@@ -66,9 +67,15 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [refresh, setRefresh] = useState(0)
+  const [proStatus, setProStatus] = useState<'ongoing' | 'paused'>('paused')
+  const [retention, setRetention] = useState('')
+  const [retentionReason, setRetentionReason] = useState('')
 
   const show = (saved: ServiceAccess) => {
     setAccess(saved)
+    setProStatus(saved.service_status ?? 'paused')
+    setRetention(localInput(saved.retention_deadline ?? null))
+    setRetentionReason('')
     setMode(saved.mode)
     setPlan(saved.plan_override ?? '')
     setAgentStatus(saved.agent_status_override ?? '')
@@ -91,6 +98,22 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
     })
     return () => controller.abort()
   }, [clientId, refresh])
+
+  const provisioning = access?.reason === 'provisioning' &&
+    (access.provisioning_status === 'queued' || access.provisioning_status === 'running')
+  useEffect(() => {
+    if (!provisioning) return
+    const controller = new AbortController()
+    const timer = window.setInterval(() => {
+      void requestAccess(clientId, { signal: controller.signal }).then(result => {
+        if (!controller.signal.aborted) setAccess(result.access)
+      }).catch(() => {})
+    }, 5000)
+    return () => {
+      window.clearInterval(timer)
+      controller.abort()
+    }
+  }, [clientId, provisioning])
 
   const reload = () => {
     setBusy(true)
@@ -156,14 +179,50 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
   }
 
   const granting = mode === 'manual' || mode === 'internal_test'
+  const savePro = async (status: 'ongoing' | 'paused' | 'deadline') => {
+    if (!access || busy) return
+    const deadline = retention ? new Date(retention) : null
+    if (status === 'deadline' && (!deadline || !Number.isFinite(deadline.getTime()) || !retentionReason.trim())) {
+      setError('Choose a retention deadline and enter a reason.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const { access: saved } = await requestAccess(clientId,{
+        method:'PUT',
+        body:JSON.stringify({ action:'pro_lifecycle',serviceStatus:status,agentId:access.agent_id,
+          revision:access.lifecycle_revision,retentionDeadline:status==='deadline' ? deadline?.toISOString() : null,
+          reason:status==='deadline' ? retentionReason : null }),
+      })
+      show(saved)
+      onSaved()
+      setNotice(status==='deadline' ? 'Retention deadline saved.' : saved.service_status==='ongoing'
+        ? 'Service is Ongoing. The Retell configuration is synchronized.' : saved.retention_operation==='deleted' && status==='ongoing'
+          ? 'Service authorized. Recepta will provision the replacement agent.' : 'Service is Paused.')
+      try {
+        const audited = await requestAccess(clientId,{},true)
+        setHistory(audited.history ?? [])
+      } catch { setError('Changes saved. Refresh Status to see the audit history.') }
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Service access could not be saved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const canRevoke = access && (access.saved_grant_mode || (access.mode === 'automatic' && access.source !== 'stripe'))
   const billingStatus = access?.billing_status?.replaceAll('_', ' ') ?? 'Unavailable'
   const canReactivate = access && (['paused', 'suspended', 'cancelled', 'expired'].includes(access.status) ||
     access.agent_status_override === 'paused')
   const active = access?.reason === 'ready'
-  const effectiveStatus = access?.status === 'active' && !active
+  const pro = access?.plan === 'Recepta Pro' && access.service_status !== undefined
+  const effectiveStatus = pro ? (access.service_status === 'ongoing' ? 'Ongoing' : 'Paused') : access?.status === 'active' && !active
     ? access.reason === 'allowance_unavailable' ? 'Calls temporarily unavailable' : 'Awaiting agent readiness'
-    : access && (statusLabels[access.status] ?? access.status)
+    : access?.reason === 'provisioning'
+      ? access.provisioning_status === 'needs_attention' ? 'Setup needs attention' : 'Configuring'
+      : access && (statusLabels[access.status] ?? access.status)
 
   return <section className="adminServiceAccess adminRetellPicker adminEditFullWidth" aria-labelledby="service-access-title" aria-busy={busy}>
     <header className="adminRetellPickerHeader">
@@ -182,9 +241,43 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
         <div><dt>Retell Agent</dt><dd>{agentStatuses[access.agent_status] ?? 'Setup'}{access.agent_id && ` · ${access.agent_id}`}</dd></div>
         <div><dt>Phone Number</dt><dd>{access.phone_number ?? 'Unassigned'}</dd></div>
         <div><dt>{access.mode === 'internal_test' ? 'Remaining Test Minutes' : 'Available Minutes'}</dt><dd>{minutes.format(access.remaining_seconds / 60)}</dd></div>
-        <div><dt>Access Expires</dt><dd>{access.mode === 'manual' && access.status === 'active' && !access.expires_at ? 'Ongoing' : formatDate(access.expires_at)}</dd></div>
+        {pro
+          ? access.payment_grace_ends_at && <div><dt>Payment grace ends</dt><dd>{formatDate(access.payment_grace_ends_at)}</dd></div>
+          : <div><dt>Access Expires</dt><dd>{access.mode === 'manual' && access.status === 'active' && !access.expires_at ? 'Ongoing' : formatDate(access.expires_at)}</dd></div>}
+        {pro && access.service_status === 'paused' && access.retention_deadline && access.retention_operation !== 'deleted' && <>
+          <div><dt>{access.retention_reason === 'cancellation' ? 'Cancelled' : access.retention_reason === 'admin_pause' ? 'Paused since' : 'Payment due'}</dt><dd>{formatDate(access.retention_started_at ?? null)}</dd></div>
+          <div><dt>Days remaining</dt><dd>{retentionDays(access.retention_deadline)}</dd></div>
+          <div><dt>Scheduled agent deletion</dt><dd>{formatDate(access.retention_deadline)}</dd></div>
+        </>}
       </dl>
+      {access.provisioning_error && access.reason === 'provisioning' &&
+        <p role="status" className="adminRetellNotice adminRetellNotice--error">{access.provisioning_error}</p>}
 
+      {pro ? <>
+        {access.retention_operation && <p className="adminRetellPickerFootnote">
+          {access.retention_operation==='deleted' ? 'The previous Retell agent was removed. Reactivation provisions a replacement.'
+            : access.retention_operation==='restoring' ? 'The replacement agent is being configured.' : 'The retention job is archiving the existing agent.'}
+        </p>}
+        {access.retention_error && <p role="status" className="adminRetellNotice adminRetellNotice--error">{access.retention_error}</p>}
+        <fieldset className="adminServiceAccessFields" disabled={busy}>
+          <label><span>Service Status</span>
+            <select value={proStatus} onChange={event => setProStatus(event.target.value as 'ongoing' | 'paused')}>
+              <option value="ongoing">Ongoing</option><option value="paused">Paused</option>
+            </select>
+          </label>
+        </fieldset>
+        <div className="adminServiceAccessActions">
+          <button type="button" className="btn btnPrimary" disabled={busy} onClick={() => void savePro(proStatus)}>Save &amp; Sync</button>
+        </div>
+        {access.retention_deadline && access.retention_operation !== 'deleted' && <details className="adminServiceAudit">
+          <summary>Adjust retention deadline</summary>
+          <fieldset className="adminServiceAccessFields" disabled={busy}>
+            <label><span>Deletion date · Your local time</span><input type="datetime-local" value={retention} onChange={event => setRetention(event.target.value)} /></label>
+            <label><span>Reason</span><input value={retentionReason} maxLength={500} onChange={event => setRetentionReason(event.target.value)} /></label>
+          </fieldset>
+          <button type="button" className="btn btnOutline" disabled={busy} onClick={() => void savePro('deadline')}>Save deadline</button>
+        </details>}
+      </> : <>
       <fieldset className="adminServiceAccessFields" disabled={busy}>
         <label>
           <span>Subscription Plan</span>
@@ -231,15 +324,16 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
         <button type="button" className="btn btnOutline" disabled={busy || !access.assignment_valid} onClick={() => void save('activate_test')}>Activate Temporary Test Access</button>
         {canRevoke && <button type="button" className="btn btnOutline" disabled={busy} onClick={() => void save('revoke')}>Revoke Manual Access</button>}
       </div>
+      </>}
       <details className="adminServiceAudit">
         <summary>Audit history</summary>
         {history.length ? <ul aria-label="Recent service changes">{history.map(entry => <li key={entry.id}>
           <strong>{auditActions[entry.action] ?? entry.action}</strong>
           <span title={entry.actor_id}>{formatDate(entry.occurred_at)}</span>
-          <span>{serviceModes[entry.previous_state.mode]} → {serviceModes[entry.new_state.mode]} · {entry.new_state.plan ?? 'Unassigned'}</span>
+          <span>{entry.previous_state.service_status ?? serviceModes[entry.previous_state.mode]} → {entry.new_state.service_status ?? serviceModes[entry.new_state.mode]} · {entry.new_state.plan ?? 'Unassigned'}</span>
         </li>)}</ul> : <p>No administrative changes recorded.</p>}
       </details>
     </>}
-    <AdminReceptionistReadiness key={access?.revision ?? 0} clientId={clientId} autoCheck={Boolean(active && access?.revision)} />
+    <AdminReceptionistReadiness key={String(access?.revision ?? 0) + ':' + String(access?.lifecycle_revision ?? 0)} clientId={clientId} autoCheck={Boolean(active && access?.revision)} />
   </section>
 }

@@ -1,5 +1,5 @@
 import BillingAccessNotice from '../components/BillingAccessNotice'
-import { calculateMinuteBalance } from '../lib/minuteBalance'
+import { fetchBillingStatus } from '../lib/billing'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchClientCalls } from '../lib/clientCalls'
@@ -27,7 +27,8 @@ export default function Agent() {
   const [phoneNumbers, setPhoneNumbers] = useState<string[]>([])
   const [calls, setCalls] = useState<CallRecord[]>([])
   const [isPro, setIsPro] = useState(false)
-  const [hasPaidService,setHasPaidService]=useState(false)
+  const [serviceStatus, setServiceStatus] = useState<'ongoing' | 'paused' | null>(null)
+  const [effectiveAgentStatus,setEffectiveAgentStatus]=useState<AgentStatus>('setup')
   const [loading, setLoading] = useState(true)
 
 
@@ -44,7 +45,7 @@ export default function Agent() {
 
       const [
         { data: agentData, error: agentError },
-        { data: subscriptionData },
+        billing,
         { data: phoneNumberData },
       ] = await Promise.all([
         supabase
@@ -55,11 +56,7 @@ export default function Agent() {
           .eq('client_id', user.id)
           .maybeSingle(),
 
-        supabase
-          .from('subscriptions')
-          .select('plan_name, status, current_period_start, current_period_end')
-          .eq('client_id', user.id)
-          .maybeSingle(),
+        fetchBillingStatus().catch(() => null),
 
         supabase
           .from('agent_phone_numbers')
@@ -93,8 +90,11 @@ export default function Agent() {
         console.error('Agent call sync failed:', error)
       }
 
-      setIsPro(subscriptionData?.plan_name === 'Recepta Pro')
-      setHasPaidService(calculateMinuteBalance({ ...subscriptionData,monthly_minutes:0,status:subscriptionData?.status ?? null },0).paid)
+      setIsPro(billing?.service?.plan === 'Recepta Pro')
+      const service = billing?.service
+      setServiceStatus(service?.service_status ?? null)
+      setEffectiveAgentStatus(service?.service_status ? (service.service_status==='ongoing'?'live':'paused') : service?.reason === 'ready' ? service.agent_status :
+        service?.status === 'pending' ? 'setup' : 'paused')
 
       setLoading(false)
     }
@@ -104,8 +104,11 @@ export default function Agent() {
 
   const scheduleSummary = storeHoursSummary(agent?.business_hours)
 
-  const effectiveAgentStatus=hasPaidService ? agent?.status : 'paused'
   const getStatusInfo = () => {
+    if (serviceStatus) return serviceStatus === 'ongoing'
+      ? { label:'Ongoing',color:'#00e676',background:'rgba(0, 230, 118, 0.10)' }
+      : { label:'Paused',color:'#ffb020',background:'rgba(255, 176, 32, 0.10)' }
+
     switch (effectiveAgentStatus) {
       case 'live':
         return {

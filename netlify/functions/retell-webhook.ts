@@ -388,11 +388,15 @@ export default async (
     }
   }
 
-  const shouldNotifyOwner = subscription?.status === 'active' && (
-    (subscription.plan_name === 'Recepta Standard' &&
-      (payload.event === 'call_ended' || payload.event === 'call_analyzed')) ||
-    (subscription.plan_name === 'Recepta Pro' && payload.event === 'call_analyzed')
-  )
+  let notificationPlan = subscription?.status === 'active' ? subscription.plan_name : null
+  if (call.metadata?.recepta_reservation_id && ['call_ended', 'call_analyzed'].includes(payload.event ?? '')) {
+    const grant = await supabaseAdmin.rpc('recepta_grant_call_plan', { p_client: agent.client_id, p_call: callId })
+    if (grant.error) return json(500, { error: 'Could not verify notification access.' })
+    notificationPlan = grant.data ?? notificationPlan
+  }
+  const shouldNotifyOwner =
+    (notificationPlan === 'Recepta Standard' && (payload.event === 'call_ended' || payload.event === 'call_analyzed')) ||
+    (notificationPlan === 'Recepta Pro' && payload.event === 'call_analyzed')
   const emailPreferencesReady = shouldNotifyOwner && await callEmailPreferencesReady(supabaseAdmin)
   if (shouldNotifyOwner) {
     record.owner_notification_requested = true

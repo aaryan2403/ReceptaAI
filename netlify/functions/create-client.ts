@@ -1,5 +1,8 @@
+import { normalizeHours, normalizeTimeZone } from '../lib/storeSchedule'
 import { configuredStripeKey } from '../lib/subscriptionConfiguration'
-import { configuredRetellKey } from '../lib/emailEnvironment'
+import { serviceDeployment } from '../lib/serviceAccess'
+import { startProProvisioning } from '../lib/provisionPro'
+import { json } from '../lib/requestAuth'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import {
@@ -64,15 +67,14 @@ export default async (request: Request) => {
       process.env.SUPABASE_URL
     const supabaseSecretKey =
       process.env.SUPABASE_SECRET_KEY
-    const stripeSecretKey =
-      configuredStripeKey()
-    const retellApiKey =
-      configuredRetellKey()
+    const deployment = serviceDeployment(request)
+    if (!deployment.isolated) return json(503, { error: 'This preview must use Recepta Staging.' })
+    const stripeSecretKey = configuredStripeKey(deployment.preview)
+    const retellApiKey = deployment.key
 
     if (
       !supabaseUrl ||
       !supabaseSecretKey ||
-      !stripeSecretKey ||
       !ADMIN_EMAIL
     ) {
       return new Response(
@@ -178,6 +180,7 @@ export default async (request: Request) => {
       safetyGuardrailsEnabled,
       buyerEmailNotificationsEnabled,
       buyerSmsNotificationsEnabled,
+      storeHours,
     } = await request.json()
 
     const buyerEmailEnabled =
@@ -352,8 +355,30 @@ export default async (request: Request) => {
     }
 
 
+    const automaticallyProvision = planName === 'Recepta Pro'
+    if (!automaticallyProvision && !stripeSecretKey) {
+      return json(503, { error: 'Stripe billing is unavailable.' })
+    }
+    if (automaticallyProvision && (!normalizedRetellId || requestedPhoneNumberTotal === 0)) {
+      return json(400, { error: 'Choose a Retell agent and connect or request a phone number to create a Pro client.' })
+    }
+
+    let businessHours = 'Not configured'
+    if (automaticallyProvision && storeHours?.mode) {
+      try {
+        if (!['24/7', 'custom'].includes(storeHours.mode)) throw new Error('Choose valid store availability.')
+        businessHours = JSON.stringify({
+          mode: storeHours.mode, timeZone: normalizeTimeZone(storeHours.timeZone),
+          hours: normalizeHours(storeHours.hours),
+          answeringMode: storeHours.answeringMode === 'business_hours' ? 'business_hours' : '24/7',
+        })
+      } catch (error) {
+        return json(400, { error: error instanceof Error ? error.message : 'Check the business hours.' })
+      }
+    }
+
     if (
-      phonePurchase.purchaseCount > 0 &&
+      !automaticallyProvision && phonePurchase.purchaseCount > 0 &&
       (!normalizedRetellId || !retellApiKey)
     ) {
       return new Response(
@@ -369,7 +394,7 @@ export default async (request: Request) => {
     }
 
     if (
-      normalizedRetellId &&
+      !automaticallyProvision && normalizedRetellId &&
       !retellApiKey
     ) {
       return new Response(
@@ -387,7 +412,7 @@ export default async (request: Request) => {
     }
 
     if (
-      normalizedRetellId &&
+      !automaticallyProvision && normalizedRetellId &&
       retellApiKey
     ) {
       try {
@@ -460,8 +485,7 @@ export default async (request: Request) => {
       )
     }
 
-    const stripe =
-      new Stripe(stripeSecretKey)
+    const stripe = !automaticallyProvision && stripeSecretKey ? new Stripe(stripeSecretKey) : null
 
     let stripeCustomerId:
       | string
@@ -488,7 +512,7 @@ export default async (request: Request) => {
         .delete()
         .eq('id', newUser.id)
 
-      if (stripeCustomerId) {
+      if (stripe && stripeCustomerId) {
         try {
           await stripe.customers.del(
             stripeCustomerId
@@ -503,29 +527,19 @@ export default async (request: Request) => {
         .deleteUser(newUser.id)
     }
 
-    try {
-      const customer =
-        await stripe.customers.create({
-          email: normalizedEmail,
-          name: normalizedCompany,
-          metadata: {
-            recepta_client_id:
-              newUser.id,
-            recepta_plan:
-              String(planName),
-          },
+    if (stripe) {
+      try {
+        const customer = await stripe.customers.create({
+          email: normalizedEmail, name: normalizedCompany,
+          metadata: { recepta_client_id: newUser.id, recepta_plan: planName },
         })
-
-      stripeCustomerId =
-        customer.id
-    } catch (error) {
-      await rollback()
-
-      throw new Error(
-        error instanceof Error
+        stripeCustomerId = customer.id
+      } catch (error) {
+        await rollback()
+        throw new Error(error instanceof Error
           ? `Stripe customer creation failed: ${error.message}`
-          : 'Stripe customer creation failed.'
-      )
+          : 'Stripe customer creation failed.')
+      }
     }
 
     const {
@@ -558,8 +572,7 @@ export default async (request: Request) => {
             newUser.id,
           agent_name:
             `${normalizedCompany} Receptionist`,
-          business_hours:
-            'Not configured',
+          business_hours: businessHours,
           phone_number:
             normalizedPhoneList.phoneNumbers[0] ?? null,
           status: 'setup',
@@ -690,7 +703,7 @@ export default async (request: Request) => {
     }
 
     if (
-      normalizedRetellId &&
+      !automaticallyProvision && normalizedRetellId &&
       retellApiKey
     ) {
       try {
@@ -735,6 +748,19 @@ export default async (request: Request) => {
       }
     }
 
+    if (automaticallyProvision) {
+      const { data: task, error: queueError } = await supabaseAdmin.rpc('recepta_queue_provisioning', {
+        p_client: newUser.id,
+        p_purchase: phonePurchase.purchaseCount > 0 ? requestedPhoneNumberTotal : 0,
+        p_country: phonePurchase.countryCode, p_area: phonePurchase.areaCode,
+      })
+      if (queueError || !task) {
+        await rollback()
+        return json(503, { error: 'Could not queue automatic Pro provisioning. Retry creating the client.' })
+      }
+      await startProProvisioning(request, newUser.id)
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -752,8 +778,8 @@ export default async (request: Request) => {
             guardrailsEnabled,
           phoneNumbers: allPhoneNumbers,
         },
-        aiConfigurationStatus: 'pending',
-        paymentRequired: true,
+        aiConfigurationStatus: automaticallyProvision ? 'queued' : 'pending',
+        paymentRequired: !automaticallyProvision,
       }),
       {
         status: 200,

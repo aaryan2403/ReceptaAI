@@ -1,3 +1,4 @@
+import { loadServiceAccess } from '../lib/serviceAccess'
 import { configuredRetellKey } from '../lib/emailEnvironment'
 import { createClient } from '@supabase/supabase-js'
 import {
@@ -154,18 +155,14 @@ export default async (request: Request) => {
     return json(401, { error: 'Unauthorized.' })
   }
 
-  const [agentResult, subscriptionResult, employeesResult] =
+  const [agentResult, service, employeesResult] =
     await Promise.all([
       supabaseAdmin
         .from('agents')
         .select('retell_agent_id, business_hours')
         .eq('client_id', user.id)
         .maybeSingle(),
-      supabaseAdmin
-        .from('subscriptions')
-        .select('status')
-        .eq('client_id', user.id)
-        .maybeSingle(),
+      loadServiceAccess(supabaseAdmin, user.id).catch(() => null),
       supabaseAdmin
         .from('employees')
         .select('id, name, role, is_active')
@@ -173,9 +170,9 @@ export default async (request: Request) => {
         .order('created_at', { ascending: true }),
     ])
 
-  if (subscriptionResult.data?.status !== 'active') {
+  if (!service?.can_reserve) {
     return json(403, {
-      error: 'An active Recepta subscription is required.',
+      error: 'Active Recepta service is required.',
     })
   }
 

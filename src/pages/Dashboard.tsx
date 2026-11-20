@@ -1,3 +1,4 @@
+import type { CustomerService } from '../lib/serviceAccess'
 import BillingAccessNotice from '../components/BillingAccessNotice'
 import { type AppointmentStatus } from '../lib/appointmentRequests'
 import { useEffect, useMemo, useState } from 'react'
@@ -24,11 +25,7 @@ type Subscription = {
   status: string | null
 }
 
-type Agent = {
-  retell_agent_id: string | null
-  phone_number: string | null
-  status: ClientStatus
-}
+
 
 type Call = {
   duration_seconds: number
@@ -189,11 +186,10 @@ function CompanyStatisticsChart({
 
 export default function Dashboard() {
   const [client, setClient] = useState<Client | null>(null)
+  const [service, setService] = useState<CustomerService | null>(null)
   const [billingUsageSeconds, setBillingUsageSeconds] = useState(0)
   const [subscription, setSubscription] =
     useState<Subscription | null>(null)
-  const [agent, setAgent] =
-    useState<Agent | null>(null)
   const [calls, setCalls] = useState<Call[]>([])
   const [appointments, setAppointments] =
     useState<Appointment[]>([])
@@ -247,6 +243,7 @@ export default function Dashboard() {
       }
 
       setSubscription(subscriptionData.subscription)
+      setService(subscriptionData.service)
       setBillingUsageSeconds(subscriptionData.usedSeconds)
 
       try {
@@ -257,8 +254,6 @@ export default function Dashboard() {
       }
 
       if (agentData) {
-        setAgent(agentData)
-
         const assignedPhoneNumbers = (phoneNumberData ?? []).map(
           (row) => row.phone_number
         )
@@ -273,7 +268,7 @@ export default function Dashboard() {
       }
 
       const isPro =
-        subscriptionData.subscription?.plan_name === 'Recepta Pro'
+        subscriptionData.service?.plan === 'Recepta Pro'
 
       if (isPro) {
         const { data: appointmentsData } = await supabase
@@ -310,18 +305,18 @@ export default function Dashboard() {
   }, [])
 
   const isSubscriptionCancelled =
-    subscription?.status === 'cancelled'
+    service?.reason === 'subscription_cancelled'
 
   const isPro =
-    subscription?.plan_name === 'Recepta Pro'
+    service?.plan === 'Recepta Pro'
 
   const isStandard =
-    subscription?.plan_name === 'Recepta Standard'
+    service?.plan === 'Recepta Standard'
 
   const effectiveAgentStatus: ClientStatus =
-    isSubscriptionCancelled || subscription?.status !== 'active'
-      ? 'paused'
-      : agent?.status || client?.status || 'setup'
+    service?.status === 'active' ? service.agent_status
+      : ['paused', 'suspended', 'cancelled'].includes(service?.status ?? '') ? 'paused' : 'setup'
+  const authorizedMinutes = service?.status === 'active' && service.source !== 'stripe'
 
   const activeCall = calls.find(
     (call) =>
@@ -330,12 +325,8 @@ export default function Dashboard() {
   )
 
   const stats = useMemo(() => {
-    const periodStart =
-      subscription?.current_period_start
-        ? new Date(
-            subscription.current_period_start
-          ).getTime()
-        : 0
+    const windowStart = service?.period_start ?? subscription?.current_period_start
+    const periodStart = windowStart ? Date.parse(windowStart) : 0
 
     const periodCalls = calls.filter((call) => {
       const callStartedAt = new Date(
@@ -360,9 +351,11 @@ export default function Dashboard() {
     const monthlyMinutes = subscription?.monthly_minutes ?? 0
     const rolloverMinutes = formatMinuteSeconds(balance.rolloverSeconds)
     const rolloverRemaining = formatMinuteSeconds(balance.rolloverRemainingSeconds)
-    const totalAvailableMinutes = formatMinuteSeconds(balance.totalSeconds)
-    const minutesRemaining = formatMinuteSeconds(balance.remainingSeconds)
-    const usagePercentage = balance.usagePercent
+    const totalAvailableMinutes = formatMinuteSeconds(authorizedMinutes ? service.service_allowance_seconds : balance.totalSeconds)
+    const minutesRemaining = formatMinuteSeconds(authorizedMinutes ? service.remaining_seconds : balance.remainingSeconds)
+    const usagePercentage = authorizedMinutes
+      ? Math.round((1 - service.remaining_seconds / Math.max(1, service.service_allowance_seconds)) * 100)
+      : balance.usagePercent
 
     const averageSeconds =
       callsAnswered > 0
@@ -401,7 +394,7 @@ export default function Dashboard() {
 
     return {
       callsAnswered,
-      minutesTalked: formatMinuteSeconds(billingUsageSeconds),
+      minutesTalked: formatMinuteSeconds(authorizedMinutes ? service.service_allowance_seconds - service.remaining_seconds : billingUsageSeconds),
       monthlyMinutes,
       rolloverMinutes,
       rolloverRemaining,
@@ -420,7 +413,7 @@ export default function Dashboard() {
             ).padStart(2, '0')}s`
           : '0m 00s',
     }
-  }, [calls, appointments, subscription, billingUsageSeconds])
+  }, [calls, appointments, subscription, billingUsageSeconds, authorizedMinutes, service])
 
   const companyChart = useMemo(() => {
     const now = new Date()
@@ -467,24 +460,20 @@ export default function Dashboard() {
   }, [appointments, calls, isPro])
 
   const getStatusInfo = () => {
-    if (isSubscriptionCancelled || subscription?.status !== 'active') {
-      return { label: isSubscriptionCancelled ? 'Billing Cancelled' : 'Payment Required', color:'#ffb020',background:'rgba(255, 176, 32, 0.10)',border:'rgba(255, 176, 32, 0.20)',shadow:'rgba(255, 176, 32, 0.35)' }
+    if (service?.service_status) return service.service_status === 'ongoing'
+      ? { label:'Ongoing',color:'#00e676',background:'rgba(0, 230, 118, 0.10)' }
+      : { label:'Paused',color:'#ffb020',background:'rgba(255, 176, 32, 0.10)' }
+
+    if (isSubscriptionCancelled) return { label: 'Agent Paused', color:'#ffb020', background:'rgba(255, 176, 32, 0.10)' }
+    if (service?.reason === 'provisioning') return {
+      label: service.provisioning_status === 'needs_attention' ? 'Setup Needs Attention' : 'Configuring Agent',
+      color:'#58b7ff', background:'rgba(88, 183, 255, 0.10)',
     }
-    if (!stats.paid) {
+    if (service?.reason === 'allowance_unavailable') {
+      return { label: 'Minute Limit Reached', color: '#ffb020', background: 'rgba(255, 176, 32, 0.10)' }
+    }
+    if (service?.reason === 'billing_inactive') {
       return { label: 'Payment Required', color: '#ffb020', background: 'rgba(255, 176, 32, 0.10)' }
-    }
-    if (
-      subscription?.status === 'active' &&
-      stats.paid &&
-      stats.totalSeconds > 0 &&
-      stats.remainingSeconds === 0
-    ) {
-      return {
-        label: 'Minute Limit Reached',
-        color: '#ffb020',
-        background:
-          'rgba(255, 176, 32, 0.10)',
-      }
     }
 
     switch (effectiveAgentStatus) {
@@ -634,7 +623,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <BillingAccessNotice subscription={subscription} />
+        <BillingAccessNotice subscription={subscription} service={service} />
 
         <section className="dashboardRequestShortcut">
           <div>
@@ -749,7 +738,9 @@ export default function Dashboard() {
                 marginTop: '8px',
               }}
             >
-              {billingError ? 'Balance unavailable' : stats.paid
+              {billingError ? 'Balance unavailable' : authorizedMinutes
+                ? `${stats.minutesRemaining} minutes remaining in your authorized allowance`
+                : stats.paid
                 ? `${stats.minutesRemaining} minutes remaining · ${stats.rolloverRemaining} rollover left`
                 : 'Minutes unavailable until payment is confirmed'}
               {subscription?.current_period_end && <><br />Rollover expires {new Date(subscription.current_period_end).toLocaleDateString('en-CA')}. Monthly renewal is required.</>}
@@ -828,7 +819,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {stats.paid && effectiveAgentStatus !== 'live' && (
+        {stats.paid && effectiveAgentStatus === 'setup' && service?.reason !== 'provisioning' && (
           <div className="onboardingProgressCard">
             <div className="onboardingProgressHead">
               <div>
@@ -855,7 +846,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {stats.paid && effectiveAgentStatus === 'live' && (
+        {service?.status === 'active' && effectiveAgentStatus === 'live' && service.reason === 'ready' && (
           <div className="dashboardEmptyState">
             <h2>
               {calls.length === 0
