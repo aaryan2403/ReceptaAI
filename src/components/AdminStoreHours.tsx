@@ -12,10 +12,6 @@ export default function AdminStoreHours({ clientId, businessHours, onSaved }: {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-  const updateSchedule = (updates: Partial<StoreHours>) => setSchedule(current => ({ ...current, ...updates }))
-  const updateDay = (index: number, updates: Partial<OperatingDay>) => setSchedule(current => ({
-    ...current, hours: current.hours.map((day, i) => i === index ? { ...day, ...updates } : day),
-  }))
   const save = async () => {
     if (!schedule.mode || saving) return
     setSaving(true); setError(''); setMessage('')
@@ -37,9 +33,22 @@ export default function AdminStoreHours({ clientId, businessHours, onSaved }: {
       <span>ADMIN CONTROLLED</span>
     </div>
     <fieldset disabled={saving} style={{ border: 0, margin: 0, padding: 0, display: 'grid', gap: 16 }}>
+      <StoreHoursFields schedule={schedule} onChange={setSchedule} />
+      <button type="button" className="btn btnPrimary" disabled={!schedule.mode} onClick={() => void save()}>{saving ? 'Saving & Syncing...' : 'Save Store Hours & Update Agent'}</button>
+    </fieldset>
+    {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
+  </section>
+}
+
+export function StoreHoursFields({ schedule, onChange }: { schedule: StoreHours; onChange: (hours: StoreHours) => void }) {
+  const updateSchedule = (updates: Partial<StoreHours>) => onChange({ ...schedule, ...updates })
+  const updateDay = (index: number, updates: Partial<OperatingDay>) => onChange({
+    ...schedule, hours: schedule.hours.map((day, i) => i === index ? { ...day, ...updates } : day),
+  })
+  return <>
       <label><span>Store availability</span>
         <select aria-label="Store availability" value={schedule.mode ?? ''} onChange={event => updateSchedule({ mode: event.target.value as '24/7' | 'custom' })}>
-          <option value="" disabled>Choose store hours</option><option value="24/7">Open 24/7</option><option value="custom">Custom weekly hours</option>
+          <option value="">Hours to be confirmed</option><option value="24/7">Open 24/7</option><option value="custom">Custom weekly hours</option>
         </select>
       </label>
       <label><span>Business timezone</span><input value={schedule.timeZone} onChange={event => updateSchedule({ timeZone: event.target.value })} placeholder="America/Toronto" /></label>
@@ -60,8 +69,5 @@ export default function AdminStoreHours({ clientId, businessHours, onSaved }: {
           <option value="24/7">24/7, including outside store hours</option><option value="business_hours">Only during store hours</option>
         </select>
       </label>
-      <button type="button" className="btn btnPrimary" disabled={!schedule.mode} onClick={() => void save()}>{saving ? 'Saving & Syncing...' : 'Save Store Hours & Update Agent'}</button>
-    </fieldset>
-    {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
-  </section>
+  </>
 }

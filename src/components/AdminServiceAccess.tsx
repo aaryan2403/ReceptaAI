@@ -20,7 +20,7 @@ const serviceModes: Record<ServiceMode, string> = {
   suspended: 'Suspended', cancelled: 'Cancelled',
 }
 const agentStatuses: Record<AgentStatus, string> = { setup: 'Setup', testing: 'Testing', live: 'Live', paused: 'Paused' }
-const sources = { stripe: 'Stripe', manual_admin: 'Admin', internal_test: 'Internal Test' }
+const sources = { stripe: 'Stripe', manual_admin: 'Admin', internal_test: 'Internal Test', automatic_pro: 'Automatic Pro' }
 const statusLabels: Record<string, string> = {
   active: 'Active', pending: 'Pending', paused: 'Paused', suspended: 'Suspended', cancelled: 'Cancelled',
   expired: 'Expired', unavailable: 'Unavailable', inactive: 'Inactive', appointment_test: 'Appointment test only',
@@ -91,6 +91,22 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
     })
     return () => controller.abort()
   }, [clientId, refresh])
+
+  const provisioning = access?.reason === 'provisioning' &&
+    (access.provisioning_status === 'queued' || access.provisioning_status === 'running')
+  useEffect(() => {
+    if (!provisioning) return
+    const controller = new AbortController()
+    const timer = window.setInterval(() => {
+      void requestAccess(clientId, { signal: controller.signal }).then(result => {
+        if (!controller.signal.aborted) setAccess(result.access)
+      }).catch(() => {})
+    }, 5000)
+    return () => {
+      window.clearInterval(timer)
+      controller.abort()
+    }
+  }, [clientId, provisioning])
 
   const reload = () => {
     setBusy(true)
@@ -163,7 +179,9 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
   const active = access?.reason === 'ready'
   const effectiveStatus = access?.status === 'active' && !active
     ? access.reason === 'allowance_unavailable' ? 'Calls temporarily unavailable' : 'Awaiting agent readiness'
-    : access && (statusLabels[access.status] ?? access.status)
+    : access?.reason === 'provisioning'
+      ? access.provisioning_status === 'needs_attention' ? 'Setup needs attention' : 'Configuring'
+      : access && (statusLabels[access.status] ?? access.status)
 
   return <section className="adminServiceAccess adminRetellPicker adminEditFullWidth" aria-labelledby="service-access-title" aria-busy={busy}>
     <header className="adminRetellPickerHeader">
@@ -184,6 +202,8 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
         <div><dt>{access.mode === 'internal_test' ? 'Remaining Test Minutes' : 'Available Minutes'}</dt><dd>{minutes.format(access.remaining_seconds / 60)}</dd></div>
         <div><dt>Access Expires</dt><dd>{access.mode === 'manual' && access.status === 'active' && !access.expires_at ? 'Ongoing' : formatDate(access.expires_at)}</dd></div>
       </dl>
+      {access.provisioning_error && access.reason === 'provisioning' &&
+        <p role="status" className="adminRetellNotice adminRetellNotice--error">{access.provisioning_error}</p>}
 
       <fieldset className="adminServiceAccessFields" disabled={busy}>
         <label>

@@ -1,5 +1,5 @@
 import BillingAccessNotice from '../components/BillingAccessNotice'
-import { calculateMinuteBalance } from '../lib/minuteBalance'
+import { fetchBillingStatus } from '../lib/billing'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchClientCalls } from '../lib/clientCalls'
@@ -27,7 +27,7 @@ export default function Agent() {
   const [phoneNumbers, setPhoneNumbers] = useState<string[]>([])
   const [calls, setCalls] = useState<CallRecord[]>([])
   const [isPro, setIsPro] = useState(false)
-  const [hasPaidService,setHasPaidService]=useState(false)
+  const [effectiveAgentStatus,setEffectiveAgentStatus]=useState<AgentStatus>('setup')
   const [loading, setLoading] = useState(true)
 
 
@@ -44,7 +44,7 @@ export default function Agent() {
 
       const [
         { data: agentData, error: agentError },
-        { data: subscriptionData },
+        billing,
         { data: phoneNumberData },
       ] = await Promise.all([
         supabase
@@ -55,11 +55,7 @@ export default function Agent() {
           .eq('client_id', user.id)
           .maybeSingle(),
 
-        supabase
-          .from('subscriptions')
-          .select('plan_name, status, current_period_start, current_period_end')
-          .eq('client_id', user.id)
-          .maybeSingle(),
+        fetchBillingStatus().catch(() => null),
 
         supabase
           .from('agent_phone_numbers')
@@ -93,8 +89,10 @@ export default function Agent() {
         console.error('Agent call sync failed:', error)
       }
 
-      setIsPro(subscriptionData?.plan_name === 'Recepta Pro')
-      setHasPaidService(calculateMinuteBalance({ ...subscriptionData,monthly_minutes:0,status:subscriptionData?.status ?? null },0).paid)
+      setIsPro(billing?.service?.plan === 'Recepta Pro')
+      const service = billing?.service
+      setEffectiveAgentStatus(service?.reason === 'ready' ? service.agent_status :
+        service?.status === 'pending' ? 'setup' : 'paused')
 
       setLoading(false)
     }
@@ -104,7 +102,6 @@ export default function Agent() {
 
   const scheduleSummary = storeHoursSummary(agent?.business_hours)
 
-  const effectiveAgentStatus=hasPaidService ? agent?.status : 'paused'
   const getStatusInfo = () => {
     switch (effectiveAgentStatus) {
       case 'live':

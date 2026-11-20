@@ -6,12 +6,17 @@ export type ServiceAccess = {
   business_name: string
   mode: ServiceMode
   status: 'active' | 'pending' | 'paused' | 'suspended' | 'cancelled' | 'expired' | 'inactive' | 'unavailable' | 'appointment_test'
-  source: 'stripe' | 'manual_admin' | 'internal_test'
+  source: 'stripe' | 'manual_admin' | 'internal_test' | 'automatic_pro'
   reason: string
   plan: ServicePlan | null
   plan_override: ServicePlan | null
   billing_plan: ServicePlan | null
   billing_current: boolean
+  provisioning_status: 'queued' | 'running' | 'complete' | 'needs_attention' | null
+  provisioning_error: string | null
+  provisioned_pro: boolean
+  service_allowance_seconds: number
+  cancellation_effective_at: string | null
   billing_status: string | null
   has_stripe_subscription: boolean
   agent_id: string | null
@@ -23,6 +28,8 @@ export type ServiceAccess = {
   can_reserve: boolean
   appointments: boolean
   remaining_seconds: number
+  period_start: string | null
+  period_end: string | null
   expires_at: string | null
   max_minutes: number | null
   configured_minutes: number | null
@@ -37,3 +44,7 @@ export type ServiceAccess = {
   legacy_appointment_test: boolean
   legacy_test_usable: boolean
 }
+
+export type CustomerService = Pick<ServiceAccess, 'status' | 'reason' | 'plan' | 'source' | 'agent_status' |
+  'can_reserve' | 'appointments' | 'remaining_seconds' | 'service_allowance_seconds' | 'period_start' | 'period_end' |
+  'provisioning_status' | 'cancellation_effective_at'>

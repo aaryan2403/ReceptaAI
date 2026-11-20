@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { fetchBillingStatus } from '../lib/billing'
 import { billingAccessNotice, type NoticeSubscription } from '../lib/billingAccessNotice'
+import type { CustomerService } from '../lib/serviceAccess'
 import './BillingAccessNotice.css'
 
-export default function BillingAccessNotice({ subscription }: { subscription?:NoticeSubscription|null }) {
+export default function BillingAccessNotice({ subscription, service }: { subscription?: NoticeSubscription | null; service?: CustomerService | null }) {
   const [loaded,setLoaded]=useState<NoticeSubscription|null|undefined>(undefined)
+  const [loadedService,setLoadedService]=useState<CustomerService|null>(null)
   const [error,setError]=useState('')
   useEffect(()=>{
     if (subscription!==undefined) return
@@ -12,7 +14,7 @@ export default function BillingAccessNotice({ subscription }: { subscription?:No
     const load=async()=>{
       try {
         const result=await fetchBillingStatus()
-        if (active) { setLoaded(result.subscription);setError('') }
+        if (active) { setLoaded(result.subscription);setLoadedService(result.service);setError('') }
       } catch { if (active) setError('Billing status could not be checked. Open Billing to review your account.') }
     }
     void load()
@@ -22,7 +24,7 @@ export default function BillingAccessNotice({ subscription }: { subscription?:No
   const current=subscription===undefined ? loaded : subscription
   const notice=error
     ? { title:'Billing status unavailable',message:error,action:'Open Billing' }
-    : current===undefined ? null : billingAccessNotice(current)
+    : current===undefined ? null : billingAccessNotice(current, undefined, service ?? loadedService)
   if (!notice) return null
   return <section className={`billingAccessNotice${error ? ' billingAccessNotice--error' : ''}`} role="status" aria-label="Billing status">
     <span className="billingAccessNoticeIcon" aria-hidden="true">
@@ -35,6 +37,6 @@ export default function BillingAccessNotice({ subscription }: { subscription?:No
       <strong>{notice.title}</strong>
       <p>{notice.message}</p>
     </div>
-    <a className="btn billingAccessNoticeAction" href="/dashboard/billing">{notice.action}<span aria-hidden="true">→</span></a>
+    {notice.action && <a className="btn billingAccessNoticeAction" href="/dashboard/billing">{notice.action}<span aria-hidden="true">→</span></a>}
   </section>
 }

@@ -14,6 +14,8 @@ export const loadServiceAccess = async (db: SupabaseClient, clientId: string): P
 export const appointmentServiceIssue = (access: ServiceAccess): string | null => {
   if (access.legacy_appointment_test && !access.legacy_test_usable) return 'The appointment-only test allowance is exhausted.'
   if (access.appointments) return null
+  if (access.reason === 'provisioning') return 'Your Pro receptionist is being configured.'
+  if (access.reason === 'subscription_cancelled') return 'Your AI receptionist is paused because your subscription was cancelled.'
   if (['paused', 'suspended', 'cancelled'].includes(access.status)) return 'An administrator has placed this client’s service on hold.'
   if (['agent_setup', 'agent_paused', 'agent_testing'].includes(access.reason)) return 'The selected agent status blocks appointment tools.'
   if (access.status === 'expired') return 'The service authorization has expired.'
