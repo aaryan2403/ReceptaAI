@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { processServiceJobs } from '../lib/serviceJobs'
 
-export const config={ schedule:'*/5 * * * *' }
+// Fast fallback for queued deletion/provisioning and retries; claims are lease-protected.
+export const config={ schedule:'* * * * *' }
 export default async () => {
   const { SUPABASE_URL,SUPABASE_SECRET_KEY }=process.env
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) throw new Error('Service job configuration is missing.')
