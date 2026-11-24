@@ -1,10 +1,8 @@
-import type { CustomerService } from '../lib/serviceAccess'
 import BillingAccessNotice from '../components/BillingAccessNotice'
+import BillingOverview from '../components/BillingOverview'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchBillingStatus } from '../lib/billing'
-import type { BillingSubscription as Subscription } from '../lib/billing'
-import { calculateMinuteBalance, formatMinuteSeconds, ROLLOVER_POLICY } from '../lib/minuteBalance'
 
 const MAX_MONTHLY_MINUTES = 100_000_000
 const PII_RATE_CAD = 0.014
@@ -13,9 +11,9 @@ const EXTRA_NUMBER_MONTHLY_CAD = 20
 const MINUTE_OPTIONS = [100, 300, 500, 1000, 2500, 5000]
 
 export default function Billing() {
-  const [service, setService] = useState<CustomerService | null>(null)
-  const [subscription, setSubscription] = useState<Subscription | null>(null)
-  const [secondsUsed, setSecondsUsed] = useState(0)
+  const [billing, setBilling] = useState<Awaited<ReturnType<typeof fetchBillingStatus>> | null>(null)
+  const subscription = billing?.subscription ?? null
+  const service = billing?.service ?? null
   const [managingBilling, setManagingBilling] = useState(false)
   const [modelRate, setModelRate] = useState(0)
   const [assignedModelName, setAssignedModelName] = useState('assigned AI model')
@@ -31,7 +29,7 @@ export default function Billing() {
         if (!user) return
 
         const [billingStatus, modelsResult] = await Promise.all([
-          fetchBillingStatus(),
+          fetchBillingStatus(true),
           supabase
             .from('ai_models')
             .select('id, display_name, provider, tier_name, customer_price_per_minute_cad')
@@ -39,9 +37,7 @@ export default function Billing() {
             .order('sort_order', { ascending: true }),
         ])
         const loadedSubscription = billingStatus.subscription
-        setSecondsUsed(billingStatus.usedSeconds)
-        setSubscription(loadedSubscription)
-        setService(billingStatus.service)
+        setBilling(billingStatus)
         const configured = { ...loadedSubscription, ...(loadedSubscription?.pending_configuration ?? {}) }
         setSelectedMinutes(String(configured.monthly_minutes ?? 300))
 
@@ -75,15 +71,6 @@ export default function Billing() {
       Math.max(0, Number(configuration.extra_phone_numbers ?? 0)) * EXTRA_NUMBER_MONTHLY_CAD
   }, [modelRate, monthlyMinutes, subscription])
 
-  const balance = calculateMinuteBalance(subscription ?? {
-    monthly_minutes: 0, status: null,
-  }, secondsUsed)
-  const minutesUsed = formatMinuteSeconds(secondsUsed)
-  const availableMinutes = formatMinuteSeconds(balance.totalSeconds)
-  const minutesRemaining = formatMinuteSeconds(balance.remainingSeconds)
-  const rolloverMinutes = formatMinuteSeconds(balance.rolloverSeconds)
-  const usagePercent = balance.usagePercent
-
   const openBillingPortal = async () => {
     setError('')
     setManagingBilling(true)
@@ -103,8 +90,6 @@ export default function Billing() {
   }
 
   const cancelSubscription = async (timing: 'immediate' | 'period_end') => {
-    const when = timing === 'immediate' ? 'now' : 'at the end of your current billing period'
-    if (!window.confirm(`Cancel your Recepta subscription ${when}? Your receptionist will pause and your history will be kept.`)) return
     setManagingBilling(true)
     setError('')
     try {
@@ -116,10 +101,7 @@ export default function Billing() {
       })
       const result = await response.json()
       if (!response.ok) throw new Error(result.error || 'Could not confirm cancellation.')
-      const updated = await fetchBillingStatus()
-      setSubscription(updated.subscription)
-      setService(updated.service)
-      setSecondsUsed(updated.usedSeconds)
+      setBilling(await fetchBillingStatus(true))
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Could not confirm cancellation.')
     } finally {
@@ -166,21 +148,6 @@ export default function Billing() {
     return <main className="dashboardPage"><section className="dashboardMain"><div className="dashboardEmptyState"><p>Loading billing...</p></div></section></main>
   }
 
-  const statusLabel = subscription?.status === 'active'
-    ? 'Active'
-    : subscription?.status === 'past_due'
-      ? 'Payment due'
-      : subscription?.status === 'cancelled'
-        ? 'Cancelled'
-        : 'Setup pending'
-
-  const nextBillingLabel = subscription?.next_billing_date
-    ? new Date(subscription.next_billing_date).toLocaleDateString('en-CA', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      })
-    : 'Not scheduled'
   const minuteAllowanceChanged =
     monthlyMinutes !== Number(subscription?.monthly_minutes ?? 0)
   const paymentChangePending = Boolean(subscription?.pending_configuration) || minuteAllowanceChanged
@@ -199,16 +166,14 @@ export default function Billing() {
         </nav>
       </aside>
 
-      <section className="dashboardMain">
-        <BillingAccessNotice subscription={subscription} service={service} />
-
+      <section className="dashboardMain billingPageMain">
         <div className="dashboardHeader">
           <div>
-            <p className="dashboardEyebrow">BILLING</p>
             <h1>Minutes &amp; billing</h1>
-            <p>Choose your monthly call minutes. Recepta manages the AI and technical configuration for you.</p>
           </div>
         </div>
+
+        <BillingAccessNotice subscription={subscription} service={service} />
 
         {error && <p className="calendarAlert calendarAlert--error" role="alert">{error}</p>}
 
@@ -220,86 +185,15 @@ export default function Billing() {
           </div>
         ) : (
           <>
-            <section className="billingConfigCurrent">
-              <div className="billingConfigCurrentTop">
-                <div>
-                  <span className="billingPremiumEyebrow">CURRENT SUBSCRIPTION</span>
-                  <h2>{subscription.plan_name || 'Recepta plan'}</h2>
-                  <p>Your subscription is charged monthly, even when you have rollover minutes.</p>
-                  {subscription.stripe_subscription_id && (
-                    <button type="button" className="btn btnPrimary" onClick={openBillingPortal} disabled={managingBilling}>
-                      {managingBilling ? 'Opening billing...' : 'Manage payment method & subscription'}
-                    </button>
-                  )}
-                  {subscription.stripe_subscription_id && ['active', 'past_due'].includes(subscription.status) && (
-                    <div className="billingCancelActions" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
-                      {!subscription.cancel_at_period_end && <button type="button" className="btn btnOutline" disabled={managingBilling}
-                        onClick={() => void cancelSubscription('period_end')}>Cancel at period end</button>}
-                      <button type="button" className="btn btnOutline" disabled={managingBilling}
-                        onClick={() => void cancelSubscription('immediate')}>Cancel now</button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="billingCurrentStats">
-                <div>
-                  <span>Payment status</span>
-                  <strong>{statusLabel}</strong>
-                </div>
-                {service?.service_status && <div>
-                  <span>Service status</span>
-                  <strong>{service.service_status === 'ongoing' ? 'Ongoing' : 'Paused'}</strong>
-                </div>}
-                {service?.service_status === 'ongoing' && service.payment_grace_ends_at && <div>
-                  <span>Payment grace deadline</span>
-                  <strong>{new Date(service.payment_grace_ends_at).toLocaleDateString('en-CA')}</strong>
-                </div>}
-                <div>
-                  <span>Monthly total</span>
-                  <strong>C${Number(subscription.monthly_price ?? 0).toFixed(2)}</strong>
-                </div>
-                <div>
-                  <span>Total cycle allowance</span>
-                  <strong>{availableMinutes.toLocaleString()}</strong>
-                </div>
-                <div>
-                  <span>{subscription.cancel_at_period_end ? 'Service ends' : subscription.status === 'past_due' ? 'Payment due' : 'Next monthly payment'}</span>
-                  <strong>{nextBillingLabel}</strong>
-                </div>
-              </div>
-
-              {subscription.cancel_at_period_end && (
-                <p className="calendarAlert" role="status">Cancellation is scheduled for {nextBillingLabel}. There is no automatic renewal after that date, and unused minutes expire when service ends.</p>
-              )}
-              {subscription.status === 'past_due' && (
-                <p className="calendarAlert calendarAlert--error" role="alert">Payment is due. Update your payment method above. Rollover minutes require a paid subscription.</p>
-              )}
-              {subscription.status === 'active' && !balance.paid && (
-                <p className="calendarAlert" role="status">Your paid billing cycle has ended. Minutes become available after Stripe confirms renewal payment.</p>
-              )}
-              <div className="billingCurrentUsage">
-                <div className="billingCurrentUsageTop">
-                  <span>{minutesUsed.toLocaleString()} minutes used</span>
-                  <strong>{minutesRemaining.toLocaleString()} remaining</strong>
-                </div>
-                <div className="billingUsageTrack">
-                  <div className="billingUsageFill" style={{ width: `${usagePercent}%` }} />
-                </div>
-                <small>
-                  {Number(subscription.monthly_minutes ?? 0).toLocaleString()} monthly minutes
-                  {' + '}{rolloverMinutes.toLocaleString()} rollover minutes
-                </small>
-              </div>
-              <div className="billingCurrentStats">
-                <div><span>Monthly minutes left</span><strong>{formatMinuteSeconds(balance.monthlyRemainingSeconds)}</strong></div>
-                <div><span>Rollover minutes left</span><strong>{formatMinuteSeconds(balance.rolloverRemainingSeconds)}</strong></div>
-                <div><span>Rollover expires</span><strong>{subscription.current_period_end ? new Date(subscription.current_period_end).toLocaleDateString('en-CA') : 'Not scheduled'}</strong></div>
-                <div><span>Payment reminders</span><strong>Email before renewal</strong></div>
-              </div>
-              <p className="billingCheckoutDisclaimer">{ROLLOVER_POLICY}</p>
-              <p className="billingCheckoutDisclaimer">We email you before renewal, after payment, if payment fails, and at 80% and 100% usage. New AI calls pause when your paid allowance is used; calls in progress can finish.</p>
-            </section>
+            {billing?.balance && <BillingOverview
+              subscription={subscription}
+              balance={billing.balance}
+              simulation={billing.simulation}
+              service={service}
+              managing={managingBilling}
+              onManage={() => void openBillingPortal()}
+              onCancel={(timing) => void cancelSubscription(timing)}
+            />}
 
             <p className="billingCheckoutDisclaimer" style={{ marginTop: 20 }}>
               Looking for plans, models or add-ons? <a href="/our-product#plans" style={{ color: '#81e7a6', textDecoration: 'underline' }}>Explore Our Product</a> or <a href="/contact" style={{ color: '#81e7a6', textDecoration: 'underline' }}>contact Recepta</a> to discuss a change.
@@ -307,26 +201,18 @@ export default function Billing() {
 
             <section className="billingConfigurator">
               <div className="billingConfiguratorHeading">
-                <span className="billingPremiumEyebrow">MONTHLY MINUTES</span>
-                <h2>Choose your call allowance</h2>
-                <p>Select a preset or enter an exact amount. Recepta manages your plan, AI model, phone numbers and agent settings.</p>
+                <h2>Change your monthly allowance</h2>
+                <p>Choose a preset or enter the number of minutes you need each month.</p>
               </div>
 
               <div className="billingConfigSection">
-                <div className="billingConfigSectionHead">
-                  <span className="billingConfigNumber">1</span>
-                  <div>
-                    <h3>Select your monthly minutes</h3>
-                    <p>You can update the allowance whenever your call volume changes.</p>
-                  </div>
-                </div>
-
                 <div className="billingMinuteChoices">
                   {MINUTE_OPTIONS.map((minutes) => (
                     <button
                       key={minutes}
                       type="button"
                       className={`billingMinuteChoice ${monthlyMinutes === minutes ? 'billingMinuteChoice--selected' : ''}`}
+                      aria-pressed={monthlyMinutes === minutes}
                       onClick={() => setSelectedMinutes(String(minutes))}
                     >
                       <strong>{minutes.toLocaleString()}</strong>
@@ -355,7 +241,7 @@ export default function Billing() {
                 {subscription.pending_configuration && <p className="calendarAlert" role="status">Recepta prepared a configuration awaiting payment: {checkoutConfiguration?.plan_name}, {assignedModelName}, PII redaction {checkoutConfiguration?.pii_redaction_enabled ? 'on' : 'off'}, Safety Guardrails {checkoutConfiguration?.safety_guardrails_enabled ? 'on' : 'off'}, and {checkoutConfiguration?.extra_phone_numbers ?? 0} additional numbers. Stripe applies these billing changes after payment succeeds.</p>}
                 <div className="billingCheckoutSummaryHead">
                   <div>
-                    <span className="billingPremiumEyebrow">UPDATED TOTAL</span>
+                    <span className="billingPremiumEyebrow">NEW ALLOWANCE</span>
                     <h2>{monthlyMinutes > 0 ? monthlyMinutes.toLocaleString() : '—'} minutes per month</h2>
                   </div>
                   <div className="billingCheckoutTotal">

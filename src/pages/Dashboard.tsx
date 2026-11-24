@@ -15,18 +15,6 @@ type Client = {
   status: ClientStatus
 }
 
-type Subscription = {
-  plan_name: string | null
-  monthly_price: number | null
-  monthly_minutes: number | null
-  rollover_seconds: number
-  current_period_start: string | null
-  current_period_end: string | null
-  status: string | null
-}
-
-
-
 type Call = {
   duration_seconds: number
   appointment_booked: boolean
@@ -186,10 +174,11 @@ function CompanyStatisticsChart({
 
 export default function Dashboard() {
   const [client, setClient] = useState<Client | null>(null)
-  const [service, setService] = useState<CustomerService | null>(null)
-  const [billingUsageSeconds, setBillingUsageSeconds] = useState(0)
-  const [subscription, setSubscription] =
-    useState<Subscription | null>(null)
+  const [billing, setBilling] = useState<Awaited<ReturnType<typeof fetchBillingStatus>> | null>(null)
+  const service: CustomerService | null = billing?.service ?? null
+  const subscription = billing?.subscription ?? null
+  const billingUsageSeconds = billing?.usedSeconds ?? 0
+  const paidBalance = billing?.balance
   const [calls, setCalls] = useState<Call[]>([])
   const [appointments, setAppointments] =
     useState<Appointment[]>([])
@@ -242,9 +231,7 @@ export default function Dashboard() {
         setClient(clientData)
       }
 
-      setSubscription(subscriptionData.subscription)
-      setService(subscriptionData.service)
-      setBillingUsageSeconds(subscriptionData.usedSeconds)
+      setBilling(subscriptionData)
 
       try {
         const callsResult = await fetchClientCalls()
@@ -347,7 +334,7 @@ export default function Dashboard() {
       0
     )
 
-    const balance = calculateMinuteBalance(subscription ?? { monthly_minutes: 0, status: null }, billingUsageSeconds)
+    const balance = paidBalance ?? calculateMinuteBalance({ monthly_minutes: 0, status: null }, 0)
     const monthlyMinutes = subscription?.monthly_minutes ?? 0
     const rolloverMinutes = formatMinuteSeconds(balance.rolloverSeconds)
     const rolloverRemaining = formatMinuteSeconds(balance.rolloverRemainingSeconds)
@@ -413,7 +400,7 @@ export default function Dashboard() {
             ).padStart(2, '0')}s`
           : '0m 00s',
     }
-  }, [calls, appointments, subscription, billingUsageSeconds, authorizedMinutes, service])
+  }, [calls, appointments, subscription, billingUsageSeconds, paidBalance, authorizedMinutes, service])
 
   const companyChart = useMemo(() => {
     const now = new Date()
@@ -743,7 +730,6 @@ export default function Dashboard() {
                 : stats.paid
                 ? `${stats.minutesRemaining} minutes remaining · ${stats.rolloverRemaining} rollover left`
                 : 'Minutes unavailable until payment is confirmed'}
-              {subscription?.current_period_end && <><br />Rollover expires {new Date(subscription.current_period_end).toLocaleDateString('en-CA')}. Monthly renewal is required.</>}
               <br /><a href="/dashboard/billing">View balance and next payment</a>
             </small>
           </div>

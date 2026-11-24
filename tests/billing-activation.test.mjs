@@ -154,10 +154,9 @@ const fixture = async (paid = true) => {
   await db.query("insert into agents(client_id,retell_agent_id,phone_number,status,business_hours) values($1,'agent_test','+14165550100',$2,null)", [client, paid ? 'live' : 'setup'])
   await db.query("insert into agent_phone_numbers values($1,'+14165550100',true,'manual',now())", [client])
 }
-test.before(async () => {
-  db = new PGlite()
-  await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
-    alter default privileges in schema public grant all on tables to anon,authenticated,service_role;
+const installSchema = async (database, createRoles = true) => {
+  if (createRoles) await database.exec('create role anon; create role authenticated; create role service_role bypassrls;')
+  await database.exec(`alter default privileges in schema public grant all on tables to anon,authenticated,service_role;
     alter default privileges in schema public grant execute on functions to anon,authenticated,service_role;
     create table clients(id uuid primary key,company_name text,contact_email text,status text,role text,deletion_pending boolean not null default false);
     create table subscriptions(id uuid primary key default gen_random_uuid(),client_id uuid unique references clients,
@@ -184,9 +183,14 @@ test.before(async () => {
     'supabase/migrations/20261119185856_admin_service_access.sql',
     'supabase/migrations/20261119204250_admin_client_status.sql',
     'supabase/migrations/20261120072445_automatic_pro_onboarding.sql',
-    'supabase/migrations/20261014205655_shareable_demo_links.sql']) await db.exec(await readFile(path,'utf8'))
-  await db.exec('alter table billing_notifications add column delivery_status text')
-  await db.exec(await readFile('supabase/migrations/20261120080302_pro_service_lifecycle.sql','utf8'))
+    'supabase/migrations/20261014205655_shareable_demo_links.sql']) await database.exec(await readFile(path,'utf8'))
+  await database.exec('alter table billing_notifications add column delivery_status text')
+  await database.exec(await readFile('supabase/migrations/20261120080302_pro_service_lifecycle.sql','utf8'))
+  await database.exec(await readFile('supabase/migrations/20261124062904_protect_paid_renewal_order.sql','utf8'))
+}
+test.before(async () => {
+  db = new PGlite()
+  await installSchema(db)
 })
 test.after(async () => { await db.close() })
 
@@ -635,4 +639,94 @@ test('cancelled customers keep their agent through retention and can restore a r
   assert.equal(revived.service_status,'ongoing')
   assert.equal(revived.agent_id,'agent_replacement')
   assert.equal(revived.phone_number,'+14165550100')
+})
+
+test('a failed renewal stays frozen through reordered events and only the current paid invoice restores rollover', async () => {
+  await fixture()
+  const now = Date.now()
+  const previous = new Date(now - 30 * 86400000).toISOString()
+  const start = new Date(now - 300000).toISOString()
+  const end = new Date(now + 30 * 86400000).toISOString()
+  await db.query(`update subscriptions set current_period_start=$2, current_period_end=$3, rollover_seconds=900
+    where client_id=$1`, [client, previous, start])
+  await db.query(`insert into calls(client_id,retell_call_id,call_status,duration_seconds,started_at)
+    values($1,'old-use','ended',1200,$2)`, [client, previous])
+  const paid = (from, to) => db.query("select * from renew_recepta_subscription('sub_original',$1,$2)", [from, to])
+  const failed = (from) => db.query("select * from freeze_recepta_renewal('sub_original',$1,'in_failed',$1)", [from])
+  const reserve = (id) => db.query("select * from reserve_recepta_agent_call($1,$2,'agent_test')", [client, id])
+
+  assert.equal((await reserve('expired')).rows.length, 0, 'unpaid budget cannot be used even with rollover')
+  assert.equal((await failed(start)).rows[0].status, 'past_due')
+  assert.equal((await sub()).rollover_seconds, 900, 'failure preserves the last paid allocation for recovery')
+  assert.equal((await reserve('unpaid')).rows.length, 0)
+  assert.equal((await paid(previous, start)).rows.length, 0, 'duplicate old payment cannot reactivate access')
+  assert.equal((await paid(start, end)).rows[0].rollover_seconds, 3300)
+  assert.equal((await paid(start, end)).rows[0].rollover_seconds, 3300, 'duplicate allocation is idempotent')
+  assert.equal((await failed(start)).rows.length, 0, 'late failure cannot freeze the paid cycle')
+  const first = (await reserve('after-recovery')).rows[0]
+  assert.equal(first.reserved_seconds, 6900)
+  await db.query(`insert into calls(client_id,retell_call_id,call_status,duration_seconds,started_at)
+    values($1,'after-recovery','ended',4200,now())`, [client])
+  assert.equal((await reserve('above-monthly-threshold')).rows[0].reserved_seconds, 2700)
+  await db.query("update subscriptions set status='cancelled', rollover_seconds=0 where client_id=$1", [client])
+  assert.equal((await paid(start, end)).rows.length, 0, 'a cancelled subscription cannot be reopened by invoice replay')
+  assert.equal((await reserve('cancelled')).rows.length, 0)
+  assert.equal((await sub()).rollover_seconds, 0)
+
+  await db.exec('set role authenticated')
+  try { await assert.rejects(failed(start), /permission denied/) }
+  finally { await db.exec('reset role') }
+})
+
+const pgUrl = process.env.RECEPTA_TEST_PG_URL
+test('independent PostgreSQL sessions cannot both reserve the last paid minute', { skip: !pgUrl }, async () => {
+  const url = new URL(pgUrl)
+  assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(url.hostname), 'Billing concurrency tests require local PostgreSQL.')
+  const { default: pg } = await import('pg')
+  const admin = new pg.Client({ connectionString: url.href })
+  await admin.connect()
+  const databaseName = 'recepta_minutes_test_' + process.pid
+  try {
+    for (const role of ['anon', 'authenticated', 'service_role']) {
+      if (!(await admin.query('select 1 from pg_roles where rolname=$1', [role])).rowCount) {
+        await admin.query('create role ' + role + (role === 'service_role' ? ' bypassrls' : ''))
+      }
+    }
+    await admin.query('create database ' + databaseName)
+    url.pathname = '/' + databaseName
+    const first = new pg.Client({ connectionString: url.href })
+    const second = new pg.Client({ connectionString: url.href })
+    try {
+      await Promise.all([first.connect(), second.connect()])
+      await installSchema({ exec: (sql) => first.query(sql) }, false)
+      await first.query(`insert into clients(id,company_name,contact_email,status,role)
+        values($1,'Synthetic business','local@example.test','live','client')`, [client])
+      await first.query(`insert into subscriptions(client_id,plan_name,status,stripe_subscription_id,
+        monthly_minutes,current_period_start,current_period_end)
+        values($1,'Recepta Standard','active','sub_local',1,now()-interval '1 day',now()+interval '1 month')`, [client])
+      await first.query("insert into agents(client_id,retell_agent_id,status) values($1,'agent_local','live')", [client])
+      await first.query('begin')
+      const reserve = (connection, callId) => connection.query("select * from reserve_recepta_agent_call($1,$2,'agent_local')", [client, callId])
+      const winner = (await reserve(first, 'first')).rows[0]
+      assert.equal(winner.reserved_seconds, 60)
+      const competing = reserve(second, 'second')
+      try {
+        let blocked = false
+        for (let attempt = 0; attempt < 50; attempt++) {
+          const result = await admin.query("select wait_event_type from pg_stat_activity where pid=$1", [second.processID])
+          if (result.rows[0]?.wait_event_type === 'Lock') { blocked = true; break }
+          await new Promise(resolve => setTimeout(resolve, 10))
+        }
+        assert.equal(blocked, true)
+      } finally {
+        await first.query('commit')
+        assert.equal((await competing).rows.length, 0)
+      }
+      assert.equal((await reserve(second, 'first')).rows[0].reservation_id, winner.reservation_id)
+      assert.equal((await first.query('select count(*)::int as total from call_minute_reservations')).rows[0].total, 1)
+    } finally {
+      await Promise.all([first.end(), second.end()])
+      await admin.query('drop database ' + databaseName)
+    }
+  } finally { await admin.end() }
 })

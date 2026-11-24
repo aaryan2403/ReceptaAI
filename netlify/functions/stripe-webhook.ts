@@ -616,7 +616,7 @@ export default async (request: Request) => {
     ) {
       const invoiceEvent = event.data.object as Stripe.Invoice
       const subscriptionId = getInvoiceSubscriptionId(invoiceEvent)
-      if (subscriptionId) {
+      if (subscriptionId && ['subscription_cycle', 'subscription_create'].includes(invoiceEvent.billing_reason ?? '')) {
         // Ignore a failure delivered after the same invoice was paid, or after
         // the subscription was renewed/cancelled. Keep failed-cycle rollover
         // frozen so a successful retry can perform the normal paid renewal.
@@ -625,11 +625,16 @@ export default async (request: Request) => {
         const latestInvoiceId = typeof remote.latest_invoice === 'string' ? remote.latest_invoice : remote.latest_invoice?.id
         if (invoice.status !== 'paid' && (!latestInvoiceId || latestInvoiceId === invoice.id) &&
           ['past_due', 'unpaid', 'incomplete'].includes(remote.status)) {
-          const due = stripeInvoiceDueAt(invoice)
-          const { data: failedSubscription, error } = await supabaseAdmin.from('subscriptions')
-            .update({ status: 'past_due', ...(due ? { pro_invoice_due_at: due, pro_invoice_id: invoice.id } : {}) })
-            .eq('stripe_subscription_id', subscriptionId).select('*').maybeSingle()
+          const lines = await stripe.invoices.listLineItems(invoice.id, { limit: 100 })
+          const period = getInvoicePeriod(lines.data, subscriptionId)
+          const { data: failedRows, error } = await supabaseAdmin.rpc('freeze_recepta_renewal', {
+            p_stripe_subscription_id: subscriptionId,
+            p_period_start: period.start,
+            p_invoice_id: invoice.id,
+            p_due_at: stripeInvoiceDueAt(invoice),
+          })
           if (error) throw error
+          const failedSubscription = failedRows?.[0]
           if (failedSubscription) {
             await queueBillingNotice(supabaseAdmin, `failed:${invoice.id}`, 'payment_failed', failedSubscription,
               await getBillingUsage(supabaseAdmin, failedSubscription), invoice.hosted_invoice_url)

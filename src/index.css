@@ -55,7 +55,6 @@ img {
    RECEPTA — SUBSCRIPTION CONFIGURATOR
    ========================================================= */
 
-.billingConfigCurrent,
 .billingConfigurator {
   margin-top: 18px;
   padding: 24px;
@@ -77,7 +76,6 @@ img {
     inset 0 1px 0 rgba(255, 255, 255, 0.025);
 }
 
-.billingConfigCurrentTop,
 .billingCheckoutSummaryHead {
   display: flex;
   align-items: flex-start;
@@ -85,7 +83,6 @@ img {
   gap: 22px;
 }
 
-.billingConfigCurrentTop h2,
 .billingConfiguratorHeading h2,
 .billingCheckoutSummaryHead h2 {
   margin-top: 6px;
@@ -94,7 +91,6 @@ img {
   letter-spacing: -0.03em;
 }
 
-.billingConfigCurrentTop p,
 .billingConfiguratorHeading p {
   margin-top: 6px;
   color: rgba(253, 251, 229, 0.45);
@@ -102,21 +98,6 @@ img {
   line-height: 1.6;
 }
 
-.billingCurrentStats {
-  margin-top: 20px;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.billingCurrentStats > div {
-  padding: 13px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.055);
-}
-
-.billingCurrentStats span,
 .billingModelBestFor span {
   display: block;
   color: rgba(253, 251, 229, 0.32);
@@ -124,64 +105,6 @@ img {
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-}
-
-.billingCurrentStats strong {
-  display: block;
-  margin-top: 5px;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 11px;
-}
-
-.billingCurrentUsage {
-  margin-top: 18px;
-  padding: 14px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.022);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.billingCurrentUsageTop {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.billingCurrentUsageTop span {
-  color: rgba(253, 251, 229, 0.42);
-  font-size: 10px;
-}
-
-.billingCurrentUsageTop strong {
-  color: #fff;
-  font-size: 11px;
-}
-
-.billingUsageTrack {
-  margin-top: 10px;
-  height: 7px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.billingUsageFill {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    #00c853,
-    #00e676
-  );
-  transition: width 0.25s ease;
-}
-
-.billingCurrentUsage small {
-  display: block;
-  margin-top: 7px;
-  color: rgba(253, 251, 229, 0.34);
-  font-size: 9px;
 }
 
 /* SECTION LAYOUT */
@@ -199,38 +122,6 @@ img {
   margin-top: 22px;
   padding: 24px;
   border-top: 1px solid rgba(255, 255, 255, 0.055);
-}
-
-.billingConfigSectionHead {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.billingConfigNumber {
-  flex: 0 0 auto;
-  width: 27px;
-  height: 27px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #00e676;
-  background: rgba(0, 230, 118, 0.07);
-  border: 1px solid rgba(0, 230, 118, 0.14);
-  border-radius: 9px;
-  font-size: 10px;
-  font-weight: 900;
-}
-
-.billingConfigSectionHead h3 {
-  color: #fff;
-  font-size: 14px;
-}
-
-.billingConfigSectionHead p {
-  margin-top: 4px;
-  color: rgba(253, 251, 229, 0.38);
-  font-size: 10px;
 }
 
 /* PLAN CARDS */
@@ -791,12 +682,10 @@ img {
 }
 
 @media (max-width: 760px) {
-  .billingCurrentStats,
   .billingPlanChoices {
     grid-template-columns: 1fr;
   }
 
-  .billingConfigCurrentTop,
   .billingCheckoutSummaryHead {
     flex-direction: column;
   }
@@ -807,13 +696,8 @@ img {
 }
 
 @media (max-width: 560px) {
-  .billingConfigCurrent,
   .billingConfigurator {
     border-radius: 16px;
-  }
-
-  .billingConfigCurrent {
-    padding: 18px;
   }
 
   .billingConfiguratorHeading,
