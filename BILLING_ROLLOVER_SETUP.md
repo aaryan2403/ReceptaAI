@@ -25,3 +25,11 @@ Run `npm ci`, `npm run test:billing`, and `npm run build` with Node 22.18+ (or N
 Before live launch, verify a complete Stripe **test-mode** Checkout, renewal, failed-card recovery, cancellation, a billing portal visit, and receipt of email on your verified sender. Inspect `billing_notifications.sent_at`, `attempts` and `last_error` for delivery results. No test command makes a real charge or sends a customer email.
 
 Local tests do not prove that production environment variables, the Supabase migration, Stripe events, Netlify schedule, Retell call reporting, and email sender verification have been configured. Those must be checked on the connected deployment.
+
+### Stripe Test Clocks in Recepta Staging
+
+Open Minutes & Billing on a deploy preview with your existing Stripe Sandbox test customer. The Stripe Sandbox label shows the frozen time from that customer's ready Test Clock alongside the actual paid balance. Refresh after Stripe finishes advancing and the paid invoice webhook has updated staging. If the paid period starts in the future, real-time call admission still rejects calls for that period.
+
+For a repeatable consumption check, run [scripts/test-staging-rollover.sql](scripts/test-staging-rollover.sql) in the SQL editor for **Recepta Staging** (`mvufjeqxqvpcfqwmihpy`) after applying `20261124062904_protect_paid_renewal_order.sql`. Run the whole script together. It creates isolated synthetic periods relative to PostgreSQL's real clock, exercises the same renewal, admission and call-settlement functions as the app, and rolls back its fixture. It sends no Stripe payments or Retell requests. The script prints PASS after reproducing the 190- and 200-minute renewals, consuming the combined balance, rejecting the next call and checking payment recovery and cancellation.
+
+The test script covers database integration. A full provider integration check also needs a signed Stripe Sandbox webhook delivered to the new preview and a dedicated Retell staging route whose paid cycle includes the current real time.

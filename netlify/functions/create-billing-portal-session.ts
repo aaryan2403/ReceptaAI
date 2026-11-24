@@ -2,6 +2,7 @@ import { configuredStripeKey } from '../lib/subscriptionConfiguration'
 import { createClient } from '@supabase/supabase-js'
 import Stripe from 'stripe'
 import { billingOrigin } from '../lib/billingNotifications'
+import { serviceDeployment } from '../lib/serviceAccess'
 
 const json = (status: number, body: object) => new Response(JSON.stringify(body), {
   status, headers: { 'Content-Type': 'application/json' },
@@ -9,8 +10,10 @@ const json = (status: number, body: object) => new Response(JSON.stringify(body)
 
 export default async (request: Request) => {
   if (request.method !== 'POST') return json(405, { error: 'Method not allowed.' })
+  const deployment = serviceDeployment(request)
+  if (!deployment.isolated) return json(503, { error: 'This preview must use Recepta Staging.' })
   const { SUPABASE_URL, SUPABASE_SECRET_KEY } = process.env
-  const stripeSecretKey = configuredStripeKey()
+  const stripeSecretKey = configuredStripeKey(deployment.preview)
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !stripeSecretKey) return json(500, { error: 'Billing is not configured.' })
   const token = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
   if (!token) return json(401, { error: 'Please sign in again.' })
@@ -25,7 +28,7 @@ export default async (request: Request) => {
     const stripe = new Stripe(stripeSecretKey)
     const session = await stripe.billingPortal.sessions.create({
       customer: data.stripe_customer_id,
-      return_url: `${billingOrigin()}/dashboard/billing`,
+      return_url: `${deployment.previewOrigin ?? billingOrigin()}/dashboard/billing`,
       ...(process.env.STRIPE_PORTAL_CONFIGURATION_ID ? { configuration: process.env.STRIPE_PORTAL_CONFIGURATION_ID } : {}),
     })
     return json(200, { url: session.url })

@@ -1,5 +1,6 @@
 import type { CustomerService } from './serviceAccess'
 import { supabase } from './supabase'
+import type { calculateMinuteBalance } from './minuteBalance'
 
 export type BillingSubscription = {
   pending_configuration?: {
@@ -26,12 +27,22 @@ export type BillingSubscription = {
   rollover_seconds: number
   stripe_subscription_id: string | null
   cancel_at_period_end: boolean
+  provider_cancel_at: string | null
 }
 
-export const fetchBillingStatus = async (): Promise<{ subscription: BillingSubscription | null; usedSeconds: number; service: CustomerService }> => {
+export type MinuteBalance = ReturnType<typeof calculateMinuteBalance>
+type BillingStatus = {
+  subscription: BillingSubscription | null
+  usedSeconds: number
+  service: CustomerService
+  balance: MinuteBalance | null
+  simulation: { asOf: string; balance: MinuteBalance } | null
+}
+
+export const fetchBillingStatus = async (includeSimulation = false): Promise<BillingStatus> => {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session?.access_token) throw new Error('Please sign in again.')
-  const response = await fetch('/.netlify/functions/billing-status', {
+  const response = await fetch(`/.netlify/functions/billing-status${includeSimulation ? '?includeSimulation=1' : ''}`, {
     headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
   })
   const body = await response.json()

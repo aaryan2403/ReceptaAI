@@ -6,15 +6,20 @@ export const calculateMinuteBalance = (input: {
   monthly_minutes: number | null
   rollover_seconds?: number | null
   status: string | null
+  stripe_subscription_id?: string | null
   current_period_start?: string | null
   current_period_end?: string | null
+  provider_cancel_at?: string | null
 }, usedSeconds: number, now = Date.now()) => {
   const monthlySeconds = seconds(input.monthly_minutes) * 60
   const rolloverSeconds = Math.min(seconds(input.rollover_seconds), monthlySeconds)
   const used = seconds(usedSeconds)
   const start = new Date(input.current_period_start ?? '').getTime()
   const end = new Date(input.current_period_end ?? '').getTime()
-  const paid = input.status === 'active' && start <= now && end > now
+  const cancellation = new Date(input.provider_cancel_at ?? '').getTime()
+  const hasPayment = input.stripe_subscription_id === undefined || Boolean(input.stripe_subscription_id?.trim())
+  const paid = hasPayment && input.status === 'active' && start <= now && end > now &&
+    (!Number.isFinite(cancellation) || cancellation > now)
   const rolloverRemaining = Math.max(0, rolloverSeconds - used)
   const monthlyRemaining = Math.max(0, monthlySeconds - Math.max(0, used - rolloverSeconds))
   return {

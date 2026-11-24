@@ -15,7 +15,7 @@ const base = {
 }
 let state
 const reset = () => {
-  state = { subscription: { ...base }, updates: [], notices: [], rpcs: [], filters: [], remoteStatus: 'active', invoiceStatus: 'paid', portal: null }
+  state = { subscription: { ...base }, updates: [], notices: [], rpcs: [], filters: [], remoteStatus: 'active', invoiceStatus: 'paid', portal: null, stripeReads: 0 }
 }
 const query = (table) => {
   let action = 'read'
@@ -45,6 +45,10 @@ globalThis.__billingTestDb = {
   from: query,
   rpc: async (name, args) => {
     state.rpcs.push({ name, args })
+    if (name === 'freeze_recepta_renewal') {
+      state.subscription.status = 'past_due'
+      return { data: [{ ...state.subscription }], error: null }
+    }
     if (name === 'recepta_service_access') return { data: {status: 'active', can_reserve: true }, error: null }
     return { data: name === 'recepta_period_usage' ? 600 : name === 'claim_recepta_billing_notifications' ? [] : [{ ...state.subscription }], error: null }
   },
@@ -52,7 +56,11 @@ globalThis.__billingTestDb = {
 globalThis.__billingTestStripe = class {
   webhooks = { constructEvent: () => state.event }
   subscriptions = {
-    retrieve: async () => ({ id: 'sub_test', customer: state.customer ?? 'cus_a', status: state.remoteStatus, cancel_at_period_end: state.cancelAtPeriodEnd ?? false }),
+    retrieve: async () => {
+      state.stripeReads++
+      return { id: 'sub_test', customer: state.customer ?? 'cus_a', status: state.remoteStatus,
+        cancel_at_period_end: state.cancelAtPeriodEnd ?? false, test_clock: state.testClock, livemode: state.remoteLive }
+    },
     update: async () => ({status: 'active', cancel_at_period_end: true }),
     cancel: async () => ({status: 'canceled'}),
   }
@@ -60,6 +68,7 @@ globalThis.__billingTestStripe = class {
     retrieve: async (id) => ({ id, status: state.invoiceStatus, hosted_invoice_url: 'https://invoice.stripe.test/in_test' }),
     listLineItems: async () => ({ data: [{ period, parent: { type: 'subscription_item_details', subscription_item_details: { subscription: 'sub_test', proration: false } } }] }),
   }
+  testHelpers = { testClocks: { retrieve: async () => state.clock } }
   billingPortal = { sessions: { create: async (payload) => {
     state.portal = payload
     return { url: 'https://billing.stripe.test/session' }
@@ -150,6 +159,7 @@ test('current-format failed invoices freeze access, retain rollover for retry, a
   assert.equal((await webhook(signedRequest())).status, 200)
   assert.equal(state.subscription.status, 'past_due')
   assert.equal(state.subscription.rollover_seconds, 24000)
+  assert.equal(state.rpcs.find((call) => call.name === 'freeze_recepta_renewal').args.p_period_start, base.current_period_start)
   assert.equal(state.notices[0].kind, 'payment_failed')
 })
 
@@ -197,10 +207,54 @@ test('billing usage is aggregated only for the authenticated client and its paid
   reset()
   const response = await status(new Request('https://recepta.test?client_id=customer_b', { headers: { authorization: 'Bearer synthetic' } }))
   assert.equal(response.status, 200)
-  assert.equal((await response.json()).usedSeconds, 600)
+  const result = await response.json()
+  assert.equal(result.usedSeconds, 600)
+  assert.equal(result.balance.rolloverRemainingSeconds, 23400)
+  assert.equal(result.subscription.stripe_customer_id, undefined)
   const usage = state.rpcs.find((call) => call.name === 'recepta_period_usage')
   assert.equal(usage.args.p_client_id, 'customer_a')
   assert.equal(usage.args.p_period_end, base.current_period_end)
+})
+
+test('only a ready, matching Sandbox Test Clock can explain a future balance in a staging preview', async () => {
+  reset()
+  const future = now + 31 * 86400
+  state.subscription.current_period_start = new Date(future * 1000).toISOString()
+  state.subscription.current_period_end = new Date((future + 30 * 86400) * 1000).toISOString()
+  state.testClock = 'clock_test'
+  state.clock = { status: 'ready', livemode: false, frozen_time: future }
+  const preview = 'https://deploy-preview-99--receptaai.netlify.app/.netlify/functions/billing-status?includeSimulation=1'
+  const headers = { authorization: 'Bearer synthetic' }
+  const send = async () => (await status(new Request(preview, { headers }))).json()
+  assert.equal((await status(new Request(preview, { headers }))).status, 503)
+  const production = await status(new Request('https://recepta.ca/.netlify/functions/billing-status?includeSimulation=1&asOf=' + future, { headers }))
+  assert.equal((await production.json()).simulation, null)
+  assert.equal(state.stripeReads, 0)
+
+  const previousDatabase = process.env.SUPABASE_URL
+  const previousKey = process.env.STRIPE_SECRET_KEY
+  process.env.SUPABASE_URL = 'https://mvufjeqxqvpcfqwmihpy.supabase.co'
+  try {
+    assert.equal((await status(new Request(preview))).status, 401)
+    assert.equal(state.stripeReads, 0)
+    const data = await send()
+    assert.equal(data.balance.remainingSeconds, 0)
+    assert.equal(data.simulation.balance.remainingSeconds, 83400)
+    assert.equal(data.simulation.asOf, state.subscription.current_period_start)
+    state.customer = 'cus_other'
+    assert.equal((await send()).simulation, null)
+    state.customer = 'cus_a'
+    state.remoteLive = true
+    assert.equal((await send()).simulation, null)
+    state.remoteLive = false
+    state.clock.status = 'advancing'
+    assert.equal((await send()).simulation, null)
+    process.env.STRIPE_SECRET_KEY = 'sk_live_synthetic'
+    assert.equal((await send()).simulation, null)
+  } finally {
+    process.env.SUPABASE_URL = previousDatabase
+    process.env.STRIPE_SECRET_KEY = previousKey
+  }
 })
 
 test('the authenticated customer can schedule cancellation or cancel now without touching Retell', async () => {
