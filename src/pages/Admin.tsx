@@ -4,6 +4,7 @@ import AppointmentScheduling from '../components/AppointmentScheduling'
 import './AdminClientEditor.css'
 import AdminCallEmailSettings from '../components/AdminCallEmailSettings'
 import AdminStoreHours, { StoreHoursFields } from '../components/AdminStoreHours'
+import AdminInboundRouting from '../components/AdminInboundRouting'
 import { readStoreHours } from '../lib/storeHours'
 import {
   useCallback,
@@ -2230,6 +2231,7 @@ export default function Admin() {
                 ) : (
                   <p className="adminEditFullWidth">Save the client and assign an AI agent before configuring store hours.</p>
                 )}
+                {editingClient.agent && <AdminInboundRouting key={editingClient.id + ':routing'} clientId={editingClient.id} />}
                 <InternalAppointmentTestAccess key={editingClient.id + ':qa'} clientId={editingClient.id} agentId={editingClient.agent?.retell_agent_id ?? null} />
                 <AdminCallEmailSettings key={editingClient.id} clientId={editingClient.id} />
                 <details className="adminEditFullWidth appointmentAdminPanel">

@@ -56,7 +56,7 @@ const callbackEmail = async (db:SupabaseClient, job:ServiceJob) => {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Business callback email is missing or invalid.')
     mail={ from:process.env.CALL_NOTIFICATION_FROM_EMAIL?.trim() || process.env.APPOINTMENT_FROM_EMAIL?.trim() || 'Recepta <notifications@mail.recepta.ca>', to:[email],
       subject:`Missed call — ${client.data.company_name || 'your business'} needs a callback`,
-      text:`Your AI could not accept a call at ${callback.data.created_at}.\nCaller: ${callback.data.caller_number || 'Caller ID unavailable'}\nReason: ${callback.data.reason.replaceAll('_',' ')}\nNo AI minutes were used.\nReview and track the follow-up: ${billingOrigin()}/dashboard/calls`,
+      text:`Your business missed a call at ${callback.data.created_at}.\nCaller: ${callback.data.caller_number || 'Caller ID unavailable'}\nReason: ${callback.data.reason.replaceAll('_',' ')}\nNo AI minutes were used.\nReview and track the follow-up: ${billingOrigin()}/dashboard/calls`,
     }
     await checkpoint(db,job,{ mail_payload:mail,first_send_at:new Date().toISOString() })
   }
