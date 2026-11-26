@@ -1,5 +1,4 @@
 import { requestAuth, json } from '../lib/requestAuth'
-import { voiceDeployment } from '../lib/voiceEnvironment'
 
 export default async (request: Request) => {
   if (!['GET','PATCH'].includes(request.method)) return json(405, { error:'Method not allowed.' })
@@ -18,15 +17,6 @@ export default async (request: Request) => {
     const result = await db.from('callback_requests').select('id, caller_number, called_number, reason, status, created_at')
       .eq('client_id', user.id).order('created_at', { ascending:false }).limit(100)
     if (result.error) throw result.error
-    const deployment = voiceDeployment(request)
-    const callbacks = result.data ?? []
-    if (!deployment || !callbacks.length) return json(200, { callbacks })
-
-    const recordings = await db.from('inbound_voicemails').select('callback_id')
-      .in('callback_id', callbacks.map(callback => callback.id)).eq('account_sid', deployment.account)
-      .gt('expires_at', new Date().toISOString())
-    if (recordings.error) throw recordings.error
-    const voicemailIds = new Set(recordings.data.map(recording => recording.callback_id))
-    return json(200, { callbacks: callbacks.map(callback => ({ ...callback, has_voicemail: voicemailIds.has(callback.id) })) })
+    return json(200, { callbacks:result.data })
   } catch { return json(500, { error:'Could not load or update callbacks.' }) }
 }

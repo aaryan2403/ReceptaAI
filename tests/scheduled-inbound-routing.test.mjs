@@ -1,296 +1,241 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { pathToFileURL } from 'node:url'
-import { build } from 'esbuild'
+import { readFile } from 'node:fs/promises'
+import { createHmac } from 'node:crypto'
 import { PGlite } from '@electric-sql/pglite'
-import twilio from 'twilio'
+import { build } from 'esbuild'
 
-const account = 'AC' + '1'.repeat(32)
-const token = 'test-auth-token'
-const ingress = '+14165550100'
-const ai = '+14165550101'
+const client = '00000000-0000-0000-0000-000000000001'
+const secondClient = '00000000-0000-0000-0000-000000000002'
+const primary = '+14165550100'
+const extra = '+14165550101'
 const human = '+14165550102'
-const caller = '+16475550103'
-const business = '+14165550104'
-const callSid = 'CA' + '1'.repeat(32)
-const recording = 'RE' + '1'.repeat(32)
-const clientId = '00000000-0000-0000-0000-000000000001'
-const callbackId = '00000000-0000-0000-0000-000000000002'
-const origin = 'https://deploy-preview-999--receptaai.netlify.app'
-const url = origin + '/.netlify/functions/voice-inbound'
-const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const schedule = (day, start, end, answeringMode = 'business_hours') => JSON.stringify({
-  mode: 'custom', timeZone: 'America/Toronto', answeringMode,
-  hours: days.map(name => ({ day: name, open: name === day, start, end })),
+const source = '+14165550103'
+const origin = 'https://deploy-preview-45--receptaai.netlify.app'
+const webhook = origin + '/.netlify/functions/retell-inbound'
+const key = 'synthetic-staging-key'
+const deployment = { isolated: true, preview: true, previewOrigin: origin, key }
+const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const hours = (day = 'Sunday', start = '01:00', end = '02:00', answeringMode = 'business_hours') => JSON.stringify({
+  mode: 'custom', answeringMode, timeZone: 'America/Toronto',
+  hours: weekdays.map(name => ({ day: name, open: name === day, start, end })),
+})
+const managed = (number, type = 'retell-twilio', url = webhook) => ({
+  phone_number: number, phone_number_type: type, inbound_webhook_url: url,
+  inbound_agents: null, inbound_fallback_enabled: false, fallback_number: null,
 })
 
-Object.assign(process.env, {
-  SUPABASE_URL: 'https://mvufjeqxqvpcfqwmihpy.supabase.co',
-  SUPABASE_SECRET_KEY: 'test-only',
-  RETELL_STAGING_API_KEY: 'retell-test-key',
-  RECEPTA_STAGING_VOICE_NUMBERS: ingress,
-  TWILIO_VOICE_STAGING_ACCOUNT_SID: account,
-  TWILIO_VOICE_STAGING_AUTH_TOKEN: token,
-})
-
-let sql
-const commands = []
-const readOne = (query) => Promise.resolve(query).then(result => ({
-  data: result.rows[0] ?? null, error: null,
-})).catch(error => ({ data: null, error }))
-
-globalThis.__voiceTestDb = {
+let sql, phones, writes, failPatch, loseResponse, queries
+const execute = async (statement, values) => {
+  try {
+    const result = await sql.query(statement, values)
+    return { data: result.rows[0]?.value ?? null, error: null }
+  } catch (error) {
+    return { data: null, error }
+  }
+}
+const db = {
   rpc(name, args) {
-    commands.push(name)
-    switch (name) {
-      case 'recepta_voice_number_kind':
-        return readOne(sql.query('select recepta_voice_number_kind($1) as kind', [args.p_number]))
-          .then(result => ({ ...result, data: result.data?.kind ?? null }))
-      case 'recepta_voice_route':
-        return { maybeSingle: () => readOne(sql.query('select * from recepta_voice_route($1)', [args.p_ingress])) }
-      case 'record_recepta_callback':
-        return readOne(sql.query(`insert into callback_requests(id, client_id, retell_call_id)
-          values ($1, $2, $3) on conflict (retell_call_id) do nothing`, [callbackId, args.p_client_id, args.p_call_id]))
-      case 'recepta_store_inbound_voicemail':
-        return readOne(sql.query('select recepta_store_inbound_voicemail($1, $2, $3, $4)', [
-          args.p_account, args.p_recording, args.p_call, args.p_callback,
-        ]))
-      default: throw new Error('Unexpected RPC ' + name)
-    }
+    queries.push(name)
+    const query = () => execute(`select ${name}(${Object.keys(args).map((param, i) => `${param} => $${i + 1}`).join(',')}) as value`, Object.values(args))
+    return { abortSignal: query, then: (resolve, reject) => query().then(resolve, reject) }
   },
   from(table) {
-    assert.equal(table, 'callback_requests')
-    let call, client
-    const query = {
-      select: () => query,
-      eq(column, value) {
-        if (column === 'retell_call_id') call = value
-        if (column === 'client_id') client = value
-        return query
-      },
-      maybeSingle: () => readOne(sql.query(
-        'select id from callback_requests where retell_call_id = $1 and client_id = $2', [call, client]
-      )),
+    if (table === 'phone_transfer_destinations') {
+      let clientId
+      const check = {
+        select: () => check,
+        eq(column, value) {
+          if (column === 'client_id') clientId = value
+          return check
+        },
+        maybeSingle: () => execute(
+          'select to_jsonb(d) as value from phone_transfer_destinations d where client_id = $1 and is_primary and enabled', [clientId]
+        ),
+      }
+      return check
     }
-    return query
+    assert.equal(table, 'retell_forwarding_lock')
+    return { delete: () => ({ eq: (column, token) => ({
+      abortSignal: () => execute('delete from retell_forwarding_lock where token = $1', [token]),
+    }) }) }
   },
 }
+globalThis.__forwardingDb = db
 
-const buildDir = await mkdtemp('node_modules/.voice-routing-test-')
-test.after(async () => {
-  await sql?.close()
-  await rm(buildDir, { recursive: true, force: true })
-})
-await build({
-  entryPoints: ['netlify/functions/voice-inbound.ts', 'netlify/functions/retell-inbound.ts',
-    'netlify/functions/admin-inbound-route.ts', 'netlify/lib/inboundVoice.ts'],
-  bundle: true, platform: 'node', format: 'esm', packages: 'external', outdir: buildDir,
-  plugins: [{ name: 'local-database', setup(builder) {
-    builder.onResolve({ filter: /^@supabase\/supabase-js$/ }, () => ({ path: 'db', namespace: 'test' }))
-    builder.onLoad({ filter: /.*/, namespace: 'test' }, () => ({
-      contents: 'export const createClient = () => globalThis.__voiceTestDb',
-    }))
-  } }],
-})
-const { default: inbound } = await import(pathToFileURL(buildDir + '/functions/voice-inbound.js'))
-const { default: retellInbound } = await import(pathToFileURL(buildDir + '/functions/retell-inbound.js'))
-const { default: adminRoute } = await import(pathToFileURL(buildDir + '/functions/admin-inbound-route.js'))
-const { usesAiReception } = await import(pathToFileURL(buildDir + '/lib/inboundVoice.js'))
-
-function twilioRequest(query = '', overrides = {}, sign = true) {
-  const address = url + query
-  const params = { AccountSid: account, CallSid: callSid, From: caller, To: ingress, ...overrides }
-  return new Request(address, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/x-www-form-urlencoded',
-      'x-twilio-signature': sign ? twilio.getExpectedTwilioSignature(token, address, params) : 'bad',
-    },
-    body: new URLSearchParams(params),
+const compile = async(path, exportName = 'default') => {
+  const bundled = await build({
+    entryPoints: [path], bundle: true, platform: 'node', format: 'esm', write: false,
+    plugins: [{ name: 'test-db', setup(builder) {
+      builder.onResolve({ filter: /^@supabase\/supabase-js$/ }, () => ({ path: 'db', namespace: 'test' }))
+      builder.onLoad({ filter: /.*/, namespace: 'test' }, () => ({ contents: 'export const createClient = () => globalThis.__forwardingDb' }))
+    } }],
   })
+  return (await import('data:text/javascript;base64,' + Buffer.from(bundled.outputFiles[0].text).toString('base64')))[exportName]
 }
+const reconcile = await compile('netlify/lib/retellForwarding.ts', 'reconcileRetellForwarding')
+const refresh = await compile('netlify/lib/retellForwarding.ts', 'refreshClientRetellForwarding')
+const scheduled = await compile('netlify/functions/retell-forwarding-schedule.ts')
+const webhookHandler = await compile('netlify/functions/retell-webhook.ts')
 
 test.before(async () => {
   sql = new PGlite()
   await sql.exec(`
     create role anon; create role authenticated; create role service_role bypassrls;
-    create table clients(id uuid primary key, deletion_pending boolean default false, call_retention_days integer default 7);
+    create table clients(id uuid primary key, deletion_pending boolean default false);
     create table agents(client_id uuid primary key, phone_number text, retell_agent_id text, business_hours text);
     create table agent_phone_numbers(client_id uuid, phone_number text);
-    create table callback_requests(id uuid primary key, client_id uuid, retell_call_id text unique, created_at timestamptz default now());
+    create table access_test(client_id uuid primary key, value jsonb);
+    create function recepta_service_access(p_client uuid) returns jsonb language sql as
+    $$ select value from access_test where client_id = p_client $$;
   `)
-  const migration = await readFile(new URL('../supabase/migrations/20261125231500_scheduled_inbound_routing.sql', import.meta.url), 'utf8')
-  await sql.exec(migration)
-  await sql.query('insert into clients(id) values ($1)', [clientId])
-  await sql.query('insert into agents values ($1,$2,$3,$4)', [clientId, ai, 'agent_test', '24/7'])
-  await sql.query('insert into inbound_phone_routes values ($1,$2,$3,$4,$5)', [ingress, clientId, ai, human, business])
+  await sql.exec(await readFile('supabase/migrations/20261126044141_retell_native_forwarding.sql', 'utf8'))
+})
+test.after(async () => { await sql.close() })
+
+test.beforeEach(async context => {
+  await sql.exec('truncate clients, agents, agent_phone_numbers, access_test, retell_forwarding_lock cascade')
+  await sql.query('insert into clients(id) values ($1),($2)', [client, secondClient])
+  await sql.query('insert into agents values ($1,$2,$3,$4)', [client, primary, 'agent_test', hours()])
+  await sql.query('insert into phone_transfer_destinations(client_id, phone_number, enabled) values ($1,$2,true)', [client, human])
+  await sql.query('insert into access_test values ($1,$2)', [client, { status: 'active', can_reserve: true, remaining_seconds: 0 }])
+  phones = new Map([[primary, managed(primary)]])
+  writes = []
+  queries = []
+  failPatch = false
+  loseResponse = false
+  context.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-01T07:00:00Z') })
+  context.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(options.headers.Authorization, 'Bearer ' + key)
+    const request = new URL(url)
+    assert.equal(request.origin, 'https://api.retellai.com')
+    if (request.pathname === '/v2/list-phone-numbers') {
+      assert.equal(options.method, 'POST')
+      const rows = [...phones.values()]
+      return Response.json(request.searchParams.has('pagination_key')
+        ? { items: rows.slice(1), has_more: false }
+        : { items: rows.slice(0, 1), has_more: rows.length > 1, pagination_key: 'second' })
+    }
+    const number = decodeURIComponent(request.pathname.split('/').at(-1))
+    assert.ok(phones.has(number))
+    if (options.method === 'PATCH') {
+      const patch = JSON.parse(options.body)
+      writes.push({ number, patch })
+      if (failPatch) return Response.json({}, { status: 503 })
+      Object.assign(phones.get(number), patch)
+      if (loseResponse) throw new Error('Connection closed after update')
+    } else {
+      assert.ok(request.pathname.startsWith('/get-phone-number/'))
+    }
+    return Response.json(phones.get(number))
+  })
 })
 
-test('Toronto wall-clock hours handle overnight and both daylight saving transitions', () => {
-  const at = (hours, utc) => usesAiReception(hours, new Date(utc))
-  const overnight = schedule('Saturday', '22:00', '03:30')
-  assert.equal(at(overnight, '2026-03-08T07:00:00Z'), true)
-  assert.equal(at(overnight, '2026-03-08T07:30:00Z'), false)
-  const repeated = schedule('Sunday', '01:00', '02:00')
-  assert.equal(at(repeated, '2026-11-01T05:30:00Z'), true)
-  assert.equal(at(repeated, '2026-11-01T06:30:00Z'), true)
-  assert.equal(at(repeated, '2026-11-01T07:00:00Z'), false)
-  assert.equal(at(schedule('Sunday', '01:00', '02:00', '24/7'), '2026-11-01T07:00:00Z'), true)
-})
+test('the scheduled handler switches existing and newly assigned Retell numbers without reserving AI time', async context => {
+  Object.assign(process.env, {
+    SUPABASE_URL: 'https://mvufjeqxqvpcfqwmihpy.supabase.co', SUPABASE_SECRET_KEY: 'test-only', RETELL_STAGING_API_KEY: key,
+  })
+  const run = () => scheduled(new Request(origin + '/.netlify/functions/retell-forwarding-schedule'))
+  assert.equal((await run()).status, 204)
+  assert.deepEqual(writes, [{ number: primary, patch: { fallback_number: human, inbound_fallback_enabled: true } }])
+  assert.ok(!queries.includes('reserve_recepta_agent_call'))
 
-test('signed ingress rings Retell in 24/7 mode and at opening, then uses only the human phone outside hours', async context => {
-  context.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-01T05:00:00Z') })
-  for (const hours of ['24/7', schedule('Sunday', '01:00', '02:00')]) {
-    await sql.query('update agents set business_hours = $1', [hours])
-    const response = await inbound(twilioRequest())
-    assert.equal(response.status, 200)
-    assert.match(await response.text(), /<Dial answerOnBridge="true">\+14165550101<\/Dial>/)
+  await sql.query('insert into agent_phone_numbers values ($1,$2)', [client, extra])
+  phones.set(extra, managed(extra, 'retell-bandwidth'))
+  phones.set(source, managed(source, 'custom'))
+  phones.set('+14165550104', managed('+14165550104', 'retell-telnyx', 'https://another.test/retell-inbound'))
+  await run()
+  assert.deepEqual(writes.map(write => write.number), [primary, extra])
+  await run()
+  assert.equal(writes.length, 2)
+
+  // Both 1 a.m. occurrences on fall-back day count as AI hours.
+  for (const time of ['2026-11-01T05:30:00Z', '2026-11-01T06:30:00Z']) {
+    context.mock.timers.setTime(Date.parse(time))
+    await run()
+    assert.equal(phones.get(primary).fallback_number, null)
+    assert.equal(phones.get(extra).inbound_fallback_enabled, false)
   }
-
+  await sql.query('update agents set business_hours = $1', [hours('Sunday', '01:00', '02:00', '24/7')])
   context.mock.timers.setTime(Date.parse('2026-11-01T07:00:00Z'))
-  commands.length = 0
-  const response = await inbound(twilioRequest('', { ForwardedFrom: business }))
-  const xml = await response.text()
-  assert.match(xml, /<Dial callerId="\+14165550100".*>\+14165550102<\/Dial>/)
-  assert.doesNotMatch(xml, /\+14165550101|<Say|<Record/)
-  assert.deepEqual(commands, ['recepta_voice_number_kind', 'recepta_voice_number_kind', 'recepta_voice_route', 'recepta_voice_number_kind'])
-})
-
-test('human outcome offers voicemail for missed calls and hangs up on completed calls', async () => {
-  const completed = await inbound(twilioRequest('?stage=human', { DialCallStatus: 'completed' }))
-  assert.match(await completed.text(), /<Hangup\/>/)
-  const response = await inbound(twilioRequest('?stage=human', { DialCallStatus: 'no-answer' }))
-  const xml = await response.text()
-  assert.match(xml, /<Record .*recordingStatusCallback=/)
-  assert.match(xml, /Please leave a message after the tone/)
-  assert.doesNotMatch(xml, /<Dial/)
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const status = await inbound(twilioRequest('?stage=recording&callback=' + callbackId, {
-      RecordingSid: recording, RecordingStatus: 'completed',
-    }))
-    assert.equal(status.status, 204)
-  }
-  assert.deepEqual((await sql.query('select recording_sid, callback_id from inbound_voicemails')).rows, [
-    { recording_sid: recording, callback_id: callbackId },
+  await run()
+  assert.deepEqual(writes.slice(-2).map(write => write.patch), [
+    { fallback_number: null, inbound_fallback_enabled: false },
+    { fallback_number: null, inbound_fallback_enabled: false },
   ])
 })
 
-test('rejects invalid signatures, mismatched accounts, short circuits returned legs and fails closed for reassigned numbers', async () => {
-  assert.equal((await inbound(twilioRequest('', {}, false))).status, 403)
-  assert.equal((await inbound(twilioRequest('', { AccountSid: 'AC' + '0'.repeat(32) }))).status, 403)
-  assert.match(await (await inbound(twilioRequest('', { From: ingress }))).text(), /<Reject reason="busy"\/>/)
-  assert.match(await (await inbound(twilioRequest('', { ForwardedFrom: ingress }))).text(), /<Reject reason="busy"\/>/)
-  const { createHmac } = await import('node:crypto')
-  const body = JSON.stringify({ event: 'call_inbound', call_inbound: { call_id: 'call_loop', from_number: ingress, to_number: ai } })
+test('overnight hours span the spring-forward change and switch at the saved close', async context => {
+  await sql.query('update agents set business_hours = $1', [hours('Saturday', '22:00', '03:30')])
+  context.mock.timers.setTime(Date.parse('2026-03-08T07:29:00Z'))
+  await reconcile(db, deployment)
+  assert.equal(writes.length, 0)
+  context.mock.timers.setTime(Date.parse('2026-03-08T07:30:00Z'))
+  await reconcile(db, deployment)
+  assert.equal(phones.get(primary).inbound_fallback_enabled, true)
+})
+
+test('payment holds and registered forwarding loops clear any stale provider forwarding', async () => {
+  await reconcile(db, deployment)
+  await sql.query('update access_test set value = $1', [{ status: 'paused', can_reserve: false }])
+  await refresh(db, deployment, client)
+  assert.equal(phones.get(primary).fallback_number, null)
+
+  await sql.query('update access_test set value = $1', [{ status: 'active', can_reserve: true }])
+  await reconcile(db, deployment)
+  assert.equal(phones.get(primary).fallback_number, human)
+  await sql.query('insert into phone_forwarding_sources values ($1,$2)', [human, secondClient])
+  const result = await reconcile(db, deployment)
+  assert.equal(result.unsafe, 1)
+  assert.equal(phones.get(primary).fallback_number, null)
+})
+
+test('retries a rejected update and verifies a lost successful response without a duplicate PATCH', async () => {
+  failPatch = true
+  assert.equal((await reconcile(db, deployment)).pending, 1)
+  assert.equal(phones.get(primary).inbound_fallback_enabled, false)
+  failPatch = false
+  loseResponse = true
+  const result = await reconcile(db, deployment)
+  assert.equal(result.pending, 0)
+  assert.equal(result.updated, 1)
+  await reconcile(db, deployment)
+  assert.equal(writes.length, 2)
+})
+
+test('serializes reconciliation and refuses to edit an agent with a static inbound binding', async () => {
+  const first = await sql.query("select recepta_claim_retell_forwarding('00000000-0000-0000-0000-000000000003') as claimed")
+  assert.equal(first.rows[0].claimed, true)
+  assert.equal((await reconcile(db, deployment)).pending, 1)
+  assert.equal(writes.length, 0)
+  await sql.exec('truncate retell_forwarding_lock')
+  phones.get(primary).inbound_agents = [{agent_id: 'agent_test'}]
+  assert.equal((await reconcile(db, deployment)).unsafe, 1)
+  assert.equal(writes.length, 0)
+})
+
+test('a failed loop check leaves the saved hours and human number intact', async () => {
+  await assert.rejects(sql.query('select recepta_save_retell_forwarding_schedule($1,$2,$3,true,$4,$4)',
+    [client, hours(), '24/7', source]), /direct human number/)
+  assert.equal((await sql.query('select business_hours from agents')).rows[0].business_hours, hours())
+  assert.equal((await sql.query('select phone_number from phone_transfer_destinations')).rows[0].phone_number, human)
+  const old = await sql.query('select recepta_save_retell_forwarding_schedule($1,$2,$3,false,null,null) as saved', [client, 'old hours', '24/7'])
+  assert.equal(old.rows[0].saved, false)
+})
+
+test('a signed Retell fallback-only event does not enter Recepta accounting', async () => {
+  Object.assign(process.env, {
+    SUPABASE_URL: 'https://synthetic.test', SUPABASE_SECRET_KEY: 'test-only', RETELL_API_KEY: 'fallback-event-key',
+  })
+  const body = JSON.stringify({
+    event: 'call_ended',
+    call: { call_id: 'call_fallback', agent_id: 'agent_test', call_status: 'ended', duration_ms: 90000, disconnection_reason: 'no_concurrency_fallback' },
+  })
   const timestamp = Date.now().toString()
-  const signature = createHmac('sha256', process.env.RETELL_STAGING_API_KEY).update(body + timestamp).digest('hex')
-  const bounced = await retellInbound(new Request(origin + '/.netlify/functions/retell-inbound', {
+  const signature = createHmac('sha256', process.env.RETELL_API_KEY).update(body + timestamp).digest('hex')
+  const response = await webhookHandler(new Request('https://recepta.ca/.netlify/functions/retell-webhook', {
     method: 'POST', headers: { 'x-retell-signature': `v=${timestamp},d=${signature}` }, body,
   }))
-  assert.deepEqual(await bounced.json(), { call_inbound: { reject: true } })
-
-  await sql.query("update agents set phone_number = null, business_hours = '24/7'")
-  assert.match(await (await inbound(twilioRequest())).text(), /<Reject reason="busy"\/>/)
-})
-
-test('anonymous and authenticated database roles cannot access the routing or voicemail tables', async () => {
-  for (const role of ['anon', 'authenticated']) {
-    await sql.exec('set role ' + role)
-    try {
-      await assert.rejects(sql.query('select * from inbound_phone_routes'), /permission denied/)
-      await assert.rejects(sql.query('select * from inbound_voicemails'), /permission denied/)
-      await assert.rejects(sql.query('select * from recepta_voice_route($1)', [ingress]), /permission denied/)
-    } finally {
-      await sql.exec('reset role')
-    }
-  }
-})
-
-test('admin connects an existing line by setting its webhook and safely retries a provider timeout', async context => {
-  const db = globalThis.__voiceTestDb
-  const previousAdmin = process.env.ADMIN_EMAIL
-  process.env.ADMIN_EMAIL = 'admin@example.test'
-  context.after(() => {
-    globalThis.__voiceTestDb = db
-    if (previousAdmin === undefined) delete process.env.ADMIN_EMAIL
-    else process.env.ADMIN_EMAIL = previousAdmin
-  })
-
-  let saved = null
-  let voiceUrl = 'https://demo.twilio.com/welcome/voice/'
-  let voiceMethod = 'GET'
-  let updates = 0
-  let writes = 0
-  const sid = 'PN' + '1'.repeat(32)
-  const owned = () => ({ sid, account_sid: account, phone_number: ingress, voice_url: voiceUrl,
-    voice_method: voiceMethod, capabilities: { voice: true } })
-  const proposed = { ingress_number: ingress, ai_number: ai, human_number: human, business_number: business }
-
-  globalThis.__voiceTestDb = {
-    auth: { getUser: async () => ({ data: { user: { email: 'admin@example.test' } }, error: null }) },
-    async rpc(name, { p_number }) {
-      assert.equal(name, 'recepta_voice_number_kind')
-      return { data: saved && p_number === ingress ? 'ingress' : null, error: null }
-    },
-    from(table) {
-      let operation, values
-      const selectData = () => ({
-        clients: { deletion_pending: false },
-        agents: { phone_number: ai, retell_agent_id: 'agent_test' },
-        agent_phone_numbers: null,
-        inbound_phone_routes: saved,
-      })[table]
-      const selectOne = () => {
-        if (operation) { writes++; saved = { ...saved, ...values } }
-        return { data: selectData(), error: null }
-      }
-      const query = {
-        select: () => query, eq: () => query,
-        insert: row => { operation = 'insert'; values = row; return query },
-        update: row => { operation = 'update'; values = row; return query },
-        maybeSingle: selectOne, single: selectOne,
-      }
-      return query
-    },
-  }
-  context.mock.method(globalThis, 'fetch', async (endpoint, options) => {
-    const provider = new URL(endpoint)
-    if (provider.hostname === 'api.retellai.com') {
-      assert.equal(options.headers.Authorization, 'Bearer ' + process.env.RETELL_STAGING_API_KEY)
-      assert.equal(options.method, undefined)
-      return Response.json({ phone_number: ai, inbound_webhook_url: origin + '/.netlify/functions/retell-inbound' })
-    }
-    assert.equal(provider.hostname, 'api.twilio.com')
-    if (provider.pathname.endsWith('/IncomingPhoneNumbers.json')) {
-      assert.equal(provider.searchParams.get('PhoneNumber'), ingress)
-      assert.equal(options.method, undefined)
-      return Response.json({ incoming_phone_numbers: [owned()] })
-    }
-    assert.equal(provider.pathname, '/2010-04-01/Accounts/' + account + '/IncomingPhoneNumbers/' + sid + '.json')
-    assert.equal(options.method, 'POST')
-    assert.deepEqual(Object.fromEntries(options.body), { VoiceUrl: url, VoiceMethod: 'POST' })
-    updates++
-    voiceUrl = url
-    voiceMethod = 'POST'
-    throw new Error('Timeout after provider applied the change')
-  })
-
-  const request = (route) => new Request(origin + '/.netlify/functions/admin-inbound-route?clientId=' + clientId, {
-    method: 'POST', headers: { Authorization: 'Bearer admin-test-token' }, body: JSON.stringify(route),
-  })
-
-  const rejected = await adminRoute(request({ ...proposed, business_number: human }))
-  assert.equal(rejected.status, 400)
-  assert.equal(writes, 0)
-  assert.equal(updates, 0)
-
-  const uncertain = await adminRoute(request(proposed))
-  assert.equal(uncertain.status, 502)
-  assert.deepEqual(saved, { ...proposed, client_id: clientId })
-  assert.equal(updates, 1)
-
-  const retried = await adminRoute(request(proposed))
-  assert.equal(retried.status, 200)
-  assert.equal(updates, 1)
+  assert.equal(response.status, 204)
+  assert.deepEqual(queries, [])
 })

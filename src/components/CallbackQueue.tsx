@@ -17,7 +17,6 @@ type Callback = {
   reason: string
   status: CallbackStatus
   created_at: string
-  has_voicemail?: boolean
 }
 
 const reasons: Record<string, string> = {
@@ -54,30 +53,6 @@ export default function CallbackQueue() {
   const [saveError, setSaveError] = useState('')
   const [saving, setSaving] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
-  const [voicemail, setVoicemail] = useState<{ id: string; url: string } | null>(null)
-  const [loadingVoicemail, setLoadingVoicemail] = useState(false)
-
-  useEffect(() => () => {
-    if (voicemail) URL.revokeObjectURL(voicemail.url)
-  }, [voicemail])
-
-  async function loadVoicemail(id: string) {
-    setLoadingVoicemail(true)
-    setSaveError('')
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) throw new Error('Please sign in again.')
-      const response = await fetch('/.netlify/functions/callback-voicemail?' + new URLSearchParams({ id }), {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      })
-      if (!response.ok) throw new Error('Could not load voicemail.')
-      setVoicemail({ id, url: URL.createObjectURL(await response.blob()) })
-    } catch (failure) {
-      setSaveError(failure instanceof Error ? failure.message : 'Could not load voicemail.')
-    } finally {
-      setLoadingVoicemail(false)
-    }
-  }
 
   useEffect(() => {
     if (saving) return
@@ -169,10 +144,6 @@ export default function CallbackQueue() {
                         <span>Call back</span>
                       </a>
                     )}
-                    {callback.has_voicemail && (voicemail?.id === callback.id
-                      ? <audio controls src={voicemail.url} aria-label="Voicemail playback" style={{ width: 180 }} />
-                      : <button type="button" className="callbackQueueCall" disabled={loadingVoicemail}
-                          onClick={() => void loadVoicemail(callback.id)}>Listen to voicemail</button>)}
                     <div className="callbackQueueStatus">
                       <select
                         aria-label={`Follow-up status for ${displayNumber || 'unknown caller'}, ${dateFormat.format(date)}`}

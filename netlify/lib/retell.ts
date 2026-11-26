@@ -605,6 +605,7 @@ const updatePhoneBinding = async ({
         inbound_agents: null,
         outbound_agents: agents,
         inbound_webhook_url: inboundWebhookUrl,
+        ...(!active ? { fallback_number: null, inbound_fallback_enabled: false } : {}),
       }),
     }
   )

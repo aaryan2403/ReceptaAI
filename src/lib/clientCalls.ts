@@ -97,6 +97,18 @@ export const fetchClientCalls = async (): Promise<ClientCallsResult> => {
   }
 }
 
+export const loadAdminForwardingSettings = async (clientId: string, signal: AbortSignal) => {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Please sign in again.')
+  const response = await fetch('/.netlify/functions/update-call-preferences?' + new URLSearchParams({ clientId }), {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+    signal,
+  })
+  const data = await response.json()
+  if (!response.ok) throw new Error(data.error || 'Could not load the existing forwarding settings.')
+  return { humanNumber: String(data.humanNumber ?? ''), forwardingSource: String(data.forwardingSource ?? '') }
+}
+
 export const saveAdminSchedulePreference = async (
   clientId: string,
   scheduleMode: '24/7' | 'custom',
@@ -109,6 +121,8 @@ export const saveAdminSchedulePreference = async (
     }>
     timeZone?: string
     answeringMode?: '24/7' | 'business_hours'
+    humanNumber?: string
+    forwardingSource?: string
   }
 ) => {
   const {
@@ -133,6 +147,8 @@ export const saveAdminSchedulePreference = async (
         operatingHours: options?.operatingHours,
         timeZone: options?.timeZone,
         answeringMode: options?.answeringMode,
+        humanNumber: options?.humanNumber,
+        forwardingSource: options?.forwardingSource,
       }),
     }
   )
@@ -145,6 +161,7 @@ export const saveAdminSchedulePreference = async (
     businessHours?: string
     timeZone?: string
     retellSynced?: boolean
+    routingWarning?: string | null
   }
 
   if (!response.ok) {
@@ -161,5 +178,6 @@ export const saveAdminSchedulePreference = async (
     businessHours: body.businessHours ?? null,
     timeZone: body.timeZone ?? null,
     retellSynced: body.retellSynced === true,
+    routingWarning: body.routingWarning ?? null,
   }
 }

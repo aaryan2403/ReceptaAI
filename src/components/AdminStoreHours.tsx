@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { saveAdminSchedulePreference } from '../lib/clientCalls'
+import { useEffect, useState } from 'react'
+import { loadAdminForwardingSettings, saveAdminSchedulePreference } from '../lib/clientCalls'
 import { readStoreHours, type OperatingDay, type StoreHours } from '../lib/storeHours'
 import './AdminStoreHours.css'
 
@@ -12,18 +12,31 @@ export default function AdminStoreHours({ clientId, businessHours, onSaved }: {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [forwarding, setForwarding] = useState<{ humanNumber: string; forwardingSource: string } | null>(null)
+  const [forwardingError, setForwardingError] = useState('')
+  const hasCustomAiHours = schedule.mode === 'custom' && schedule.answeringMode === 'business_hours'
+
+  useEffect(() => {
+    if (!hasCustomAiHours) return
+    const controller = new AbortController()
+    void loadAdminForwardingSettings(clientId, controller.signal).then(settings => {
+      if (!controller.signal.aborted) setForwarding(current => current ?? settings)
+    }).catch(failure => {
+      if (!controller.signal.aborted) setForwardingError(failure instanceof Error ? failure.message : 'Could not load forwarding settings.')
+    })
+    return () => controller.abort()
+  }, [clientId, hasCustomAiHours])
   const save = async () => {
     if (!schedule.mode || saving) return
     setSaving(true); setError(''); setMessage('')
     try {
       const result = await saveAdminSchedulePreference(clientId, schedule.mode, {
         operatingHours: schedule.hours, timeZone: schedule.timeZone, answeringMode: schedule.answeringMode,
+        ...(hasCustomAiHours && forwarding ? { humanNumber: forwarding.humanNumber.trim(), forwardingSource: forwarding.forwardingSource.trim() } : {}),
       })
       if (!result.businessHours) throw new Error('The saved store hours were not returned. Please refresh and check.')
       onSaved(result.businessHours)
-      setMessage(result.retellSynced
-        ? 'Store hours saved and synced with the AI agent.'
-        : 'Store hours saved. Assign an AI agent and save the client to sync them.')
+      setMessage(result.routingWarning ? `Store hours saved. ${result.routingWarning}` : 'Store hours saved.')
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not save store hours.') }
     finally { setSaving(false) }
   }
@@ -34,6 +47,20 @@ export default function AdminStoreHours({ clientId, businessHours, onSaved }: {
     </div>
     <fieldset disabled={saving} style={{ border: 0, margin: 0, padding: 0, display: 'grid', gap: 16 }}>
       <StoreHoursFields schedule={schedule} onChange={setSchedule} />
+      {hasCustomAiHours && forwarding && <>
+        <label><span>After-hours human number</span>
+          <input type="tel" value={forwarding.humanNumber}
+            onChange={event => setForwarding({ ...forwarding, humanNumber: event.target.value })} />
+          <small>Use a direct line with carrier voicemail. This line must never forward back to Recepta.</small>
+        </label>
+        <label><span>Original business number, if it forwards to Recepta</span>
+          <input type="tel" placeholder="+1" value={forwarding.forwardingSource}
+            onChange={event => setForwarding({ ...forwarding, forwardingSource: event.target.value })} />
+        </label>
+      </>}
+      {hasCustomAiHours && !forwarding && <p role={forwardingError ? 'alert' : 'status'}>
+        {forwardingError || 'Loading the existing human number…'}
+      </p>}
       <button type="button" className="btn btnPrimary" disabled={!schedule.mode} onClick={() => void save()}>{saving ? 'Saving & Syncing...' : 'Save Store Hours & Update Agent'}</button>
     </fieldset>
     {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}

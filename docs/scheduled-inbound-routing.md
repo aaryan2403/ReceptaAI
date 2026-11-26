@@ -1,24 +1,18 @@
-# Schedule-based inbound calls
+# Scheduled inbound routing
 
-The Retell inbound webhook on the main branch already checked AI answering hours before reserving minutes. It declined closed-hours calls and created a callback. The previous phone-setup branch implements warm transfers during AI calls. Retell's documented inbound webhook can select an agent or reject a call. Its phone-number fallback is for provider-level routing, such as concurrency overflow. A webhook rejection hangs up the call.
+**Admin → Clients → Edit client → Store hours & AI answering** controls incoming calls on the client's Retell-purchased lines. With custom store hours and **Only during store hours**, Recepta uses the existing primary human transfer number. Enter it in the same panel if the client has no saved destination. If a carrier forwards the original business number to Recepta, register that source and use a different direct number for the human. Enable the human line's carrier voicemail for unanswered calls.
 
-## Setup in Recepta Staging
+- During AI hours, and always in 24/7 AI mode, Recepta clears the Retell fallback number and turns off Backup mode. Inbound calls use the existing signed admission webhook, payment authorization and AI minute limits.
+- Outside AI hours, an authorized client's line uses Retell Backup mode and points to the human number. Retell routes before choosing an agent and charges no AI agent fee. Recepta does not reserve AI minutes. Retell can still charge for the connected phone leg. If the destination cannot connect, Retell ends the call.
+- The scheduler discovers existing and newly assigned Retell-purchased lines using the deployment's phone inventory and the existing Recepta line registry. It only manages numbers pointing to the current deployment's admission webhook. Human destinations cannot be Retell numbers, known Recepta numbers or registered forwarding sources. Unknown carrier redirects require a direct line that does not forward back.
+- Saving hours triggers a sync. The Netlify scheduled function reconciles once a minute and retries incomplete updates. It reads back both Retell settings after changes. Opening, closing and suspension are subject to that interval and the provider's availability. The signed webhook still blocks any AI calls that arrive outside AI hours or lack payment or minute authorization.
 
-Use the existing Recepta Staging database and the assigned Retell agent and number for the same preview. Use an existing programmable Twilio number in the isolated staging account as the caller-facing line. Keep the Retell number as the AI destination. A Retell-owned number receives calls directly in Retell, so calling that number directly cannot ring the after-hours human endpoint. If an existing business number forwards calls, point its carrier forwarding at the Twilio ingress line.
+## Staging call verification
 
-The preview uses `TWILIO_VOICE_STAGING_ACCOUNT_SID`, `TWILIO_VOICE_STAGING_AUTH_TOKEN` and the comma-separated `RECEPTA_STAGING_VOICE_NUMBERS`. Set them in the preview's server environment only. Use a different account from production and allowlist only the test ingress lines. Apply the scheduled inbound routing migration to staging.
+Use an existing Retell-owned test line whose inbound webhook already points to the isolated preview. Assign it and its agent to the staging client. The preview uses `RETELL_STAGING_API_KEY` and the Recepta Staging database. Netlify runs cron automatically on published deploys. A preview can reconcile immediately on a schedule save or through **Functions → retell-forwarding-schedule → Run now**.
 
-In **Admin → Clients → Edit client → Inbound phone routing**, enter the existing Twilio ingress, assigned Retell number, direct human number and original business number if forwarding. Enter a direct US or Canadian number for the human destination. **Save Phone Routing** verifies the Twilio account and Retell line, stores the settings, and attaches the signed Twilio webhook. From then on, **Store hours & AI answering** controls each inbound call as it arrives.
+1. Save AI hours that include the current local time. Call the Retell number from another phone. The AI should answer.
+2. Save AI hours that exclude the current time. Call the same Retell number. The human line should ring with no AI greeting. Repeat and let the human line's voicemail answer. Verify no agent call or new AI minute usage.
+3. Save **24/7**. Call the same number again. The AI should answer and Backup mode should be off.
 
-The human leg shows the Twilio ingress as caller ID. Recepta blocks routing to known Recepta numbers, known forwarding sources, and the original business line. A carrier that preserves the ingress caller ID on a forwarded return leg lets Recepta reject it immediately. Use a direct human number with forwarding disabled to cover carriers that strip both caller ID and forwarding information.
-
-If the human's carrier answers with voicemail, the caller reaches that mailbox. If Twilio sees a missed or unavailable call, the caller can leave a message in Recepta. **Calls → Missed calls & callbacks** shows that recording to the client. Enable authentication for recordings in the Twilio account. Use normal test messages with no customer data. Human calls skip Retell and its minute reservation. Normal carrier usage applies.
-
-## Physical verification
-
-Call from a third phone, separate from the human destination, and use the same connected Twilio line or forwarded test business number for all calls.
-
-1. Save **24/7, including outside store hours** and call. The existing AI agent should greet you.
-2. Save **Only during store hours** with a window that includes the current local time and call. The same AI should greet you.
-3. Save a window that excludes the current local time and call. The human phone should ring. Answer and verify two-way audio and no AI greeting.
-4. Repeat step 3 and let the call go unanswered. Leave a message with carrier voicemail or in Recepta, depending on which answers the call. Verify the message and confirm that the two after-hours calls produced no Retell call and no AI-minute usage.
+Provider references: [Retell Backup mode and billing](https://docs.retellai.com/deploy/inbound-call#divert-calls-with-backup-mode), [Retell phone settings](https://docs.retellai.com/api-references/update-phone-number), [Netlify scheduled functions](https://docs.netlify.com/build/functions/scheduled-functions/).

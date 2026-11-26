@@ -1,3 +1,4 @@
+import { refreshClientRetellForwarding } from '../lib/retellForwarding'
 import { syncClientReceptionist } from '../lib/appointmentAgentSetup'
 import { objectValue, uuid } from '../lib/appointmentScheduling'
 import { json, requestAuth } from '../lib/requestAuth'
@@ -62,6 +63,7 @@ export default async (request: Request) => {
         if (['40001','22023'].includes(result.error.code)) return json(409,{ error:result.error.message })
         throw result.error
       }
+      await refreshClientRetellForwarding(db, deployment, clientId)
       return json(200,{ access:result.data })
     }
 
@@ -141,6 +143,7 @@ export default async (request: Request) => {
       if (['40001', '22023', 'P0002'].includes(error.code)) return json(409, { error: error.message })
       throw error
     }
+    await refreshClientRetellForwarding(db, deployment, clientId)
     return json(200, { access: data })
   } catch (error) {
     console.error('Could not manage Recepta service access', error)

@@ -1,5 +1,6 @@
 import { normalizeHours, normalizeTimeZone } from '../lib/storeSchedule'
-import { configuredRetellKey } from '../lib/emailEnvironment'
+import { serviceDeployment } from '../lib/serviceAccess'
+import { businessForwardingNumber, humanForwardingNumber, reconcileRetellForwarding } from '../lib/retellForwarding'
 import { getAnsweringMode } from '../lib/businessHours'
 import { requestAuth } from '../lib/requestAuth'
 import {
@@ -57,9 +58,12 @@ const getExistingHours = (businessHours?: string | null) => {
 }
 
 export default async (request: Request) => {
-  if (request.method !== 'POST') {
+  if (!['GET', 'POST'].includes(request.method)) {
     return json(405, { error: 'Method not allowed.' })
   }
+
+  const deployment = serviceDeployment(request)
+  if (!deployment.isolated) return json(503, { error: 'This preview must use Recepta Staging.' })
 
   let auth
   try { auth = await requestAuth(request, true) }
@@ -74,28 +78,52 @@ export default async (request: Request) => {
     timeZone?: unknown
     useSchedule?: boolean
     answeringMode?: unknown
+    humanNumber?: unknown
+    forwardingSource?: unknown
   }
-  try { body = await request.json() }
+  try { body = request.method === 'POST' ? await request.json() : { clientId: new URL(request.url).searchParams.get('clientId') } }
   catch { return json(400, { error: 'Invalid request body.' }) }
 
   const clientId = typeof body.clientId === 'string' ? body.clientId.trim() : ''
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId)) {
     return json(400, { error: 'Choose the client whose store hours you want to update.' })
   }
+  const client = await supabaseAdmin.from('clients').select('deletion_pending').eq('id', clientId).maybeSingle()
+  if (client.error) return json(500, { error: 'Could not verify this client.' })
+  if (!client.data || client.data.deletion_pending) return json(403, { error: 'This client is unavailable or awaiting deletion.' })
+
+  if (request.method === 'GET') {
+    const [human, source] = await Promise.all([
+      supabaseAdmin.from('phone_transfer_destinations').select('phone_number').eq('client_id', clientId)
+        .eq('is_primary', true).eq('enabled', true).maybeSingle(),
+      supabaseAdmin.from('phone_forwarding_sources').select('phone_number').eq('client_id', clientId)
+        .order('phone_number').limit(1).maybeSingle(),
+    ])
+    if (human.error || source.error) return json(503, { error: 'Could not load the human forwarding number.' })
+    return json(200, { humanNumber: human.data?.phone_number ?? '', forwardingSource: source.data?.phone_number ?? '' })
+  }
+
+  const editHuman = body.humanNumber !== undefined
+  const human = humanForwardingNumber(body.humanNumber)
+  if (editHuman && body.humanNumber !== '' && !human) {
+    return json(400, { error: 'Enter a direct US or Canadian human number without an extension.' })
+  }
+  const business = businessForwardingNumber(body.forwardingSource)
+  if (body.forwardingSource !== undefined && body.forwardingSource !== '' && !business) {
+    return json(400, { error: 'Enter the original business number in international format, including the country code.' })
+  }
+
   const scheduleMode = body.scheduleMode ??
     (typeof body.useSchedule === 'boolean' ? body.useSchedule ? 'custom' : '24/7' : null)
   if (scheduleMode !== '24/7' && scheduleMode !== 'custom') {
     return json(400, { error: 'Choose either 24/7 or Custom hours.' })
   }
-  const client = await supabaseAdmin.from('clients').select('deletion_pending').eq('id', clientId).maybeSingle()
-  if (client.error) return json(500, { error: 'Could not verify this client.' })
-  if (!client.data || client.data.deletion_pending) return json(403, { error: 'This client is unavailable or awaiting deletion.' })
 
   const { data: agent, error: agentError } = await supabaseAdmin
     .from('agents').select('business_hours, retell_agent_id').eq('client_id', clientId).maybeSingle()
   if (agentError || !agent) return json(404, { error: 'Save the client setup before configuring store hours.' })
   const retellAgentId = agent.retell_agent_id?.trim()
-  const retellApiKey = configuredRetellKey()
+  const retellApiKey = deployment.key
   if (retellAgentId && !retellApiKey) return json(503, { error: 'AI synchronization is not configured.' })
 
   const answeringMode = body.answeringMode ?? getAnsweringMode(agent.business_hours)
@@ -132,12 +160,23 @@ export default async (request: Request) => {
 
   const businessHours = JSON.stringify(schedule)
 
+  const saveSchedule = () => supabaseAdmin.rpc('recepta_save_retell_forwarding_schedule', {
+    p_client: clientId, p_previous: agent.business_hours, p_schedule: businessHours,
+    p_edit_human: editHuman, p_human: human, p_business: business,
+  })
+  const saveFailure = ({ data, error }: Awaited<ReturnType<typeof saveSchedule>>) => {
+    if (error?.code === '22023') return json(400, { error: error.message })
+    if (error) return json(500, { error: 'Could not save the availability setting.' })
+    if (data !== true) return json(409, { error: 'Store hours changed. Refresh before saving again.' })
+    return null
+  }
+  const savedSettings = { scheduleMode, answeringMode, scheduleEnabled: scheduleMode === 'custom', businessHours,
+    timeZone: schedule.timeZone }
+
   // Admins can prepare store hours before a provider agent has been assigned.
   if (!retellAgentId) {
-    const saved = await supabaseAdmin.from('agents').update({ business_hours: businessHours }).eq('client_id', clientId)
-    if (saved.error) return json(500, { error: 'Could not save store hours.' })
-    return json(200, { scheduleMode, answeringMode, scheduleEnabled: scheduleMode === 'custom', businessHours,
-      timeZone: schedule.timeZone, retellSynced: false, employeeScheduleSynced: false })
+    return saveFailure(await saveSchedule()) ??
+      json(200, { ...savedSettings, retellSynced: false, employeeScheduleSynced: false })
   }
 
   const { data: employees, error: employeesError } = await supabaseAdmin
@@ -197,17 +236,8 @@ export default async (request: Request) => {
     targetUser.user.user_metadata?.appointment_sms_notifications_enabled
   )
 
-  const { error: updateError } = await supabaseAdmin
-    .from('agents')
-    .update({ business_hours: businessHours })
-    .eq('client_id', clientId)
-
-  if (updateError) {
-    return json(500, {
-      error: 'Could not save the availability setting.',
-    })
-  }
-
+  let routingWarning: string | null = null
+  let retellSynced = false
   try {
     const retellSync = await syncRetellSchedule({
       apiKey: retellApiKey!,
@@ -220,32 +250,24 @@ export default async (request: Request) => {
       smsNotificationsEnabled,
     })
 
-    return json(200, {
-      scheduleMode,
-      answeringMode,
-      scheduleEnabled: scheduleMode === 'custom',
-      businessHours,
-      timeZone: schedule.timeZone,
-      retellSynced: retellSync.agentUpdated,
-      employeeScheduleSynced: retellSync.agentUpdated,
-    })
+    retellSynced = retellSync.agentUpdated
   } catch (error) {
-    const { error: rollbackError } = await supabaseAdmin
-      .from('agents')
-      .update({ business_hours: agent.business_hours })
-      .eq('client_id', clientId)
-
-    if (rollbackError) {
-      console.error('Schedule rollback failed:', rollbackError)
-    }
-
-    console.error('Retell schedule sync failed:', error)
-
-    return json(502, {
-      error:
-        error instanceof Error
-          ? `Retell schedule sync failed: ${error.message}`
-          : 'Retell schedule sync failed.',
-    })
+    console.error('Retell schedule sync failed:', error instanceof Error ? error.message : 'unknown error')
+    return json(502, { error: 'Retell schedule sync failed. Store hours could not be saved.' })
   }
+
+  const failed = saveFailure(await saveSchedule())
+  if (failed) return failed
+
+  try {
+    const routing = await reconcileRetellForwarding(supabaseAdmin, deployment, clientId, 10000)
+    if (routing.unsafe) routingWarning = 'Forwarding is disabled for an unsafe destination or unsupported phone binding.'
+    else if (routing.pending) routingWarning = 'Retell has yet to confirm forwarding. The scheduled sync will retry.'
+    else if (!routing.checked && human && scheduleMode === 'custom' && answeringMode === 'business_hours') {
+      routingWarning = 'This client has no Retell number connected to this deployment.'
+    }
+  } catch {
+    routingWarning = 'Retell forwarding could not be confirmed. The scheduled sync will retry.'
+  }
+  return json(200, { ...savedSettings, retellSynced, employeeScheduleSynced: retellSynced, routingWarning })
 }

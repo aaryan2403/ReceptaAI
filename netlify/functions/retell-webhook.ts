@@ -1,3 +1,4 @@
+import { isRetellForwardingOnly } from '../lib/callMinutes'
 import { configuredRetellKey } from '../lib/emailEnvironment'
 import { callEmailPreferencesReady } from '../lib/emailEnvironment'
 import { captureCallEmailDetails } from '../lib/callEmailCapture'
@@ -169,6 +170,7 @@ export default async (
   }
 
   const call = payload.call
+  if (call && isRetellForwardingOnly(call)) return new Response(null, { status: 204 })
   // Demo calls are outside client billing and owner notification records.
   if (call?.call_type === 'web_call' && call.metadata?.recepta_demo === true) {
     return new Response(null, { status: 204 })

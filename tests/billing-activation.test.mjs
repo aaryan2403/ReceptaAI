@@ -100,8 +100,9 @@ globalThis.__paymentStripe = class {
 const compile = async file => {
   const output = await build({ entryPoints: [file], bundle: true, platform: 'node', format: 'esm', write: false, plugins: [{ name: 'synthetic-services', setup(b) {
     b.onResolve({ filter: /^(stripe|@supabase\/supabase-js)$/ }, a => ({ path: a.path, namespace: 'mock' }))
+    b.onResolve({ filter: /^\.\.\/lib\/retellForwarding$/ }, () => ({ path: 'forwarding', namespace: 'mock' }))
     b.onResolve({ filter: /^(?:\.\.\/lib\/retell|\.\/retell)$/ }, () => ({ path: 'retell', namespace: 'mock' }))
-    b.onLoad({ filter: /.*/, namespace: 'mock' }, a => ({ loader: 'js', contents: a.path === 'stripe' ? 'export default globalThis.__paymentStripe' : a.path === 'retell' ? `
+    b.onLoad({ filter: /.*/, namespace: 'mock' }, a => ({ loader: 'js', contents: a.path === 'stripe' ? 'export default globalThis.__paymentStripe' : a.path === 'forwarding' ? 'export const refreshClientRetellForwarding = async () => {}' : a.path === 'retell' ? `
       export const assertRetellAgentAvailable = async () => {};
       export const findProvisionedRetellPhone = async () => globalThis.__paymentRecoveredPhone ?? null;
       export const getPublishedRetellAgent = async () => {};

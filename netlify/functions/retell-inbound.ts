@@ -1,5 +1,4 @@
 import { serviceDeployment } from '../lib/serviceAccess'
-import { voiceDeployment, voiceNumberKind } from '../lib/voiceEnvironment'
 import { createClient } from '@supabase/supabase-js'
 import {
   formatAppointmentFields,
@@ -118,17 +117,6 @@ export default async (request: Request) => {
     }
   )
 
-  const callerNumber = normalizeE164(payload.call_inbound.from_number)
-  if (callerNumber && voiceDeployment(request)) {
-    try {
-      if (await voiceNumberKind(supabaseAdmin, callerNumber) === 'ingress') {
-        return json(200, { call_inbound: { reject: true } })
-      }
-    } catch {
-      return json(503, { error: 'Could not verify forwarding-loop protection.' })
-    }
-  }
-
   let agent: {
     client_id: string
     retell_agent_id: string | null
@@ -189,7 +177,7 @@ export default async (request: Request) => {
   const decline = async (reason: 'agent_unavailable' | 'outside_answering_hours' | 'allowance_unavailable' | 'admission_unavailable') => {
     if (agent?.client_id) {
       const result = await supabaseAdmin.rpc('record_recepta_callback', {
-        p_client_id: agent.client_id, p_call_id: callId, p_from: callerNumber, p_to: toNumber, p_reason: reason,
+        p_client_id: agent.client_id, p_call_id: callId, p_from: normalizeE164(payload.call_inbound?.from_number), p_to: toNumber, p_reason: reason,
       })
       if (result.error) {
         console.error('Could not preserve declined call for callback:', result.error)
