@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
 import { isBusinessOpen, getAnsweringMode } from '../netlify/lib/businessHours.ts'
 
@@ -13,8 +14,14 @@ test('business hours use local timezone, exclusive closing time, overnight shift
   assert.equal(isBusinessOpen({ mode:'24/7', timeZone:'America/Toronto', hours:[] }), true)
   assert.equal(isBusinessOpen({ mode:'unconfigured', timeZone:'America/Toronto', hours:[] }), false)
 })
-test('legacy custom store hours default to 24/7 AI answering; explicit answering limits stay separate', () => {
+test('all store hours, including legacy restricted settings, use 24/7 AI answering', () => {
   assert.equal(getAnsweringMode(JSON.stringify({ mode:'custom' })), '24/7')
-  assert.equal(getAnsweringMode(JSON.stringify({ mode:'custom', answeringMode:'business_hours' })), 'business_hours')
+  assert.equal(getAnsweringMode(JSON.stringify({ mode:'custom', answeringMode:'business_hours' })), '24/7')
   assert.equal(getAnsweringMode('old free text'), '24/7')
+})
+
+test('inbound calls do not reject on store hours but retain minute admission', () => {
+  const source = readFileSync(new URL('../netlify/functions/retell-inbound.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /return decline\('outside_answering_hours'\)/)
+  assert.match(source, /reserve_recepta_agent_call/)
 })

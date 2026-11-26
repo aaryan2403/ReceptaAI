@@ -197,12 +197,6 @@ export default async (request: Request) => {
   const businessOpen = isBusinessOpen(businessSchedule)
   const answeringMode = getAnsweringMode(agent.business_hours)
 
-  if (
-    answeringMode === 'business_hours' && !businessOpen
-  ) {
-    return decline('outside_answering_hours')
-  }
-
   const { data: reservationRows, error: reservationError } = await supabaseAdmin.rpc(
     'reserve_recepta_agent_call', { p_client_id: agent.client_id, p_call_id: callId, p_agent_id: agent.retell_agent_id }
   )

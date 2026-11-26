@@ -507,7 +507,7 @@ export default function Agent() {
             </strong>
 
             <p>
-              Your store hours and AI answering settings are managed by Recepta.
+              Your store hours are managed by Recepta. AI reception is available 24/7 while service is active and minutes are available.
               Send your opening hours or any requested changes to the Recepta team.
             </p>
 

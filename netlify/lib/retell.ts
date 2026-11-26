@@ -912,7 +912,7 @@ const replaceManagedPrompt = (
 const formatBusinessHours = (schedule: RetellSchedule) => {
   if (schedule.mode === 'unconfigured') return 'Store opening hours have not been configured. Do not guess; offer to take a message.'
   if (schedule.mode === '24/7') {
-    return `The business is open 24 hours a day, 7 days a week. AI answering hours are a separate setting. Timezone: ${schedule.timeZone}.`
+    return `The business is open 24 hours a day, 7 days a week. AI reception is available 24/7 while service is authorized. Timezone: ${schedule.timeZone}.`
   }
 
   const formatTime = (value: string) => {
@@ -1073,7 +1073,7 @@ export const syncRetellSchedule = async ({
     currentLlm.general_prompt ?? '',
     BUSINESS_HOURS_PROMPT_MARKER,
     [
-      'The Recepta dashboard is the authoritative source for store hours. Store hours and AI answering hours are separate.',
+      'The Recepta dashboard is the authoritative source for store hours. Store hours do not restrict 24/7 AI reception.',
       'Schedule mode: {{recepta_schedule_mode}}.',
       'Current hours: {{recepta_business_hours}}',
       'Use the timezone in {{recepta_business_timezone}} when answering.',
@@ -1211,7 +1211,7 @@ export const syncRetellSchedule = async ({
           ...(scheduling && !emailOnly ? { recepta_scheduling_tools: 'enabled' } : {}),
           ...(emailConfigured && !schedulingOnly ? { recepta_call_email_settings: JSON.stringify(emailSettings) } : {}),
           ...(!emailOnly && !schedulingOnly && !preserveAvailability ? {
-            recepta_answering_mode: schedule.answeringMode ?? '24/7',
+            recepta_answering_mode: '24/7',
             recepta_schedule_mode: schedule.mode,
             recepta_business_hours: formatBusinessHours(schedule),
             recepta_business_timezone: schedule.timeZone,

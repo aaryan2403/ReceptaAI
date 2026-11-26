@@ -1,6 +1,5 @@
 import { normalizeHours, normalizeTimeZone } from '../lib/storeSchedule'
 import { configuredRetellKey } from '../lib/emailEnvironment'
-import { getAnsweringMode } from '../lib/businessHours'
 import { requestAuth } from '../lib/requestAuth'
 import {
   normalizeEmailNotificationsEnabled,
@@ -98,8 +97,8 @@ export default async (request: Request) => {
   const retellApiKey = configuredRetellKey()
   if (retellAgentId && !retellApiKey) return json(503, { error: 'AI synchronization is not configured.' })
 
-  const answeringMode = body.answeringMode ?? getAnsweringMode(agent.business_hours)
-  if (answeringMode !== '24/7' && answeringMode !== 'business_hours') return json(400, { error: 'Choose valid AI answering hours.' })
+  // Accept legacy clients but never enable scheduled call rejection.
+  const answeringMode = '24/7' as const
 
   let schedule: RetellSchedule
 
