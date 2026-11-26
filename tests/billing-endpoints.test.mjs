@@ -20,8 +20,10 @@ const reset = () => {
 const query = (table) => {
   let action = 'read'
   let values
+  const conditions = []
   const execute = async () => {
     if (action === 'update') {
+      if (table === 'subscriptions' && conditions.some(check => !check(state.subscription))) return { data: null, error: null }
       state.updates.push({ table, values })
       if (table === 'subscriptions') Object.assign(state.subscription, values)
     }
@@ -34,6 +36,8 @@ const query = (table) => {
     update: (value) => { action = 'update'; values = value; return api },
     upsert: (value) => { action = 'upsert'; values = value; return api },
     eq: (column, value) => { state.filters.push({ table, column, value }); return api },
+    neq: (column, value) => { conditions.push(row => row[column] !== value); return api },
+    lt: (column, value) => { conditions.push(row => row[column] < value); return api },
     order: () => api,
     maybeSingle: execute,
     then: (resolve, reject) => execute().then(resolve, reject),
@@ -147,6 +151,7 @@ test('current-format failed invoices freeze access, retain rollover for retry, a
   state.event = invoiceEvent('invoice.payment_failed')
   state.invoiceStatus = 'open'
   state.remoteStatus = 'past_due'
+  state.subscription.current_period_start = new Date((period.start - 30 * 86400) * 1000).toISOString()
   assert.equal((await webhook(signedRequest())).status, 200)
   assert.equal(state.subscription.status, 'past_due')
   assert.equal(state.subscription.rollover_seconds, 24000)
@@ -159,6 +164,16 @@ test('a late failure for an already paid invoice cannot disable service', async 
   assert.equal((await webhook(signedRequest())).status, 200)
   assert.equal(state.updates.length, 0)
   assert.equal(state.subscription.status, 'active')
+})
+
+test('a failure racing with a committed renewal cannot roll it back', async () => {
+  reset()
+  state.event = invoiceEvent('invoice.payment_failed')
+  state.invoiceStatus = 'open'
+  state.remoteStatus = 'past_due'
+  assert.equal((await webhook(signedRequest())).status, 200)
+  assert.equal(state.subscription.status, 'active')
+  assert.equal(state.notices.length, 0)
 })
 
 test('subscription termination clears rollover and pauses service', async () => {

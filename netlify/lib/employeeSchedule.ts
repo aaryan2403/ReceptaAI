@@ -1,4 +1,3 @@
-import { getAnsweringMode } from './businessHours'
 import type {
   RetellOperatingDay,
   RetellSchedule,
@@ -83,7 +82,6 @@ export const getStoredBusinessSchedule = (
   const timeZone = getBusinessTimeZone(businessHours)
   const fallback: RetellSchedule = {
     mode: 'unconfigured',
-    answeringMode: getAnsweringMode(businessHours),
     timeZone,
     hours: DEFAULT_OPERATING_HOURS,
   }
@@ -110,7 +108,6 @@ export const getStoredBusinessSchedule = (
 
     return {
       mode: 'custom',
-      answeringMode: getAnsweringMode(businessHours),
       timeZone,
       hours,
     }

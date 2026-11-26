@@ -1,6 +1,5 @@
 import { normalizeHours, normalizeTimeZone } from '../lib/storeSchedule'
 import { configuredRetellKey } from '../lib/emailEnvironment'
-import { getAnsweringMode } from '../lib/businessHours'
 import { requestAuth } from '../lib/requestAuth'
 import {
   normalizeEmailNotificationsEnabled,
@@ -73,7 +72,6 @@ export default async (request: Request) => {
     operatingHours?: unknown
     timeZone?: unknown
     useSchedule?: boolean
-    answeringMode?: unknown
   }
   try { body = await request.json() }
   catch { return json(400, { error: 'Invalid request body.' }) }
@@ -98,9 +96,6 @@ export default async (request: Request) => {
   const retellApiKey = configuredRetellKey()
   if (retellAgentId && !retellApiKey) return json(503, { error: 'AI synchronization is not configured.' })
 
-  const answeringMode = body.answeringMode ?? getAnsweringMode(agent.business_hours)
-  if (answeringMode !== '24/7' && answeringMode !== 'business_hours') return json(400, { error: 'Choose valid AI answering hours.' })
-
   let schedule: RetellSchedule
 
   try {
@@ -110,7 +105,6 @@ export default async (request: Request) => {
 
     schedule = {
       mode: scheduleMode,
-      answeringMode,
       timeZone: normalizeTimeZone(
         body.timeZone ?? storedTimeZone
       ),
@@ -136,7 +130,7 @@ export default async (request: Request) => {
   if (!retellAgentId) {
     const saved = await supabaseAdmin.from('agents').update({ business_hours: businessHours }).eq('client_id', clientId)
     if (saved.error) return json(500, { error: 'Could not save store hours.' })
-    return json(200, { scheduleMode, answeringMode, scheduleEnabled: scheduleMode === 'custom', businessHours,
+    return json(200, { scheduleMode, scheduleEnabled: scheduleMode === 'custom', businessHours,
       timeZone: schedule.timeZone, retellSynced: false, employeeScheduleSynced: false })
   }
 
@@ -222,7 +216,6 @@ export default async (request: Request) => {
 
     return json(200, {
       scheduleMode,
-      answeringMode,
       scheduleEnabled: scheduleMode === 'custom',
       businessHours,
       timeZone: schedule.timeZone,

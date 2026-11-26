@@ -10,10 +10,9 @@ import {
 } from '../lib/retell'
 import {
   buildEmployeeScheduleContext,
-  getBusinessTimeZone,
+  getStoredBusinessSchedule,
 } from '../lib/employeeSchedule'
-import { getAnsweringMode, isBusinessOpen } from '../lib/businessHours'
-import { getStoredBusinessSchedule } from '../lib/employeeSchedule'
+import { isBusinessOpen } from '../lib/businessHours'
 import { getCallMaxSeconds, CALL_MIN_SECONDS } from '../lib/callMinutes'
 
 const json = (
@@ -174,7 +173,7 @@ export default async (request: Request) => {
     }
   }
 
-  const decline = async (reason: 'agent_unavailable' | 'outside_answering_hours' | 'allowance_unavailable' | 'admission_unavailable') => {
+  const decline = async (reason: 'agent_unavailable' | 'allowance_unavailable' | 'admission_unavailable') => {
     if (agent?.client_id) {
       const result = await supabaseAdmin.rpc('record_recepta_callback', {
         p_client_id: agent.client_id, p_call_id: callId, p_from: normalizeE164(payload.call_inbound?.from_number), p_to: toNumber, p_reason: reason,
@@ -195,13 +194,6 @@ export default async (request: Request) => {
   const businessSchedule = getStoredBusinessSchedule(agent.business_hours)
   const customSchedule = businessSchedule.mode === 'custom' ? businessSchedule : null
   const businessOpen = isBusinessOpen(businessSchedule)
-  const answeringMode = getAnsweringMode(agent.business_hours)
-
-  if (
-    answeringMode === 'business_hours' && !businessOpen
-  ) {
-    return decline('outside_answering_hours')
-  }
 
   const { data: reservationRows, error: reservationError } = await supabaseAdmin.rpc(
     'reserve_recepta_agent_call', { p_client_id: agent.client_id, p_call_id: callId, p_agent_id: agent.retell_agent_id }
@@ -220,9 +212,7 @@ export default async (request: Request) => {
     return decline('allowance_unavailable')
   }
 
-  const employeeScheduleTimeZone = getBusinessTimeZone(
-    agent.business_hours
-  )
+  const employeeScheduleTimeZone = businessSchedule.timeZone
   let employeeSchedule = `Business timezone: ${employeeScheduleTimeZone}. No active employees are configured.`
   let appointmentFields: string[] = []
   let emailNotificationsEnabled = true
@@ -309,14 +299,14 @@ export default async (request: Request) => {
         },
       },
       dynamic_variables: {
-        recepta_answering_mode: answeringMode,
+        // Existing published prompts may still reference this fixed variable.
+        recepta_answering_mode: '24/7',
         recepta_business_open: businessSchedule.mode === 'unconfigured' ? 'unknown' : businessOpen ? 'open' : 'closed',
         recepta_schedule_mode: businessSchedule.mode,
         recepta_business_hours: customSchedule
           ? JSON.stringify(customSchedule.hours)
           : businessSchedule.mode === 'unconfigured' ? 'Store hours are not configured; do not guess opening hours.' : 'Available 24 hours a day, 7 days a week',
-        recepta_business_timezone:
-          customSchedule?.timeZone ?? 'America/Toronto',
+        recepta_business_timezone: businessSchedule.timeZone,
         recepta_employee_schedule: employeeSchedule,
         recepta_employee_schedule_timezone:
           employeeScheduleTimeZone,
@@ -333,7 +323,6 @@ export default async (request: Request) => {
         recepta_client_id: agent.client_id,
         recepta_reservation_id:
           reservationId,
-        recepta_answering_mode: answeringMode,
         recepta_business_open: businessSchedule.mode === 'unconfigured' ? 'unknown' : businessOpen ? 'open' : 'closed',
         recepta_schedule_mode: businessSchedule.mode,
       },

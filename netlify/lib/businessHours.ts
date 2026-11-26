@@ -1,10 +1,5 @@
 import type { RetellSchedule } from './retell'
 
-export const getAnsweringMode = (stored?: string | null): '24/7' | 'business_hours' => {
-  try { return JSON.parse(stored ?? '{}')?.answeringMode === 'business_hours' ? 'business_hours' : '24/7' }
-  catch { return '24/7' }
-}
-
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const minutes = (value: string) => {
   if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) return NaN

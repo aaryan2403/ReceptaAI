@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { isBusinessOpen, getAnsweringMode } from '../netlify/lib/businessHours.ts'
+import { isBusinessOpen } from '../netlify/lib/businessHours.ts'
 
 const schedule = (hours, timeZone = 'America/Toronto') => ({ mode:'custom', timeZone, hours })
 test('business hours use local timezone, exclusive closing time, overnight shifts and previous day', () => {
@@ -12,9 +12,4 @@ test('business hours use local timezone, exclusive closing time, overnight shift
   assert.equal(isBusinessOpen(schedule(hours,'Invalid/Timezone')), false)
   assert.equal(isBusinessOpen({ mode:'24/7', timeZone:'America/Toronto', hours:[] }), true)
   assert.equal(isBusinessOpen({ mode:'unconfigured', timeZone:'America/Toronto', hours:[] }), false)
-})
-test('legacy custom store hours default to 24/7 AI answering; explicit answering limits stay separate', () => {
-  assert.equal(getAnsweringMode(JSON.stringify({ mode:'custom' })), '24/7')
-  assert.equal(getAnsweringMode(JSON.stringify({ mode:'custom', answeringMode:'business_hours' })), 'business_hours')
-  assert.equal(getAnsweringMode('old free text'), '24/7')
 })

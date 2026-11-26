@@ -17,7 +17,7 @@ export default function AdminStoreHours({ clientId, businessHours, onSaved }: {
     setSaving(true); setError(''); setMessage('')
     try {
       const result = await saveAdminSchedulePreference(clientId, schedule.mode, {
-        operatingHours: schedule.hours, timeZone: schedule.timeZone, answeringMode: schedule.answeringMode,
+        operatingHours: schedule.hours, timeZone: schedule.timeZone,
       })
       if (!result.businessHours) throw new Error('The saved store hours were not returned. Please refresh and check.')
       onSaved(result.businessHours)
@@ -29,7 +29,7 @@ export default function AdminStoreHours({ clientId, businessHours, onSaved }: {
   }
   return <section className="adminNotificationPanel adminStoreHours" style={{ gridColumn: '1 / -1' }} aria-label="Admin store hours">
     <div className="adminNotificationHeading">
-      <div><strong>Store hours &amp; AI answering</strong><p>Set the hours supplied by this business. Customers can view their saved hours and request changes from Recepta.</p></div>
+      <div><strong>Store hours</strong><p>Set business hours for customer information and appointments. AI reception remains available 24/7, subject to service access.</p></div>
       <span>ADMIN CONTROLLED</span>
     </div>
     <fieldset disabled={saving} style={{ border: 0, margin: 0, padding: 0, display: 'grid', gap: 16 }}>
@@ -64,10 +64,6 @@ export function StoreHoursFields({ schedule, onChange }: { schedule: StoreHours;
           </> : <span>Closed</span>}
         </div>)}
       </div>}
-      <label><span>When should the AI answer calls?</span>
-        <select aria-label="When should the AI answer calls?" value={schedule.answeringMode} onChange={event => updateSchedule({ answeringMode: event.target.value as '24/7' | 'business_hours' })}>
-          <option value="24/7">24/7, including outside store hours</option><option value="business_hours">Only during store hours</option>
-        </select>
-      </label>
+      <p>AI reception: 24/7. Store hours do not restrict incoming AI calls.</p>
   </>
 }

@@ -319,7 +319,7 @@ test('billing email records provider acceptance and never changes its frozen ret
 test('only admins set client store hours; sync uses the selected client and rolls back on failure',async()=>{
  await fixture();globalThis.__operationsPrefSync=[];globalThis.__operationsPrefFail=false
  const hours=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(day=>({day,open:day==='Monday',start:'09:00',end:'17:00'}))
- const body={clientId:client,scheduleMode:'custom',answeringMode:'24/7',operatingHours:hours,timeZone:'America/Toronto'}
+ const body={clientId:client,scheduleMode:'custom',operatingHours:hours,timeZone:'America/Toronto'}
  assert.equal((await preferences(request(body))).status,403)
  assert.equal((await preferences(request({...body,clientId:other}))).status,403)
  assert.equal((await preferences(new Request('https://synthetic.test',{method:'POST',body:JSON.stringify(body)}))).status,401)
@@ -327,15 +327,15 @@ test('only admins set client store hours; sync uses the selected client and roll
  assert.equal((await db.query('select business_hours from agents')).rows[0].business_hours,null)
  assert.equal((await preferences(request(body,'admin'))).status,200)
  let stored=JSON.parse((await db.query('select business_hours from agents')).rows[0].business_hours)
- assert.equal(stored.mode,'custom');assert.equal(stored.answeringMode,'24/7');assert.deepEqual(stored.hours,hours)
+ assert.equal(stored.mode,'custom');assert.equal('answeringMode' in stored,false);assert.deepEqual(stored.hours,hours)
  assert.equal(globalThis.__operationsPrefSync[0].agentId,'agent_test')
  assert.equal((await preferences(request({...body,answeringMode:'business_hours'},'admin'))).status,200)
  stored=(await db.query('select business_hours from agents')).rows[0].business_hours
+ assert.equal('answeringMode' in JSON.parse(stored),false)
  globalThis.__operationsPrefFail=true
  assert.equal((await preferences(request({...body,scheduleMode:'24/7'},'admin'))).status,502)
  assert.equal((await db.query('select business_hours from agents')).rows[0].business_hours,stored)
  globalThis.__operationsPrefFail=false
- assert.equal((await preferences(request({...body,answeringMode:'free-unlimited-calls'},'admin'))).status,400)
  assert.equal((await preferences(request({...body,clientId:''},'admin'))).status,400)
  assert.equal((await preferences(request({...body,operatingHours:[]},'admin'))).status,400)
  assert.equal((await preferences(request({...body,timeZone:'invalid/timezone'},'admin'))).status,400)
