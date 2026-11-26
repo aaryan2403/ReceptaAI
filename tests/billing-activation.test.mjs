@@ -8,7 +8,7 @@ import { build } from 'esbuild'
 // These tests never charge a card, buy a number, send mail or change live data.
 const client = '00000000-0000-0000-0000-000000000001'
 const newClient = '00000000-0000-0000-0000-000000000002'
-let db, checkoutBody, event, stripeCalls
+let db, checkoutBody, event, stripeCalls, stripeRenewal
 const period = { start: Math.floor(Date.now() / 1000) - 3600, end: Math.floor(Date.now() / 1000) + 29 * 86400 }
 const quote = name => '"' + name.replaceAll('"', '""') + '"'
 const query = table => {
@@ -28,7 +28,9 @@ const query = table => {
       } else if (action === 'update' || action === 'delete') {
         const keys = Object.keys(values ?? {})
         const params = action === 'update' ? keys.map(key => values[key]) : []
-        const clauses = filters.map(([column, value]) => { params.push(value); return `${quote(column)}=$${params.length}` })
+        const clauses = filters.map(([column, value, operator = '=']) => {
+          params.push(value); return `${quote(column)}${operator}$${params.length}`
+        })
         const sql = action === 'update' ? `update ${quote(table)} set ${keys.map((key, i) => `${quote(key)}=$${i + 1}`).join(',')}` : `delete from ${quote(table)}`
         rows = (await db.query(sql + (clauses.length ? ' where ' + clauses.join(' and ') : '') + ' returning *', params)).rows
       } else {
@@ -41,6 +43,8 @@ const query = table => {
   const api = {
     select: () => api, order: () => api, limit: () => api,
     eq: (column, value) => { filters.push([column, value]); return api },
+    neq: (column, value) => { filters.push([column, value, '<>']); return api },
+    lt: (column, value) => { filters.push([column, value, '<']); return api },
     insert: value => { action = 'insert'; values = value; return api },
     upsert: (value, options) => { action = 'upsert'; values = value; conflict = options?.onConflict ?? 'notification_key'; return api },
     update: value => { action = 'update'; values = value; return api }, delete: () => { action = 'delete'; return api },
@@ -68,6 +72,7 @@ globalThis.__paymentDb = {
       }
       if (name === 'configure_recepta_subscription') return { data: (await db.query('select * from configure_recepta_subscription($1,$2)', [args.p_client_id, args.p_configuration])).rows, error: null }
       if (name === 'activate_recepta_checkout') return { data: (await db.query('select * from activate_recepta_checkout($1,$2,$3,$4,$5,$6,$7)', [args.p_client_id, args.p_stripe_subscription_id, args.p_customer_id, args.p_period_start, args.p_period_end, args.p_configuration, args.p_replaces_subscription_id])).rows, error: null }
+      if (name === 'renew_recepta_subscription') return { data: (await db.query('select * from renew_recepta_subscription($1,$2,$3)', [args.p_stripe_subscription_id, args.p_period_start, args.p_period_end])).rows, error: null }
       if (name === 'recepta_service_access') return { data: (await db.query('select recepta_service_access($1) access', [args.p_client])).rows[0].access, error: null }
       const provisioning = {
         recepta_pro_begin_checkout: ['p_client','p_until'],
@@ -89,12 +94,16 @@ globalThis.__paymentStripe = class {
   checkout = { sessions: { create: async body => { checkoutBody = body; return { url: 'https://checkout.stripe.test/synthetic' } } } }
   webhooks = { constructEvent: () => event }
   subscriptions = {
-    retrieve: async id => ({ id, status: 'active' }),
+    retrieve: async id => ({ id, status: stripeRenewal?.subscriptionStatus ?? 'active', latest_invoice: stripeRenewal?.id }),
     cancel: async () => { stripeCalls.push('subscription-cancel') },
   }
   invoices = {
-    retrieve: async id => ({ id, status: 'paid', hosted_invoice_url: 'https://invoice.stripe.test/synthetic' }),
-    listLineItems: async () => ({ data: [{ period, parent: { type: 'subscription_item_details', subscription_item_details: { subscription: 'sub_after_payment', proration: false } } }] }),
+    retrieve: async id => ({ id, status: stripeRenewal?.invoiceStatus ?? 'paid',
+      created: stripeRenewal?.period.start, hosted_invoice_url: 'https://invoice.stripe.test/synthetic' }),
+    listLineItems: async () => ({ data: [{ period: stripeRenewal?.period ?? period, parent: {
+      type: 'subscription_item_details',
+      subscription_item_details: { subscription: stripeRenewal ? 'sub_original' : 'sub_after_payment', proration: false },
+    } }] }),
   }
 }
 const compile = async file => {
@@ -146,7 +155,7 @@ const editBody = { clientId: client, companyName: 'Synthetic company', email: 'o
 const sub = async id => (await db.query('select * from subscriptions where client_id=$1', [id ?? client])).rows[0]
 const configure = async value => (await db.query('select * from configure_recepta_subscription($1,$2)', [client, value])).rows[0]
 const fixture = async (paid = true) => {
-  stripeCalls = []; checkoutBody = null; globalThis.__paymentRetell = []
+  stripeCalls = []; checkoutBody = null; stripeRenewal = null; globalThis.__paymentRetell = []
   await db.exec('truncate recepta_demo_links, service_jobs, booking_settings, billing_notifications, call_minute_reservations, calls, agent_phone_numbers, agents, subscriptions, clients cascade')
   await db.query("insert into clients(id,company_name,contact_email,status,role) values($1,'Synthetic company','owner@example.test','live','client')", [client])
   await db.query(`insert into subscriptions(client_id,plan_name,monthly_price,monthly_minutes,ai_model_id,pii_redaction_enabled,safety_guardrails_enabled,extra_phone_numbers,status,stripe_subscription_id,stripe_customer_id,current_period_start,current_period_end)
@@ -187,6 +196,11 @@ test.before(async () => {
     'supabase/migrations/20261014205655_shareable_demo_links.sql']) await db.exec(await readFile(path,'utf8'))
   await db.exec('alter table billing_notifications add column delivery_status text')
   await db.exec(await readFile('supabase/migrations/20261120080302_pro_service_lifecycle.sql','utf8'))
+  const legacy = ['Not configured', '{"mode":"custom","timeZone":"America/Toronto","answeringMode":"business_hours"}', '[]']
+  for (const value of legacy) await db.query('insert into agents(client_id,business_hours) values(gen_random_uuid(),$1)', [value])
+  await db.exec(await readFile('supabase/migrations/20261126095000_always_on_reception_and_renewals.sql','utf8'))
+  assert.deepEqual((await db.query('select business_hours from agents order by business_hours')).rows.map(row => row.business_hours),
+    ['Not configured', '[]', '{"mode": "custom", "timeZone": "America/Toronto"}'])
 })
 test.after(async () => { await db.close() })
 
@@ -302,6 +316,67 @@ test('a regular paid renewal preserves the pending quote and renews only the pai
   assert.deepEqual(after.pending_configuration, before.pending_configuration)
   assert.equal(after.configuration_revision, before.configuration_revision)
 })
+
+for (const plan of ['Recepta Standard', 'Recepta Pro']) {
+  test(`${plan} Checkout creates a recurring monthly subscription`, async () => {
+    await fixture(false)
+    await configure({ ...configuration, plan_name: plan })
+    const response = await checkout(request({ monthlyMinutes: 60 }, false))
+    assert.equal(response.status, 200, await response.clone().text())
+    assert.equal(checkoutBody.mode, 'subscription')
+    assert.equal(checkoutBody.metadata.plan_name, plan)
+    assert.deepEqual(checkoutBody.line_items[0].price_data.recurring, { interval: 'month' })
+  })
+
+  test(`${plan} can answer across a paid renewal, suspends on a decline and resumes on repayment`, async () => {
+    await fixture()
+    const now = Math.floor(Date.now() / 1000)
+    const boundary = now - 300
+    const priorStart = boundary - 30 * 86400
+    const iso = seconds => new Date(seconds * 1000).toISOString()
+    const reserve = id => db.query("select * from reserve_recepta_agent_call($1,$2,'agent_test')", [client, id])
+    await db.query('update subscriptions set plan_name=$1,current_period_start=$2,current_period_end=$3,rollover_seconds=1200', [plan, iso(priorStart), iso(boundary)])
+    await db.query("insert into calls(client_id,retell_call_id,call_status,duration_seconds,started_at) values($1,'prior_call','ended',1500,$2)", [client, iso(priorStart + 60)])
+
+    const waiting = (await reserve('awaiting_paid_invoice')).rows[0]
+    assert.ok(waiting, 'the previous paid balance gives Stripe time to collect the payment')
+    await db.query("update call_minute_reservations set reserved_seconds=120 where id=$1", [waiting.reservation_id])
+    const orig = await sub()
+    assert.equal(orig.current_period_end.toISOString(), iso(boundary), 'waiting does not move the paid billing date')
+    stripeRenewal = { id: 'in_renewal', period: { start: boundary, end: boundary + 30 * 86400 }, subscriptionStatus: 'active', invoiceStatus: 'paid' }
+    const deliver = async type => {
+      event = { type, data: { object: { id: stripeRenewal.id, status: stripeRenewal.invoiceStatus, billing_reason: 'subscription_cycle',
+        parent: { subscription_details: { subscription: 'sub_original' } } } } }
+      const response = await webhook(request({}))
+      assert.equal(response.status, 200, await response.clone().text())
+    }
+    await deliver('invoice.paid')
+    assert.equal((await sub()).current_period_start.toISOString(), iso(boundary))
+    assert.equal((await sub()).rollover_seconds, 3180, 'renewal accounts for the unpaid-invoice wait and old rollover expires')
+    const after = (await reserve('paid_renewal')).rows[0]
+    assert.ok(after, 'paid renewal keeps the same live agent')
+    assert.equal(after.reserved_seconds, 6780)
+    assert.deepEqual(globalThis.__paymentRetell, [], 'a successful renewal performs no Retell configuration writes')
+
+    const nextBoundary = now - 60
+    await db.query('update subscriptions set current_period_end=$1', [iso(nextBoundary)])
+    stripeRenewal = { id: 'in_decline', period: { start: nextBoundary, end: nextBoundary + 30 * 86400 }, subscriptionStatus: 'past_due', invoiceStatus: 'open' }
+    await db.query("update call_minute_reservations set reserved_seconds=120 where id=$1", [after.reservation_id])
+    await deliver('invoice.payment_failed')
+    assert.equal((await sub()).status, 'past_due')
+    assert.equal((await sub()).rollover_seconds, 3180, 'a decline freezes the balance')
+    assert.equal((await reserve('declined_renewal')).rows.length, 0, 'unused minutes cannot bypass the payment hold')
+
+    stripeRenewal.subscriptionStatus = 'active'
+    stripeRenewal.invoiceStatus = 'paid'
+    await deliver('invoice.paid')
+    await deliver('invoice.paid')
+    assert.equal((await sub()).status, 'active')
+    assert.equal((await sub()).rollover_seconds, 3600, 'repayment renews once')
+    assert.ok((await reserve('paid_retry')).rows[0])
+    assert.deepEqual(globalThis.__paymentRetell, [], 'repayment preserves the Retell assignment')
+  })
+}
 
 test('assigning a Retell agent activates provider settings only for a currently paid account', async () => {
   for (const paid of [false, true]) {
@@ -579,12 +654,13 @@ test('initial nonpayment expires the entitlement and deletion requires a confirm
   assert.equal((await db.query('select result from recepta_pro_lifecycle_audit where client_id=$1',[client])).rows[0].result.status,'deleted')
 })
 
-test('renewal grace uses the Stripe invoice due date and payment fences a queued deletion', async () => {
+test('Pro retention uses the failed invoice due date and repayment fences a queued deletion', async () => {
   await fixture()
   await selectPro()
   await db.query("update subscriptions set status='past_due',pro_invoice_id='in_due',pro_invoice_due_at=now()-interval '8 days' where client_id=$1",[client])
   const grace = await proAccess()
-  assert.equal(grace.service_status,'ongoing')
+  assert.equal(grace.service_status,'paused')
+  assert.equal(grace.reason,'payment_failed')
   assert.equal(grace.billing_status,'past_due')
   assert.equal(Date.parse(grace.payment_grace_ends_at)-Date.parse(grace.retention_started_at),30*86400*1000)
   await db.query("update subscriptions set pro_invoice_due_at=now()-interval '32 days' where client_id=$1",[client])

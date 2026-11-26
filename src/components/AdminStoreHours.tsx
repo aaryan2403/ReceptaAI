@@ -17,7 +17,7 @@ export default function AdminStoreHours({ clientId, businessHours, onSaved }: {
     setSaving(true); setError(''); setMessage('')
     try {
       const result = await saveAdminSchedulePreference(clientId, schedule.mode, {
-        operatingHours: schedule.hours, timeZone: schedule.timeZone, answeringMode: '24/7',
+        operatingHours: schedule.hours, timeZone: schedule.timeZone,
       })
       if (!result.businessHours) throw new Error('The saved store hours were not returned. Please refresh and check.')
       onSaved(result.businessHours)

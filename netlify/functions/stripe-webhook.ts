@@ -626,9 +626,17 @@ export default async (request: Request) => {
         if (invoice.status !== 'paid' && (!latestInvoiceId || latestInvoiceId === invoice.id) &&
           ['past_due', 'unpaid', 'incomplete'].includes(remote.status)) {
           const due = stripeInvoiceDueAt(invoice)
-          const { data: failedSubscription, error } = await supabaseAdmin.from('subscriptions')
+          let failedUpdate = supabaseAdmin.from('subscriptions')
             .update({ status: 'past_due', ...(due ? { pro_invoice_due_at: due, pro_invoice_id: invoice.id } : {}) })
-            .eq('stripe_subscription_id', subscriptionId).select('*').maybeSingle()
+            .eq('stripe_subscription_id', subscriptionId).neq('status', 'cancelled')
+          if ((invoice.billing_reason ?? invoiceEvent.billing_reason) === 'subscription_cycle') {
+            const lines = await stripe.invoices.listLineItems(invoice.id, { limit: 100 })
+            const period = getInvoicePeriod(lines.data, subscriptionId)
+            // Recheck against the database at write time. A successful retry can
+            // commit while this worker is waiting on Stripe's invoice response.
+            failedUpdate = failedUpdate.lt('current_period_start', period.start)
+          }
+          const { data: failedSubscription, error } = await failedUpdate.select('*').maybeSingle()
           if (error) throw error
           if (failedSubscription) {
             await queueBillingNotice(supabaseAdmin, `failed:${invoice.id}`, 'payment_failed', failedSubscription,

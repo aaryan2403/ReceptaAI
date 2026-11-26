@@ -1,8 +1,5 @@
 import type { RetellSchedule } from './retell'
 
-/* Launch policy: store hours inform bookings, never inbound call admission. */
-export const getAnsweringMode = (_stored?: string | null): '24/7' => '24/7'
-
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const minutes = (value: string) => {
   if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) return NaN

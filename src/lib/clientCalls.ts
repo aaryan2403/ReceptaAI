@@ -108,7 +108,6 @@ export const saveAdminSchedulePreference = async (
       end: string
     }>
     timeZone?: string
-    answeringMode?: '24/7' | 'business_hours'
   }
 ) => {
   const {
@@ -132,7 +131,6 @@ export const saveAdminSchedulePreference = async (
         scheduleMode,
         operatingHours: options?.operatingHours,
         timeZone: options?.timeZone,
-        answeringMode: options?.answeringMode,
       }),
     }
   )
@@ -141,7 +139,6 @@ export const saveAdminSchedulePreference = async (
     error?: string
     scheduleMode?: '24/7' | 'custom'
     scheduleEnabled?: boolean
-    answeringMode?: '24/7' | 'business_hours'
     businessHours?: string
     timeZone?: string
     retellSynced?: boolean
@@ -157,7 +154,6 @@ export const saveAdminSchedulePreference = async (
     scheduleMode:
       body.scheduleMode ??
       (body.scheduleEnabled ? 'custom' : '24/7'),
-    answeringMode: body.answeringMode ?? '24/7',
     businessHours: body.businessHours ?? null,
     timeZone: body.timeZone ?? null,
     retellSynced: body.retellSynced === true,

@@ -1,14 +1,13 @@
 export type OperatingDay = { day: string; open: boolean; start: string; end: string }
 export type StoreHours = {
   mode: '24/7' | 'custom' | null
-  answeringMode: '24/7' | 'business_hours'
   timeZone: string
   hours: OperatingDay[]
 }
 
 export const readStoreHours = (stored?: string | null): StoreHours => {
   const result: StoreHours = {
-    mode: null, answeringMode: '24/7', timeZone: 'America/Toronto',
+    mode: null, timeZone: 'America/Toronto',
     hours: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
       .map(day => ({ day, open: !['Saturday', 'Sunday'].includes(day), start: '09:00', end: '17:00' })),
   }

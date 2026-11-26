@@ -112,7 +112,6 @@ export type RetellOperatingDay = {
 
 export type RetellSchedule = {
   mode: '24/7' | 'custom' | 'unconfigured'
-  answeringMode?: '24/7' | 'business_hours'
   timeZone: string
   hours: RetellOperatingDay[]
 }
@@ -1080,7 +1079,7 @@ export const syncRetellSchedule = async ({
       'If the store mode is 24/7, the business is open all day. Otherwise use its exact saved opening hours. The AI may still answer while the business is closed.',
       'If the mode is custom, answer with the exact saved day and time. Never invent or assume hours.',
       'If store hours are unconfigured, say they have not been provided. Never claim the business is open 24/7 just because the AI answers.',
-      'AI answering mode: {{recepta_answering_mode}}. An answered call does not mean the store is open. Outside store hours, do not claim staff are present. Appointment availability follows the separate booking rules.',
+      'AI reception is available 24/7 while service is authorized. An answered call does not mean the store is open. Outside store hours, do not claim staff are present. Appointment availability follows the separate booking rules.',
     ]
   )
 
