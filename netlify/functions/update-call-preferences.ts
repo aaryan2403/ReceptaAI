@@ -261,8 +261,8 @@ export default async (request: Request) => {
 
   try {
     const routing = await reconcileRetellForwarding(supabaseAdmin, deployment, clientId, 10000)
-    if (routing.unsafe) routingWarning = 'Forwarding is disabled for an unsafe destination or unsupported phone binding.'
-    else if (routing.pending) routingWarning = 'Retell has yet to confirm forwarding. The scheduled sync will retry.'
+    if (routing.pending) routingWarning = 'Retell has yet to confirm forwarding. The scheduled sync will retry.'
+    else if (routing.unsafe) routingWarning = 'Forwarding is disabled for an unsafe destination or unsupported phone binding.'
     else if (!routing.checked && human && scheduleMode === 'custom' && answeringMode === 'business_hours') {
       routingWarning = 'This client has no Retell number connected to this deployment.'
     }
