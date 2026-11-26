@@ -1,3 +1,4 @@
+import { refreshClientRetellForwarding } from '../lib/retellForwarding'
 import { configuredStripeKey } from '../lib/subscriptionConfiguration'
 
 import { createClient } from '@supabase/supabase-js'
@@ -631,6 +632,7 @@ export default async (request: Request) => {
             .eq('stripe_subscription_id', subscriptionId).select('*').maybeSingle()
           if (error) throw error
           if (failedSubscription) {
+            await refreshClientRetellForwarding(supabaseAdmin, deployment, failedSubscription.client_id)
             await queueBillingNotice(supabaseAdmin, `failed:${invoice.id}`, 'payment_failed', failedSubscription,
               await getBillingUsage(supabaseAdmin, failedSubscription), invoice.hosted_invoice_url)
           }

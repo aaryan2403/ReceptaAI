@@ -49,7 +49,9 @@ globalThis.__operationsDb={from:table,auth:{getUser:async token=>({data:{user:{i
 }}
 // RPC boolean return shape matches supabase-js.
 const rpc=globalThis.__operationsDb.rpc
-globalThis.__operationsDb.rpc=async(name,args)=>{const result=await rpc(name,args);return name.startsWith('finish_')?{...result,data:result.data?.[0]??null}:result}
+globalThis.__operationsDb.rpc=async(name,args)=>{const result=await rpc(name,args);return name === 'recepta_save_retell_forwarding_schedule'
+  ? { ...result, data: result.data?.[0]?.[name] ?? null, error: result.error }
+  : name.startsWith('finish_') ? {...result,data:result.data?.[0]??null} : result}
 globalThis.__operationsStripe=class{
  subscriptions={retrieve:async()=>({status:state.cancelled?'canceled':'active'}),cancel:async()=>{state.stripeOps.push('cancel');if(state.stripeFailure)throw new Error('Synthetic cancellation unavailable');state.cancelled=true}}
  customers={del:async()=>{state.stripeOps.push('customer-delete');return{id:'cus_test',deleted:true}}}
@@ -121,6 +123,7 @@ test.before(async()=>{
  create table employees(id uuid,client_id uuid,name text,role text,is_active boolean);create table employee_schedules(employee_id uuid,day_of_week integer,is_working boolean,start_time text,end_time text);
  create table appointments(id uuid primary key default gen_random_uuid(),client_id uuid references clients on delete cascade,retell_call_id text,status text default 'pending',appointment_time timestamptz,customer_name text,customer_email text,customer_phone text,company_name text,service text,notes text);`)
  for(const path of ['supabase_add_minute_enforcement.sql','supabase_add_billing_notifications.sql','supabase/migrations/20261014064906_call_notification_outbox.sql','supabase/migrations/20261014174126_protect_call_lifecycle.sql','supabase/migrations/20261014192813_align_minute_enforcement.sql','supabase/migrations/20261014201359_demo_only_call_limit.sql','supabase/migrations/20261016145008_payment_controlled_activation.sql','supabase/migrations/20261017054318_launch_operations.sql','supabase/migrations/20261017054326_restrict_database_access.sql','supabase/migrations/20261108033150_client_call_email_preferences.sql'])await db.exec(await readFile(path,'utf8'))
+ await db.exec(await readFile('supabase/migrations/20261126044141_retell_native_forwarding.sql','utf8'))
 })
 test('database grants deny anonymous access, preserve tenant reads, and hide deleting accounts even from an old JWT',async()=>{
  await fixture()

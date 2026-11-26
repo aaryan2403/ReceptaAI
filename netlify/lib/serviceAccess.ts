@@ -4,8 +4,9 @@ import { isReceptaPreview } from './emailEnvironment'
 import type { ServiceAccess } from '../../src/lib/serviceAccess'
 export type { AgentStatus, ServiceAccess, ServiceMode, ServicePlan } from '../../src/lib/serviceAccess'
 
-export const loadServiceAccess = async (db: SupabaseClient, clientId: string): Promise<ServiceAccess> => {
-  const { data, error } = await db.rpc('recepta_service_access', { p_client: clientId })
+export const loadServiceAccess = async (db: SupabaseClient, clientId: string, signal?: AbortSignal): Promise<ServiceAccess> => {
+  const query = db.rpc('recepta_service_access', { p_client: clientId })
+  const { data, error } = await (signal ? query.abortSignal(signal) : query)
   if (error) throw error
   if (!data || typeof data.status !== 'string') throw new Error('Could not verify service access.')
   return data

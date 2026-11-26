@@ -117,7 +117,7 @@ const deleteClient = async (db:SupabaseClient,job:ServiceJob,deadline:number) =>
     if (done.includes(number.number)) continue
     continueBeforeDeadline()
     if (number.source==='retell') await providerDelete('/delete-phone-number/'+encodeURIComponent(number.number))
-    else await providerDelete('/update-phone-number/'+encodeURIComponent(number.number), { method:'PATCH',body:JSON.stringify({ inbound_agents:null,outbound_agents:null,inbound_webhook_url:null }) })
+    else await providerDelete('/update-phone-number/'+encodeURIComponent(number.number), { method:'PATCH',body:JSON.stringify({ inbound_agents:null,outbound_agents:null,inbound_webhook_url:null,fallback_number:null,inbound_fallback_enabled:false }) })
     done.push(number.number)
     await progress({ numbers_done:done })
   }

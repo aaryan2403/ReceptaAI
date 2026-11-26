@@ -1,3 +1,4 @@
+import { isRetellForwardingOnly } from '../lib/callMinutes'
 import { appointmentCallId, isConfirmedAppointment } from '../../src/lib/appointmentRequests'
 import { createClient } from '@supabase/supabase-js'
 import { isDeletingClient } from '../lib/requestAuth'
@@ -445,7 +446,7 @@ export default async (request: Request) => {
     )
 
     const retellRecords = detailedCalls
-      .filter((call) => getString(call.call_id))
+      .filter((call) => getString(call.call_id) && !isRetellForwardingOnly(call))
       .map((call) =>
         toCallRecord(call, user.id, piiRedactionEnabled)
       )
