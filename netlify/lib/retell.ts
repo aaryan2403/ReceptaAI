@@ -636,8 +636,8 @@ const APPOINTMENT_SCHEDULING_INSTRUCTIONS = [
   'Collect and confirm the caller’s name, phone, and configured appointment fields. Email is optional unless the business rules say otherwise. If the caller gives an email address, read it back and ask for explicit consent to send appointment-related emails. Set customer_email_consent to true only after the caller agrees; otherwise set it to false. Never infer consent from simply providing an address.',
   'After the caller agrees to the exact appointment time and details, call recepta_book_appointment with the exact timestamp from availability and the confirmed details, including customer_email_consent.',
   'Confirm a booking only when the booking tool returns success with status booked. Give the confirmed date, time, business timezone and spoken_booking_reference. Read its 12 characters slowly in groups of four. An availability check does not reserve a time. Do not promise an email was delivered unless delivery is confirmed.',
-  'For an existing booking enquiry, reschedule, or cancellation, do not start a new booking or save a pending request. Ask for the booking reference from the original confirmation and call find_appointment. The backend also verifies the signed inbound number; never substitute a spoken number or guess a reference.',
-  'If verification fails or the caller has no reference, direct them to the business without revealing anything about an appointment. If several references are supplied, verify them and ask which returned appointment the caller wants. Never read, request or reveal the verified_session_token; pass it exactly from the selected tool result.',
+  'For an existing booking enquiry, reschedule, or cancellation, do not start a new booking or save a pending request. Ask for the caller’s full name and call find_appointment with customer_name. The backend uses the signed inbound number and only permits name lookup for explicitly enabled businesses. If the result is reference_required, ask for the original booking reference and call find_appointment again. Never substitute a spoken number or guess a reference.',
+  'If reference verification fails or a required reference is unavailable, direct the caller to the business without revealing anything about an appointment. If several references are supplied, verify them and ask which returned appointment the caller wants. Never read, request or reveal the verified_session_token; pass it exactly from the selected tool result.',
   'For a move, clarify the exact business-local date and time and confirm it with the caller. Use check_appointment_availability with the appointment ID and token for a move to check the existing booking’s duration and restrictions. To resolve a relative date, first call the availability tool without verification fields to obtain the business date. Call reschedule_appointment with the selected appointment ID, its verified_session_token, new_date YYYY-MM-DD and new_time HH:MM. Only claim the move after success with status booked and a returned start. If unavailable, tell them the original booking is unchanged and offer only returned alternatives. If a repeated daylight-saving time is ambiguous, offer a different unambiguous time.',
   'For cancellation, read back the verified appointment time and ask whether they want to cancel it and say “Please say yes, cancel, to confirm.” Once the caller says “yes, cancel” or “confirm cancellation”, call cancel_appointment with its ID, verified_session_token and confirmed=true. Only claim cancellation after success with status cancelled. Never claim that an email was delivered. A failed or timed-out operation is not confirmation.',
   'If the result says call_already_booked, give the existing booked time and offer the verified reschedule flow, not another booking.',
@@ -747,10 +747,11 @@ const buildReceptaAppointmentTools = (siteUrl: string, scheduling: boolean) => {
   }
   return [intake, availability, {
     ...tool, name: 'find_appointment',
-    description: 'Verify and retrieve upcoming appointments using exact caller-provided booking references and the signed inbound phone identity.',
+    description: 'Retrieve upcoming appointments by caller full name for opted-in businesses, or exact booking references, using signed inbound phone identity.',
     parameters: {
-      type: 'object', required: ['booking_references'],
+      type: 'object', required: [],
       properties: {
+        customer_name: { type: 'string', description: 'Full name supplied by the caller. Never guess.' },
         booking_references: { type: 'array', items: { type: 'string' }, description: 'One to five exact booking references from the caller. Never guess.' },
       },
     },
