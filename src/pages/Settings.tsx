@@ -1,3 +1,5 @@
+import AppointmentScheduling from '../components/AppointmentScheduling'
+import { fetchBillingStatus } from '../lib/billing'
 import BillingAccessNotice from '../components/BillingAccessNotice'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
@@ -41,6 +43,7 @@ export default function Settings() {
 
   const [client, setClient] = useState<Client | null>(null)
   const [agent, setAgent] = useState<Agent | null>(null)
+  const [effectivePlan, setEffectivePlan] = useState<string | null>(null)
   const [phoneNumbers, setPhoneNumbers] = useState<string[]>([])
   const [subscription, setSubscription] =
     useState<Subscription | null>(null)
@@ -122,6 +125,7 @@ export default function Settings() {
         { data: subscriptionData },
         { data: onboardingData },
         { data: phoneNumberData },
+        billing,
       ] = await Promise.all([
         supabase
           .from('clients')
@@ -161,6 +165,8 @@ export default function Settings() {
           .eq('client_id', user.id)
           .order('is_primary', { ascending: false })
           .order('created_at', { ascending: true }),
+
+        fetchBillingStatus().catch(() => null),
       ])
 
       if (clientData) {
@@ -183,6 +189,8 @@ export default function Settings() {
         )
       }
 
+      setEffectivePlan(billing ? billing.service?.plan ?? null : subscriptionData?.plan_name ?? null)
+
       if (subscriptionData) {
         setSubscription(subscriptionData)
       }
@@ -197,8 +205,7 @@ export default function Settings() {
     loadSettings()
   }, [])
 
-  const isPro =
-    subscription?.plan_name === 'Recepta Pro'
+  const isPro = effectivePlan === 'Recepta Pro'
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -735,10 +742,7 @@ export default function Settings() {
                 </strong>
 
                 <p>
-                  Recepta Pro adds AI appointment
-                  booking and appointment management
-                  using the employee availability included
-                  with both plans.
+                  Recepta Pro adds automatic appointment booking and scheduling settings.
                 </p>
               </div>
 
@@ -751,6 +755,16 @@ export default function Settings() {
             </div>
           )}
         </section>
+
+        {isPro && <section className="settingsPanel">
+          <div className="settingsPanelHeading">
+            <div>
+              <span className="settingsSectionLabel">BOOKING</span>
+              <h2>Appointment scheduling</h2>
+            </div>
+          </div>
+          <AppointmentScheduling />
+        </section>}
 
         {/* SECURITY */}
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { bookingDay, schedulingReason, type AppointmentSlot, type BookingDay, type SchedulingSettings } from '../lib/appointmentScheduling'
 import { capturedDetails, formatAppointmentPreference, type AppointmentPreference, type AppointmentStatus } from '../lib/appointmentRequests'
-import { supabase } from '../lib/supabase'
+import { callScheduling } from '../lib/clientAppointmentScheduling'
 import './AppointmentScheduling.css'
 
 type Appointment = AppointmentPreference & {
@@ -27,9 +27,9 @@ type DashboardData = {
   accessIssue: string | null
   settings: SchedulingSettings
   needsSync: boolean
-  appointments: Appointment[]
-  conflicts: Array<{ appointment_id: string; reason: string }>
-  more: boolean
+  appointments?: Appointment[]
+  conflicts?: Array<{ appointment_id: string; reason: string }>
+  more?: boolean
 }
 
 const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -46,20 +46,6 @@ const localDate = (zone: string) => new Intl.DateTimeFormat('sv-SE', { timeZone:
 const appointmentTime = (date: string, zone: string) => new Intl.DateTimeFormat('en-CA', {
   timeZone: zone, dateStyle: 'medium', timeStyle: 'short',
 }).format(new Date(date))
-
-const callScheduling = async <T,>(clientId?: string, params: Record<string, string> = {}, method = 'GET', body?: unknown): Promise<T> => {
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session?.access_token) throw new Error('Please sign in again.')
-  const query = new URLSearchParams(clientId ? { ...params, clientId } : params)
-  const response = await fetch('/.netlify/functions/appointment-scheduling?' + query.toString(), {
-    method,
-    headers: { Authorization: `Bearer ${session.access_token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  })
-  const data = await response.json()
-  if (!response.ok) throw new Error(data.error || 'Appointment scheduling is unavailable.')
-  return data
-}
 
 function Minutes({ label, value, min, max, onChange }: {
   label: string; value: number; min: number; max: number; onChange: (value: number) => void
@@ -114,7 +100,7 @@ function DayRules({ title, day, onChange }: { title: string; day: BookingDay; on
 export default function AppointmentScheduling({ clientId }: { clientId?: string }) {
   const [settings, setSettings] = useState<SchedulingSettings | null>(null)
   const [data, setData] = useState<DashboardData | null>(null)
-  const [status, setStatus] = useState(() => !clientId && new URLSearchParams(window.location.search).get('status') === 'pending' ? 'pending' : 'upcoming')
+  const [status, setStatus] = useState('upcoming')
   const [page, setPage] = useState(0)
   const [loadedFilter, setLoadedFilter] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
@@ -131,18 +117,22 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
   const [dirty, setDirty] = useState(false)
   const availability = useRef<HTMLElement>(null)
 
+  const load = useCallback(() => callScheduling<DashboardData>(
+    clientId, clientId ? { status, page: String(page) } : { view: 'settings' },
+  ), [clientId, page, status])
+
   const refresh = useCallback(async () => {
-    const result = await callScheduling<DashboardData>(clientId, { status, page: String(page) })
+    const result = await load()
     setData(result)
     setSettings(previous => previous ?? result.settings)
     setNeedsSync(result.needsSync)
     setLoadedFilter(status + page)
     return result
-  }, [clientId, page, status])
+  }, [load, page, status])
 
   useEffect(() => {
     let active = true
-    void callScheduling<DashboardData>(clientId, { status, page: String(page) }).then(result => {
+    void load().then(result => {
       if (!active) return
       setData(result)
       setSettings(previous => previous ?? result.settings)
@@ -150,7 +140,7 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
       setLoadedFilter(status + page)
     }, failure => { if (active) setError(failure.message) })
     return () => { active = false }
-  }, [clientId, page, status, reloadKey])
+  }, [load, page, status, reloadKey])
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true); setError(''); setMessage('')
@@ -285,7 +275,7 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
 
     {error && <p className="appointmentFeedback appointmentError" role="alert">{error}</p>}
     {message && <p className="appointmentFeedback" role="status">{message}</p>}
-    <section className="appointmentPanel">
+    {clientId && <><section className="appointmentPanel">
       <h3>Appointments</h3>
       <div className="appointmentActions">
         <label>Show<select value={status} onChange={event => {
@@ -294,10 +284,10 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
         <button type="button" className="btn btnOutline" disabled={busy} onClick={() => void run(refresh)}>Refresh</button>
       </div>
       {loadedFilter !== status + page ? <p role="status">Loading appointments…</p> : <>
-        {data.appointments.length === 0 && <p>No appointments in this view.</p>}
+        {!data.appointments?.length && <p>No appointments in this view.</p>}
         <div className="appointmentRecords">
-          {data.appointments.map(record => {
-            const conflict = data.conflicts.find(item => item.appointment_id === record.id)
+          {data.appointments?.map(record => {
+            const conflict = data.conflicts?.find(item => item.appointment_id === record.id)
             const bookedZone = record.booking_time_zone || zone
             return <details key={record.id} className="appointmentRecord" open={selected?.id === record.id || cancelId === record.id ? true : undefined}>
               <summary><strong>{record.customer_name || 'Caller'}</strong>
@@ -364,6 +354,6 @@ export default function AppointmentScheduling({ clientId }: { clientId?: string 
         onClick={() => void update(selected, selected.status === 'pending' ? 'confirm' : 'reschedule')}>
         {selected.status === 'pending' ? 'Confirm appointment' : 'Save new time'}
       </button>}
-    </section>}
+    </section>}</>}
   </div>
 }

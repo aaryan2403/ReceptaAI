@@ -63,6 +63,7 @@ const migrationFiles = [
   '20261116113500_internal_appointment_test_entitlement.sql',
   '20261119185856_admin_service_access.sql',
   '20261119204250_admin_client_status.sql',
+  '20261127004253_confirmed_appointment_activity.sql',
 ]
 
 const pgUrl = process.env.RECEPTA_TEST_PG_URL
@@ -323,6 +324,7 @@ const initializeHandlers = async () => {
     recepta_grant_appointment_test:['p_client','p_agent','p_expires_at','p_max_calls','p_max_invocations','p_actor'],
     recepta_revoke_appointment_test:['p_client','p_agent','p_actor'],
     recepta_appointment_conflicts:['p_client','p_ids'],
+    recepta_confirmed_appointment_activity:['p_client_id','p_time_zone'],
     recepta_save_scheduling_settings:['p_client','p_rules','p_prepare'],
     claim_recepta_service_jobs:['p_limit','p_key'],
     finish_recepta_service_job:['p_key','p_lease','p_error'],
@@ -370,6 +372,12 @@ const initializeHandlers = async () => {
       const references=fields.map((field,index)=>field+' => $'+(index+1)).join(',')
       const parameters=fields.map(field=>args[field])
       try {
+        if (name === 'recepta_confirmed_appointment_activity') {
+          const result = await db.query(
+            'select day::text, count::int from public.recepta_confirmed_appointment_activity($1,$2)', parameters,
+          )
+          return { data: result.rows, error: null }
+        }
         if (name === 'recepta_appointment_conflicts' || name === 'claim_recepta_service_jobs' || name === 'reserve_recepta_agent_call') {
           return { data:(await db.query('select * from public.'+name+'('+references+')',parameters)).rows,error:null }
         }
@@ -441,6 +449,12 @@ test('signed Retell requests persist in PostgreSQL and surface in the authorized
   await initializeHandlers()
   const date = futureDate(51)
   await save(tenant,rules({ email_owner:true,email_customer:true }))
+  const activityBefore = await (await dashboard('view=confirmed-activity')).json()
+  assert.equal(activityBefore.days.length, 7)
+  assert.equal(activityBefore.timeZone, 'America/Toronto')
+  const totals = activity => activity.days.reduce((total, day) => total + day.count, 0)
+  const otherBefore = await (await dashboard('view=confirmed-activity','other')).json()
+
   const checked = await invoke('recepta_check_availability',{ requested_date:date,requested_time:'10:00',client_id:other })
   assert.equal(checked.status,200)
   const slot = await checked.json()
@@ -478,6 +492,16 @@ test('signed Retell requests persist in PostgreSQL and surface in the authorized
   assert.equal(record.booking_time_zone,'America/Toronto')
   assert.equal(record.customer_phone,'+14165550123')
   assert.deepEqual(JSON.parse(record.notes).details,[{ label:'Service type',value:'Roof repair' }])
+  const activityAfter = await (await dashboard('view=confirmed-activity')).json()
+  assert.equal(totals(activityAfter), totals(activityBefore) + 1, 'the new confirmed booking is counted just once')
+  assert.equal(activityAfter.days.at(-1).count, activityBefore.days.at(-1).count + 1, 'counted on the creation day, not the future slot date')
+  assert.deepEqual(await (await dashboard('view=confirmed-activity','other')).json(), otherBefore)
+  assert.equal((await dashboard('view=confirmed-activity&clientId='+other)).status,403)
+  const preferences = await (await dashboard('view=settings')).json()
+  assert.equal(preferences.settings.enabled,true)
+  assert.equal(preferences.settings.email_owner,true)
+  assert.equal('appointments' in preferences,false)
+  assert.equal('conflicts' in preferences,false)
   const awaiting = await (await dashboard('status=pending')).json()
   assert.ok(awaiting.appointments.some(item=>item.id===pending.appointment_id && item.appointment_time===null))
   const slots = await (await dashboard('date='+date)).json()
@@ -520,6 +544,55 @@ test('signed Retell requests persist in PostgreSQL and surface in the authorized
   } finally { globalThis.fetch=originalFetch; delete process.env.RESEND_API_KEY }
 })
 
+test('appointment counts use local creation dates and keep excluded rows and permissions out', async () => {
+  await db.exec('begin')
+  try {
+    const { rows: [clock] } = await db.query(`
+      select ((statement_timestamp() at time zone 'UTC')::date - 1)::text utc_day,
+        ((statement_timestamp() at time zone 'UTC')::date - 2)::text toronto_day
+    `)
+    const params = [tenant, other, clock.utc_day]
+    const counts = async zone => (await db.query(
+      'select day::text, count::int from public.recepta_confirmed_appointment_activity($1,$2)', [tenant, zone],
+    )).rows
+    const beforeToronto = await counts('America/Toronto')
+    const beforeUtc = await counts('UTC')
+    await db.query(`
+      insert into appointments(client_id, status, source, created_at)
+      values ($1, 'completed', 'retell', ($3::date + time '01:00') at time zone 'UTC'),
+        ($1, 'pending', 'retell', ($3::date + time '01:00') at time zone 'UTC'),
+        ($1, 'cancelled', 'retell', ($3::date + time '01:00') at time zone 'UTC'),
+        ($1, 'completed', 'retell', now() - interval '8 days'),
+        ($2, 'completed', 'retell', ($3::date + time '01:00') at time zone 'UTC')
+    `, params)
+    const toronto = await counts('America/Toronto')
+    const utc = await counts('UTC')
+    const delta = (after, before, day) => after.find(row => row.day === day).count - before.find(row => row.day === day).count
+    assert.equal(delta(toronto, beforeToronto, clock.toronto_day), 1)
+    assert.equal(delta(toronto, beforeToronto, clock.utc_day), 0)
+    assert.equal(delta(utc, beforeUtc, clock.utc_day), 1)
+    const { rows: [grants] } = await db.query(`select
+      has_function_privilege('anon','public.recepta_confirmed_appointment_activity(uuid,text)','execute') as anon,
+      has_function_privilege('authenticated','public.recepta_confirmed_appointment_activity(uuid,text)','execute') as customer`)
+    assert.deepEqual(grants, {anon: false, customer: false})
+  } finally {
+    await db.exec('rollback')
+  }
+})
+
+test('an analytics database failure is an error rather than an empty week', async () => {
+  const dbClient = globalThis.__appointmentSchedulingDb
+  const rpc = dbClient.rpc
+  dbClient.rpc = (name, args) => name === 'recepta_confirmed_appointment_activity'
+    ? { data: null, error: new Error('Synthetic database failure') }
+    : rpc(name, args)
+  try {
+    assert.equal((await dashboard('view=confirmed-activity')).status, 500)
+  } finally {
+    dbClient.rpc = rpc
+  }
+})
+
 test('disabled automatic booking keeps pending intake available and enforces Pro and explicit email consent', async () => {
   const date=futureDate(55)
   await save(tenant,rules({ enabled:false,email_customer:true }))
@@ -534,6 +607,8 @@ test('disabled automatic booking keeps pending intake available and enforces Pro
   assert.equal((await db.query("select count(*)::int n from service_jobs where payload->>'appointment_id'=$1",[pending.appointment_id])).rows[0].n,0)
   await db.query("update subscriptions set plan_name='Recepta Standard' where client_id=$1",[tenant])
   assert.equal((await dashboard()).status,403)
+  assert.equal((await dashboard('view=settings')).status,403)
+  assert.equal((await dashboard('view=confirmed-activity')).status,403)
   assert.equal((await invoke('recepta_save_appointment_details',detail,'standard')).status,403)
   assert.equal((await call('recepta_change_appointment',[tenant,'book',await localStart(date,'09:00'),null,null,'direct-standard',detail])).reason,'pro_required')
   await db.query("update subscriptions set plan_name='Recepta Pro',status='pending' where client_id=$1",[tenant])
