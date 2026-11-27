@@ -174,7 +174,7 @@ export default async (request: Request) => {
     }
   }
 
-  const decline = async (reason: 'agent_unavailable' | 'outside_answering_hours' | 'allowance_unavailable' | 'admission_unavailable') => {
+  const decline = async (reason: 'agent_unavailable' | 'allowance_unavailable' | 'admission_unavailable') => {
     if (agent?.client_id) {
       const result = await supabaseAdmin.rpc('record_recepta_callback', {
         p_client_id: agent.client_id, p_call_id: callId, p_from: normalizeE164(payload.call_inbound?.from_number), p_to: toNumber, p_reason: reason,
@@ -196,12 +196,6 @@ export default async (request: Request) => {
   const customSchedule = businessSchedule.mode === 'custom' ? businessSchedule : null
   const businessOpen = isBusinessOpen(businessSchedule)
   const answeringMode = getAnsweringMode(agent.business_hours)
-
-  if (
-    answeringMode === 'business_hours' && !businessOpen
-  ) {
-    return decline('outside_answering_hours')
-  }
 
   const { data: reservationRows, error: reservationError } = await supabaseAdmin.rpc(
     'reserve_recepta_agent_call', { p_client_id: agent.client_id, p_call_id: callId, p_agent_id: agent.retell_agent_id }

@@ -420,8 +420,8 @@ test('customer requests cannot change demo mode through the admin create, edit o
   } finally { await close() }
 })
 
-test('closed store hours do not stop a 24/7 receptionist; answering only in store hours is explicit', async () => {
-  await setup(60, 0, false)
+test('closed store hours never stop an active receptionist, including legacy answering-hours settings', async () => {
+  await setup(300, 0, false)
   try {
     const hours = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(day => ({ day, open: false, start:'09:00', end:'17:00' }))
     await db.query('update agents set business_hours=$1', [JSON.stringify({ mode:'custom', timeZone:'America/Toronto', hours })])
@@ -430,8 +430,11 @@ test('closed store hours do not stop a 24/7 receptionist; answering only in stor
     assert.equal(response.dynamic_variables.recepta_business_open, 'closed')
     assert.equal(response.dynamic_variables.recepta_answering_mode, '24/7')
     await db.query('update agents set business_hours=$1', [JSON.stringify({ mode:'custom', answeringMode:'business_hours', timeZone:'America/Toronto', hours })])
-    assert.equal((await admit('explicit_closed_hours')).reject, true)
-    assert.equal(await reservation('explicit_closed_hours'), undefined)
+    const legacy = await admit('explicit_closed_hours')
+    assert.equal(legacy.reject, undefined)
+    assert.equal(legacy.dynamic_variables.recepta_answering_mode, '24/7')
+    assert.equal(legacy.dynamic_variables.recepta_business_open, 'closed')
+    assert.ok(await reservation('explicit_closed_hours'))
   } finally { await close() }
 })
 

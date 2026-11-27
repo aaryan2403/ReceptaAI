@@ -912,7 +912,7 @@ const replaceManagedPrompt = (
 const formatBusinessHours = (schedule: RetellSchedule) => {
   if (schedule.mode === 'unconfigured') return 'Store opening hours have not been configured. Do not guess; offer to take a message.'
   if (schedule.mode === '24/7') {
-    return `The business is open 24 hours a day, 7 days a week. AI answering hours are a separate setting. Timezone: ${schedule.timeZone}.`
+    return `The business is open 24 hours a day, 7 days a week. The AI answers 24/7 while service is active and minutes are available. Timezone: ${schedule.timeZone}.`
   }
 
   const formatTime = (value: string) => {
@@ -1073,11 +1073,11 @@ export const syncRetellSchedule = async ({
     currentLlm.general_prompt ?? '',
     BUSINESS_HOURS_PROMPT_MARKER,
     [
-      'The Recepta dashboard is the authoritative source for store hours. Store hours and AI answering hours are separate.',
+      'The Recepta dashboard is the authoritative source for store hours. Store hours do not restrict AI receptionist answering hours.',
       'Schedule mode: {{recepta_schedule_mode}}.',
       'Current hours: {{recepta_business_hours}}',
       'Use the timezone in {{recepta_business_timezone}} when answering.',
-      'If the store mode is 24/7, the business is open all day. Otherwise use its exact saved opening hours. The AI may still answer while the business is closed.',
+      'If the store mode is 24/7, the business is open all day. Otherwise use its exact saved opening hours. The AI answers even while the business is closed when service is active and minutes are available.',
       'If the mode is custom, answer with the exact saved day and time. Never invent or assume hours.',
       'If store hours are unconfigured, say they have not been provided. Never claim the business is open 24/7 just because the AI answers.',
       'AI answering mode: {{recepta_answering_mode}}. An answered call does not mean the store is open. Outside store hours, do not claim staff are present. Appointment availability follows the separate booking rules.',
@@ -1211,7 +1211,7 @@ export const syncRetellSchedule = async ({
           ...(scheduling && !emailOnly ? { recepta_scheduling_tools: 'enabled' } : {}),
           ...(emailConfigured && !schedulingOnly ? { recepta_call_email_settings: JSON.stringify(emailSettings) } : {}),
           ...(!emailOnly && !schedulingOnly && !preserveAvailability ? {
-            recepta_answering_mode: schedule.answeringMode ?? '24/7',
+            recepta_answering_mode: '24/7',
             recepta_schedule_mode: schedule.mode,
             recepta_business_hours: formatBusinessHours(schedule),
             recepta_business_timezone: schedule.timeZone,

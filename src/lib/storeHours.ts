@@ -24,7 +24,6 @@ export const readStoreHours = (stored?: string | null): StoreHours => {
       result.mode = 'custom'
     }
     if (parsed?.mode === '24/7') result.mode = '24/7'
-    if (parsed?.answeringMode === 'business_hours') result.answeringMode = 'business_hours'
     if (typeof parsed?.timeZone === 'string' && parsed.timeZone.trim()) result.timeZone = parsed.timeZone
   } catch { /* Unstructured hours stay unconfigured until an admin chooses them. */ }
   return result
