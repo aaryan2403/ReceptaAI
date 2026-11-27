@@ -68,12 +68,12 @@ export const manageCallerAppointment = async (
   const phone = normalizeE164(textValue(call.from_number,60))
   if (!phone || call.call_type !== 'phone_call' || call.direction !== 'inbound') return failed()
   const context = { ...identity, phone }
-  const invoke = async (id: string, action: string, version: number|null = null) => {
+  const invoke = async (id: string, action: string, version: number|null = null, checkTime?: string) => {
     const {data,error} = await db.rpc('recepta_caller_appointment',{
       p_client:context.clientId,p_agent:context.agentId,p_call:context.callId,p_phone:phone,p_reference:id,
       p_action:action,p_version:version,
       p_date:action==='reschedule' ? args.new_date : action==='check' ? args.requested_date : null,
-      p_time:action==='reschedule' ? args.new_time : action==='check' ? args.requested_time : null,
+      p_time:action==='reschedule' ? args.new_time : action==='check' ? (checkTime ?? args.requested_time) : null,
       p_confirmed:action==='cancel' && args.confirmed===true,
     })
     if (error) throw error
@@ -123,10 +123,46 @@ export const manageCallerAppointment = async (
   if (tool==='cancel_appointment' && (args.confirmed!==true || !heardCancellationConfirmation(call))) return failed('confirmation_required')
   if (tool==='reschedule_appointment' && (!validDate(args.new_date) || !validTime(args.new_time))) return failed('invalid_local_date_or_time')
   if (tool==='check_appointment_availability') {
-    if (!validDate(args.requested_date) || !validTime(args.requested_time)) {
-      return { available:false, reason:'invalid_local_date_or_time', alternatives:[] }
+    if (!validDate(args.requested_date)) {
+      return { available:false, reason:'invalid_local_date_or_time', alternatives:[], instruction:'Ask for a valid business-local date; this is not a fully booked day.' }
     }
-    return invoke(id,'check',version)
+    const flexible = args.requested_time === undefined || args.requested_time === null || args.requested_time === ''
+    if (!flexible) {
+      if (!validTime(args.requested_time)) return { available:false, reason:'invalid_local_date_or_time', alternatives:[], instruction:'Ask for a valid time; this is not a fully booked day.' }
+      return invoke(id,'check',version)
+    }
+    // The existing versioned RPC checks capacity, store hours, duration and buffer.
+    // Starting at midnight invokes its forward alternative search (up to seven days).
+    // If midnight itself is bookable, advance the cursor to gather more options.
+    const choices = new Set<string>()
+    let timeZone: unknown
+    let originalStart: unknown
+    for (let minute=0; minute<4 && choices.size<3; minute++) {
+      const result = await invoke(id,'check',version,'00:'+String(minute).padStart(2,'0'))
+      if (['verification_failed','service_unavailable','appointment_changed','appointment_not_eligible','automatic_booking_disabled','outside_booking_horizon','invalid_local_date_or_time','pro_required','schedule_not_set'].includes(String(result.reason))) {
+        return {...result, alternatives:[], instruction:'Do not describe this as a fully booked day. Explain the scheduling or verification issue; the original appointment has not been changed.'}
+      }
+      timeZone = result.time_zone ?? timeZone
+      if (result.available===true && typeof result.start==='string') {
+        // Exact-slot checks allow the original slot; flexible suggestions must exclude it.
+        if (originalStart===undefined) {
+          const current=await invoke(id,'find')
+          if (current.success!==true || current.booking_version!==version || typeof current.start!=='string') return failed('appointment_changed')
+          originalStart=current.start
+        }
+        if (Date.parse(result.start)!==Date.parse(String(originalStart))) choices.add(result.start)
+      } else if (result.available===false && Array.isArray(result.alternatives)) {
+        for (const start of result.alternatives) {
+          if (typeof start==='string' && choices.size<3) choices.add(start)
+        }
+        break
+      } else {
+        return {available:false,reason:'availability_unverified',alternatives:[],instruction:'The calendar could not be verified. Do not say the day is fully booked.'}
+      }
+    }
+    return {available:choices.size>0,reason:choices.size>0?'choose_a_time':'no_slots_in_search_window',
+      alternatives:[...choices],time_zone:timeZone,
+      instruction:choices.size>0?'Offer the returned dates and times, including later days if needed. These are not reservations. Confirm the selected time before moving the original appointment.':'No available alternatives were returned in the bounded search. Offer to check a later date; the original appointment is unchanged.'}
   }
   const action = tool==='cancel_appointment' ? 'cancel' : 'reschedule'
   const record = await invoke(id,action,version)
