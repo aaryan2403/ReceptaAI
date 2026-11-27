@@ -5,6 +5,7 @@ import { normalizeAppointmentFields, verifyRetellSignature } from '../lib/retell
 import { configuredRetellKey, isReceptaPreview } from '../lib/emailEnvironment'
 import { appointmentIntake, objectValue, textValue, validDate, validStart, validTime } from '../lib/appointmentScheduling'
 import { json } from '../lib/requestAuth'
+import { isCallerAppointmentTool, manageCallerAppointment } from '../lib/callerAppointmentManagement'
 
 const CHECK = 'recepta_check_availability'
 const BOOK = 'recepta_book_appointment'
@@ -65,8 +66,8 @@ export default async (request: Request) => {
   }
   let payload: Record<string, unknown>
   try { payload = objectValue(JSON.parse(raw)) } catch { return json(400, { error: 'Invalid JSON payload.' }) }
-  const { name } = payload
-  if (name !== CHECK && name !== BOOK && name !== SAVE) return json(400, { error: 'Unknown Recepta appointment function.' })
+  const name = payload.name === 'check_appointment_availability' ? CHECK : payload.name
+  if (name !== CHECK && name !== BOOK && name !== SAVE && !isCallerAppointmentTool(name)) return json(400, { error: 'Unknown Recepta appointment function.' })
   const call = objectValue(payload.call)
   const args = objectValue(payload.args)
   const agentId = textValue(call.agent_id, 200)
@@ -96,6 +97,11 @@ export default async (request: Request) => {
         code: 'tenant_mismatch' })
       return json(403, { success: false, code: 'tenant_mismatch',
         error: 'This call does not match the assigned business.' })
+    }
+    // Caller management verifies the signed call, reservation, current Pro access and
+    // ownership inside its transaction; no caller-supplied identity is trusted.
+    if (isCallerAppointmentTool(name)) {
+      return json(200, await manageCallerAppointment(db,name,call,args,{clientId,agentId,callId,key}))
     }
     // Each signed action must have current Pro service access. An administrative
     // grant also requires a reservation for this call, client, and agent.
@@ -205,6 +211,6 @@ export default async (request: Request) => {
     console.error('Recepta appointment tool failed', { tool: name, code, call_trace: callTrace,
       elapsed_ms: Date.now() - startedAt })
     if (code === '42501') return json(403, { success: false, code: 'inactive_pro_subscription', error: 'Appointment capture requires an active Recepta Pro plan.' })
-    return json(503, { success: false, code: 'scheduling_backend_unavailable', error: name === SAVE ? 'The request could not be recorded. Tell the caller it was not saved.' : 'Scheduling could not be verified. Offer to record a pending request.' })
+    return json(503, { success: false, code: 'scheduling_backend_unavailable', error: isCallerAppointmentTool(name) ? 'The appointment action could not be verified. Do not claim success or disclose booking details; direct the caller to the business.' : name === SAVE ? 'The request could not be recorded. Tell the caller it was not saved.' : 'Scheduling could not be verified. Offer to record a pending request.' })
   }
 }
