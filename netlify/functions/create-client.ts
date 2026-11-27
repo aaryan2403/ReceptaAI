@@ -370,7 +370,7 @@ export default async (request: Request) => {
         businessHours = JSON.stringify({
           mode: storeHours.mode, timeZone: normalizeTimeZone(storeHours.timeZone),
           hours: normalizeHours(storeHours.hours),
-          answeringMode: storeHours.answeringMode === 'business_hours' ? 'business_hours' : '24/7',
+          answeringMode: '24/7',
         })
       } catch (error) {
         return json(400, { error: error instanceof Error ? error.message : 'Check the business hours.' })
