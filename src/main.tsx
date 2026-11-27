@@ -7,7 +7,6 @@ import App from './App.tsx'
 import Login from './pages/Login.tsx'
 import Dashboard from './pages/Dashboard.tsx'
 import Calls from './pages/Calls.tsx'
-import Appointments from './pages/Appointments.tsx'
 import Agent from './pages/Agent.tsx'
 import Billing from './pages/Billing.tsx'
 import Settings from './pages/Settings.tsx'
@@ -74,26 +73,7 @@ createRoot(document.getElementById('root')!).render(
           }
         />
 
-        {/* Booking links open the Pro appointment workspace. */}
-        <Route
-          path="/dashboard/bookings"
-          element={
-            <ProtectedRoute>
-              <Navigate to="/dashboard/appointments" replace />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/dashboard/appointments"
-          element={
-            <ProtectedRoute>
-              <Appointments />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Old calendar links now open the appointment records workspace. */}
+        {/* Old calendar links now open Calls. */}
         <Route
           path="/dashboard/calendar"
           element={

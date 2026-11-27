@@ -1,6 +1,7 @@
 import type { CustomerService } from '../lib/serviceAccess'
 import BillingAccessNotice from '../components/BillingAccessNotice'
-import { type AppointmentStatus } from '../lib/appointmentRequests'
+import CompanyStatisticsChart from '../components/CompanyStatisticsChart'
+import { callScheduling } from '../lib/clientAppointmentScheduling'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchClientCalls } from '../lib/clientCalls'
@@ -36,152 +37,9 @@ type Call = {
   caller_number?: string | null
 }
 
-type Appointment = {
-  id: string
-  appointment_time: string | null
-  status: AppointmentStatus
-  created_at: string
-}
-
-type ChartPoint = {
-  label: string
-  value: number
-}
-
-
-function CompanyStatisticsChart({
-  title,
-  points,
-}: {
-  title: string
-  points: ChartPoint[]
-}) {
-  const width = 760
-  const height = 250
-  const paddingLeft = 42
-  const paddingRight = 22
-  const paddingTop = 22
-  const paddingBottom = 42
-  const plotWidth = width - paddingLeft - paddingRight
-  const plotHeight = height - paddingTop - paddingBottom
-  const maximum = Math.max(1, ...points.map((point) => point.value))
-  const coordinates = points.map((point, index) => ({
-    ...point,
-    x:
-      paddingLeft +
-      (points.length === 1
-        ? plotWidth / 2
-        : (index / (points.length - 1)) * plotWidth),
-    y: paddingTop + plotHeight - (point.value / maximum) * plotHeight,
-  }))
-  const linePath = coordinates
-    .map((point, index) =>
-      `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`
-    )
-    .join(' ')
-  const areaPath = `${linePath} L ${
-    coordinates[coordinates.length - 1]?.x ?? paddingLeft
-  } ${paddingTop + plotHeight} L ${
-    coordinates[0]?.x ?? paddingLeft
-  } ${paddingTop + plotHeight} Z`
-  const total = points.reduce((sum, point) => sum + point.value, 0)
-
-  return (
-    <section className="dashboardCompanyChart">
-      <div className="dashboardCompanyChartHeader">
-        <div>
-          <p className="dashboardEyebrow">COMPANY STATISTICS</p>
-          <h2>{title}</h2>
-          <p>Daily activity over the last seven days.</p>
-        </div>
-
-        <div className="dashboardCompanyChartTotal">
-          <span>7-day total</span>
-          <strong>{total}</strong>
-        </div>
-      </div>
-
-      <div className="dashboardCompanyChartCanvas">
-        <svg
-          viewBox={`0 0 ${width} ${height}`}
-          role="img"
-          aria-label={`${title} line graph for the last seven days`}
-        >
-          <defs>
-            <linearGradient
-              id="dashboardChartArea"
-              x1="0"
-              y1="0"
-              x2="0"
-              y2="1"
-            >
-              <stop offset="0%" stopColor="#00e676" stopOpacity="0.3" />
-              <stop offset="100%" stopColor="#00e676" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-
-          {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-            const y = paddingTop + plotHeight * ratio
-            const value = Math.round(maximum * (1 - ratio))
-
-            return (
-              <g key={ratio}>
-                <line
-                  x1={paddingLeft}
-                  y1={y}
-                  x2={width - paddingRight}
-                  y2={y}
-                  stroke="rgba(255,255,255,0.09)"
-                  strokeWidth="1"
-                />
-                <text
-                  x={paddingLeft - 10}
-                  y={y + 4}
-                  textAnchor="end"
-                  fill="rgba(235,244,238,0.45)"
-                  fontSize="11"
-                >
-                  {value}
-                </text>
-              </g>
-            )
-          })}
-
-          <path d={areaPath} fill="url(#dashboardChartArea)" />
-          <path
-            d={linePath}
-            fill="none"
-            stroke="#00e676"
-            strokeWidth="4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-
-          {coordinates.map((point) => (
-            <g key={point.label}>
-              <circle
-                cx={point.x}
-                cy={point.y}
-                r="5"
-                fill="#07140d"
-                stroke="#00e676"
-                strokeWidth="3"
-              />
-              <text
-                x={point.x}
-                y={height - 15}
-                textAnchor="middle"
-                fill="rgba(235,244,238,0.58)"
-                fontSize="11"
-              >
-                {point.label}
-              </text>
-            </g>
-          ))}
-        </svg>
-      </div>
-    </section>
-  )
+type AppointmentActivity = {
+  days: Array<{ day: string; count: number }>
+  timeZone: string
 }
 
 export default function Dashboard() {
@@ -191,8 +49,11 @@ export default function Dashboard() {
   const [subscription, setSubscription] =
     useState<Subscription | null>(null)
   const [calls, setCalls] = useState<Call[]>([])
-  const [appointments, setAppointments] =
-    useState<Appointment[]>([])
+  const [clientId, setClientId] = useState<string | null>(null)
+  const [appointmentActivity, setAppointmentActivity] = useState<{
+    clientId: string
+    data: AppointmentActivity | null
+  } | null>(null)
   const [phoneNumbers, setPhoneNumbers] =
     useState<string[]>([])
   const [billingError, setBillingError] = useState('')
@@ -205,6 +66,7 @@ export default function Dashboard() {
         data: { user },
       } = await supabase.auth.getUser()
 
+      setClientId(user?.id ?? null)
       if (!user) {
         setLoading(false)
         return
@@ -267,22 +129,6 @@ export default function Dashboard() {
         )
       }
 
-      const isPro =
-        subscriptionData.service?.plan === 'Recepta Pro'
-
-      if (isPro) {
-        const { data: appointmentsData } = await supabase
-          .from('appointments')
-          .select('id, appointment_time, status, created_at')
-          .eq('client_id', user.id)
-
-        if (appointmentsData) {
-          setAppointments(appointmentsData)
-        }
-      } else {
-        setAppointments([])
-      }
-
       setBillingError('')
       } catch (error) {
         setBillingError(error instanceof Error ? error.message : 'Could not load your dashboard.')
@@ -309,6 +155,35 @@ export default function Dashboard() {
 
   const isPro =
     service?.plan === 'Recepta Pro'
+
+  useEffect(() => {
+    if (!isPro || !clientId) return
+    const controller = new AbortController()
+    let timer: number | undefined
+
+    const refresh = async () => {
+      try {
+        const data = await callScheduling<AppointmentActivity>(
+          undefined, { view: 'confirmed-activity' }, 'GET', undefined, controller.signal,
+        )
+        if (!controller.signal.aborted) setAppointmentActivity({ clientId, data })
+      } catch {
+        if (!controller.signal.aborted) setAppointmentActivity({ clientId, data: null })
+      } finally {
+        if (!controller.signal.aborted) timer = window.setTimeout(refresh, 5000)
+      }
+    }
+
+    void refresh()
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [clientId, isPro])
+
+  const activity = appointmentActivity?.clientId === clientId ? appointmentActivity : null
+  const confirmedAppointments = activity?.data
+  const confirmedToday = confirmedAppointments?.days.at(-1)?.count
 
   const isStandard =
     service?.plan === 'Recepta Standard'
@@ -368,30 +243,6 @@ export default function Dashboard() {
     const averageRemainingSeconds =
       averageSeconds % 60
 
-    const today = new Date()
-
-    const appointmentsToday =
-      appointments.filter((appointment) => {
-        if (
-          !appointment.created_at ||
-          appointment.status !== 'pending'
-        ) {
-          return false
-        }
-
-        const appointmentDate =
-          new Date(appointment.created_at)
-
-        return (
-          appointmentDate.getFullYear() ===
-            today.getFullYear() &&
-          appointmentDate.getMonth() ===
-            today.getMonth() &&
-          appointmentDate.getDate() ===
-            today.getDate()
-        )
-      }).length
-
     return {
       callsAnswered,
       minutesTalked: formatMinuteSeconds(authorizedMinutes ? service.service_allowance_seconds - service.remaining_seconds : billingUsageSeconds),
@@ -404,7 +255,6 @@ export default function Dashboard() {
       totalAvailableMinutes,
       minutesRemaining,
       usagePercentage,
-      appointmentsToday,
 
       averageDuration:
         callsAnswered > 0
@@ -413,7 +263,7 @@ export default function Dashboard() {
             ).padStart(2, '0')}s`
           : '0m 00s',
     }
-  }, [calls, appointments, subscription, billingUsageSeconds, authorizedMinutes, service])
+  }, [calls, subscription, billingUsageSeconds, authorizedMinutes, service])
 
   const companyChart = useMemo(() => {
     const now = new Date()
@@ -423,7 +273,6 @@ export default function Dashboard() {
       date.setDate(date.getDate() - (6 - index))
 
       return {
-        date,
         key: `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`,
         label: date.toLocaleDateString(undefined, {
           weekday: 'short',
@@ -440,24 +289,17 @@ export default function Dashboard() {
       return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
     }
 
-    const points = days.map((day) => ({
+    return days.map((day) => ({
       label: day.label,
-      value: isPro
-        ? appointments.filter(
-            (appointment) =>
-              appointment.status === 'pending' &&
-              toLocalDateKey(appointment.created_at) === day.key
-          ).length
-        : calls.filter(
-            (call) => toLocalDateKey(call.started_at) === day.key
-          ).length,
+      value: calls.filter((call) => toLocalDateKey(call.started_at) === day.key).length,
     }))
+  }, [calls])
 
-    return {
-      title: isPro ? 'Pending Appointment Requests' : 'Calls Picked Up',
-      points,
-    }
-  }, [appointments, calls, isPro])
+  const dayLabel = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC', weekday: 'short' })
+  const appointmentPoints = confirmedAppointments?.days.map(({ day, count }) => ({
+    label: dayLabel.format(new Date(day + 'T00:00:00Z')),
+    value: count,
+  }))
 
   const getStatusInfo = () => {
     if (service?.service_status) return service.service_status === 'ongoing'
@@ -561,7 +403,6 @@ export default function Dashboard() {
             Agent
           </a>
 
-          {isPro && <a href="/dashboard/appointments" className="dashboardNavItem">Appointments</a>}
           <a href="/dashboard/requests" className="dashboardNavItem">
             Customer Requests
           </a>
@@ -682,24 +523,10 @@ export default function Dashboard() {
             <strong>{stats.callsAnswered}</strong>
           </div>
 
-          {isPro && (
-            <a
-              href="/dashboard/calls"
-              className="dashboardStatCard dashboardStatCardLink"
-            >
-              <span>Requests Today</span>
-
-              <strong>
-                {stats.appointmentsToday}
-              </strong>
-
-              <small>
-                {stats.appointmentsToday === 1
-                  ? '1 pending request — follow-up required'
-                  : `${stats.appointmentsToday} pending requests — follow-up required`}
-              </small>
-            </a>
-          )}
+          {isPro && <div className="dashboardStatCard">
+            <span>Confirmed Today</span>
+            <strong>{confirmedToday ?? '—'}</strong>
+          </div>}
 
           <div className="dashboardStatCard">
             <span>Minutes Used</span>
@@ -781,42 +608,21 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <CompanyStatisticsChart
-          title={companyChart.title}
-          points={companyChart.points}
-        />
-
-        {isPro && (
-          <div className="dashboardTodayCard">
-            <div>
-              <p className="dashboardEyebrow">
-                TODAY
-              </p>
-
-              <h2>
-                {stats.appointmentsToday === 0
-                  ? 'No pending requests captured today'
-                  : `${stats.appointmentsToday} ${
-                      stats.appointmentsToday === 1
-                        ? 'pending request'
-                        : 'pending requests'
-                    } today`}
-              </h2>
-
-              <p>
-                {stats.appointmentsToday === 0
-                  ? 'There are no pending requests captured today.'
-                  : 'Review the caller’s preferences in Appointments.'}
-              </p>
-            </div>
-
-            <a
-              href="/dashboard/appointments?status=pending"
-              className="btn btnOutline"
-            >
-              View appointment requests
-            </a>
-          </div>
+        {isPro ? (
+          <CompanyStatisticsChart
+            title="Confirmed Appointments"
+            points={appointmentPoints}
+            detail={confirmedAppointments
+              ? `Bookings created over the last seven days · ${confirmedAppointments.timeZone}`
+              : 'Bookings created over the last seven days.'}
+            unavailable={activity?.data === null}
+            statusMessage={activity?.data === null ? 'Confirmed appointment activity is unavailable. Retrying automatically.'
+              : !activity ? 'Loading confirmed appointment activity…'
+              : appointmentPoints?.every(point => point.value === 0) ? 'No confirmed appointments were created in the last seven days.'
+              : undefined}
+          />
+        ) : (
+          <CompanyStatisticsChart title="Calls Picked Up" points={companyChart} />
         )}
 
         {stats.paid && effectiveAgentStatus === 'setup' && service?.reason !== 'provisioning' && (

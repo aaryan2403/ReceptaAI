@@ -36,12 +36,40 @@ export default async (request: Request) => {
       if (target === null) return json(403, { error: 'Admin access required.' })
       return json(200, await appointmentAgentReadiness(db, clientId, access, deployment))
     }
-    if (!activePro && (['POST', 'PATCH'].includes(request.method) ||
+    const view = url.searchParams.get('view')
+    const analytics = request.method === 'GET' && view === 'confirmed-activity'
+    if (analytics && (target !== null || access.plan !== 'Recepta Pro')) {
+      return json(403, { error: 'Recepta Pro is required for appointment analytics.' })
+    }
+    if (!analytics && !activePro && (['POST', 'PATCH'].includes(request.method) ||
       (target === null && !(request.method === 'GET' && access.plan === 'Recepta Pro' && access.reason === 'subscription_cancelled')))) {
       return json(403, { error: accessIssue })
     }
 
     if (request.method === 'GET') {
+      const loadSchedule = async () => {
+        const [rules, agent] = await Promise.all([
+          db.from('booking_settings').select('*').eq('client_id', clientId).maybeSingle(),
+          db.from('agents').select('retell_agent_id, business_hours').eq('client_id', clientId).maybeSingle(),
+        ])
+        if (rules.error || agent.error) throw rules.error ?? agent.error
+        return {
+          settings: schedulingSettingsForDashboard(rules.data, getStoredBusinessSchedule(agent.data?.business_hours).timeZone),
+          needsSync: rules.data?.synced_at == null || rules.data.sync_agent_id !== agent.data?.retell_agent_id,
+        }
+      }
+
+      if (analytics) {
+        const { settings } = await loadSchedule()
+        const result = await db.rpc('recepta_confirmed_appointment_activity', {
+          p_client_id: clientId, p_time_zone: settings.time_zone,
+        })
+        if (result.error) throw result.error
+        if (!Array.isArray(result.data) || result.data.length !== 7) throw new Error('Incomplete appointment analytics.')
+        return json(200, { days: result.data, timeZone: settings.time_zone })
+      }
+      if (view === 'settings') return json(200, { activePro, accessIssue, ...(await loadSchedule()) })
+
       const date = url.searchParams.get('date')
       if (date !== null) {
         if (!activePro) return json(403, { error: accessIssue })
@@ -66,22 +94,19 @@ export default async (request: Request) => {
         { count: 'exact' },
       ).eq('client_id', clientId).eq('status', status === 'upcoming' ? 'booked' : status)
       if (status === 'upcoming') records = records.gte('appointment_time', new Date().toISOString())
-      const [appointments, rules, agent] = await Promise.all([
+      const [appointments, schedule] = await Promise.all([
         records.order(status === 'upcoming' ? 'appointment_time' : 'created_at', { ascending: status === 'upcoming' })
           .order('id').range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1),
-        db.from('booking_settings').select('*').eq('client_id', clientId).maybeSingle(),
-        db.from('agents').select('retell_agent_id, business_hours').eq('client_id', clientId).maybeSingle(),
+        loadSchedule(),
       ])
-      if (appointments.error || rules.error || agent.error) throw appointments.error ?? rules.error ?? agent.error
+      if (appointments.error) throw appointments.error
       const ids = appointments.data.filter(row => row.status === 'booked').map(row => row.id)
       const conflicts = ids.length
         ? await db.rpc('recepta_appointment_conflicts', { p_client: clientId, p_ids: ids })
         : { data: [], error: null }
       if (conflicts.error) throw conflicts.error
-      const settings = schedulingSettingsForDashboard(rules.data, getStoredBusinessSchedule(agent.data?.business_hours).timeZone)
-      const needsSync = rules.data?.synced_at == null || rules.data.sync_agent_id !== agent.data?.retell_agent_id
       return json(200, {
-        activePro, accessIssue, settings, needsSync, appointments: appointments.data, conflicts: conflicts.data,
+        activePro, accessIssue, ...schedule, appointments: appointments.data, conflicts: conflicts.data,
         more: (appointments.count ?? 0) > (page + 1) * PAGE_SIZE,
       })
     }
