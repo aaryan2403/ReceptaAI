@@ -35,7 +35,7 @@ const requireRetellKey = (key: string | undefined) => {
 }
 
 export const repairAppointmentAgent = async (db: SupabaseClient, clientId: string, deployment: RetellDeployment,
-  options?: { agentId: string; plan: ServicePlan; revision: number }) => {
+  options?: { agentId: string; plan: ServicePlan; revision: number; expectedPlan?: ServicePlan; ensureCallEvents?: boolean }) => {
   const { agentId, agent } = await getAgentAssignment(db, clientId)
   if (options && options.agentId !== agentId) {
     throw new RetellSetupError('The saved agent changed. Refresh before syncing.')
@@ -50,11 +50,15 @@ export const repairAppointmentAgent = async (db: SupabaseClient, clientId: strin
   const result = await syncRetellSchedule({
     apiKey, agentId, schedule: getStoredBusinessSchedule(agent.business_hours),
     appointmentFields, appointmentScheduling: options?.plan !== 'Recepta Standard', schedulingOnly: true,
-    servicePlan: options?.plan, ensureCallEvents: Boolean(options), deploymentOrigin: deployment.previewOrigin,
+    servicePlan: options?.plan, ensureCallEvents: options?.ensureCallEvents ?? Boolean(options), deploymentOrigin: deployment.previewOrigin,
     beforePublish: async () => {
       await assertAgentOwner(db, clientId, agentId)
-      if (options && (await loadServiceAccess(db, clientId)).revision !== options.revision) {
-        throw new RetellSetupError('Service settings changed during synchronization. Refresh to sync the current settings.')
+      if (options) {
+        const current = await loadServiceAccess(db, clientId)
+        if (current.revision !== options.revision || current.retention_operation ||
+            (options.expectedPlan !== undefined && current.plan !== options.expectedPlan)) {
+          throw new RetellSetupError('Service settings changed during synchronization. Refresh to sync the current settings.')
+        }
       }
     },
   })
@@ -192,7 +196,7 @@ export const appointmentAgentReadiness = async (db: SupabaseClient, clientId: st
       webhook === webhookOrigin + '/.netlify/functions/retell-webhook'
         ? 'The published agent sends call events to this deployment.' : 'The published agent’s call-event webhook is missing or points elsewhere.'))
     if (!accessIssue) checks.push(check('Published appointment tools', issue ? 'blocked' : 'ready',
-      issue ?? 'Availability, booking and request tools point to this deployment and use the expected configuration.'))
+      issue ?? 'Availability, booking, requests and caller appointment management point to this deployment and use the expected configuration.'))
     checks.push(check('Human transfer', 'unverified', hasTransferTool
       ? 'A transfer tool is published. Verify an answered transfer and the no-answer path with real calls.'
       : 'The published agent has no Retell phone-transfer tool.'))

@@ -452,7 +452,10 @@ test('Pro Add Client queues verified provisioning with no Stripe payment; retry 
       [newClient, 'agent_pro_onboarding', 'approved-pro-setup'])).rows[0].result.allowed, true)
     assert.equal((await db.query('select recepta_grant_call_plan($1,$2) plan', [newClient, 'approved-pro-setup'])).rows[0].plan, 'Recepta Pro')
     assert.equal((await worker(request({ clientId: newClient }))).status, 204)
-    assert.equal(globalThis.__paymentRetell.filter(call => call.kind === 'schedule').length, 1)
+    const published = globalThis.__paymentRetell.filter(call => call.kind === 'schedule')
+    assert.equal(published.length, 1)
+    assert.equal(published[0].servicePlan, 'Recepta Pro')
+    assert.equal(published[0].appointmentScheduling, true)
   } finally {
     globalThis.fetch = originalFetch
     delete globalThis.__paymentRecoveredPhone

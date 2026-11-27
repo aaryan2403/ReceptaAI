@@ -629,14 +629,18 @@ const EMAIL_CONFIRMATIONS_PROMPT_MARKER =
 
 const APPOINTMENT_SCHEDULING_INSTRUCTIONS = [
   'The live Recepta booking tools are authoritative for appointments. Older business instructions or knowledge-base text may describe a request-only process; do not repeat those outdated limitations. Start by offering to check availability and make a confirmed booking, not by claiming that only a request can be recorded.',
-  'Ask for the desired date and time. Call recepta_check_availability with the requested business-local date and time. Appointment-booking hours are separate from store and employee hours.',
-  'For relative dates, call recepta_check_availability without a date if needed to get the current business date and timezone, then check the resolved date. If only a weekday is given and the intended date is ambiguous, ask for the exact date before booking. Do not read out unverified dates or times.',
+  'Ask for the desired date and time. Call check_appointment_availability with the requested business-local date and time. Appointment-booking hours are separate from store and employee hours.',
+  'For relative dates, call check_appointment_availability without a date if needed to get the current business date and timezone, then check the resolved date. If only a weekday is given and the intended date is ambiguous, ask for the exact date before booking. Do not read out unverified dates or times.',
   'Offer only times returned by the tool. If a local time repeats when clocks change, clarify which UTC offset the caller wants. If unavailable, offer the returned alternatives.',
   'If asked for store opening hours, use only the separate configured store-hours information. If store hours are unconfigured, explain that store hours are not on file, but offer to check appointment availability. Never imply that unconfigured store hours disable appointment bookings.',
   'Collect and confirm the caller’s name, phone, and configured appointment fields. Email is optional unless the business rules say otherwise. If the caller gives an email address, read it back and ask for explicit consent to send appointment-related emails. Set customer_email_consent to true only after the caller agrees; otherwise set it to false. Never infer consent from simply providing an address.',
   'After the caller agrees to the exact appointment time and details, call recepta_book_appointment with the exact timestamp from availability and the confirmed details, including customer_email_consent.',
-  'Confirm a booking only when the booking tool returns success with status booked. Give the confirmed date, time, business timezone and reference. An availability check does not reserve a time. Do not promise an email was delivered unless delivery is confirmed.',
-  'If the result says call_already_booked, give the existing booking time and direct the caller to the business for a change.',
+  'Confirm a booking only when the booking tool returns success with status booked. Give the confirmed date, time, business timezone and spoken_booking_reference. Read its 12 characters slowly in groups of four. An availability check does not reserve a time. Do not promise an email was delivered unless delivery is confirmed.',
+  'For an existing booking enquiry, reschedule, or cancellation, do not start a new booking or save a pending request. Ask for the booking reference from the original confirmation and call find_appointment. The backend also verifies the signed inbound number; never substitute a spoken number or guess a reference.',
+  'If verification fails or the caller has no reference, direct them to the business without revealing anything about an appointment. If several references are supplied, verify them and ask which returned appointment the caller wants. Never read, request or reveal the verified_session_token; pass it exactly from the selected tool result.',
+  'For a move, clarify the exact business-local date and time and confirm it with the caller. Use check_appointment_availability with the appointment ID and token for a move to check the existing booking’s duration and restrictions. To resolve a relative date, first call the availability tool without verification fields to obtain the business date. Call reschedule_appointment with the selected appointment ID, its verified_session_token, new_date YYYY-MM-DD and new_time HH:MM. Only claim the move after success with status booked and a returned start. If unavailable, tell them the original booking is unchanged and offer only returned alternatives. If a repeated daylight-saving time is ambiguous, offer a different unambiguous time.',
+  'For cancellation, read back the verified appointment time and ask whether they want to cancel it and say “Please say yes, cancel, to confirm.” Once the caller says “yes, cancel” or “confirm cancellation”, call cancel_appointment with its ID, verified_session_token and confirmed=true. Only claim cancellation after success with status cancelled. Never claim that an email was delivered. A failed or timed-out operation is not confirmation.',
+  'If the result says call_already_booked, give the existing booked time and offer the verified reschedule flow, not another booking.',
   'If automatic booking is off, no suitable slot is available, or the booking service fails, explain that and offer to save an awaiting-confirmation request. If the service fails, apologize to the caller.',
   'Use recepta_save_appointment_details only with the caller’s agreement. Say awaiting confirmation only if it returns success with status pending. If it returns success with status booked, a start, and a booking reference, read back that existing booking in the business time zone. Only claim a successful booking, request, email or text when the tool result confirms it.',
 ]
@@ -646,6 +650,10 @@ const RECEPTA_APPOINTMENT_TOOL_NAMES = new Set([
   'recepta_check_availability',
   'recepta_book_appointment',
   'recepta_save_appointment_details',
+  'check_appointment_availability',
+  'find_appointment',
+  'reschedule_appointment',
+  'cancel_appointment',
 ])
 
 const buildAppointmentIntakeTool = (siteUrl: string) => ({
@@ -721,15 +729,47 @@ const buildReceptaAppointmentTools = (siteUrl: string, scheduling: boolean) => {
   const contact = Object.fromEntries(Object.entries(intake.parameters.properties).filter(([name]) => !name.startsWith('preferred_')))
   // The call identity comes from Retell's signed wrapper.
   const tool = { type: intake.type, url: intake.url, method: intake.method, args_at_root: false, speak_after_execution: true, timeout_ms: 10000 }
-  return [intake, {
-    ...tool, name: 'recepta_check_availability',
-    description: 'Check real business appointment availability. Returns the exact timestamp to book and alternatives when unavailable.',
+  const appointmentIdentity = {
+    appointment_id: { type: 'string', description: 'The selected verified appointment ID returned by find_appointment.' },
+    verified_session_token: { type: 'string', description: 'Opaque token returned for this appointment. Never invent, ask for, or speak it.' },
+  }
+  const availability = {
+    ...tool, name: 'check_appointment_availability',
+    description: 'Check real appointment availability. For a move, pass the verified appointment ID and session token together with the date and time. Omit the verification fields for new bookings.',
     parameters: {
       type: 'object', required: [],
       properties: {
+        ...appointmentIdentity,
         requested_date: { type: 'string', description: 'Business-local date in YYYY-MM-DD. Omit to check today and return the business date and timezone.' },
         requested_time: { type: 'string', description: 'Business-local start in 24-hour HH:MM. Omit when asking for available times on that date.' },
       },
+    },
+  }
+  return [intake, availability, {
+    ...tool, name: 'find_appointment',
+    description: 'Verify and retrieve upcoming appointments using exact caller-provided booking references and the signed inbound phone identity.',
+    parameters: {
+      type: 'object', required: ['booking_references'],
+      properties: {
+        booking_references: { type: 'array', items: { type: 'string' }, description: 'One to five exact booking references from the caller. Never guess.' },
+      },
+    },
+  }, {
+    ...tool, name: 'reschedule_appointment',
+    description: 'Move the verified appointment atomically after the caller confirms the requested new time. Failure preserves the original booking.',
+    parameters: {
+      type: 'object', required: ['appointment_id','new_date','new_time','verified_session_token'],
+      properties: { ...appointmentIdentity,
+        new_date: { type: 'string', description: 'Business-local date YYYY-MM-DD.' },
+        new_time: { type: 'string', description: 'Business-local time HH:MM (24-hour).' },
+      },
+    },
+  }, {
+    ...tool, name: 'cancel_appointment',
+    description: 'Cancel the verified appointment only after the caller explicitly confirms the cancellation.',
+    parameters: {
+      type: 'object', required: ['appointment_id','verified_session_token','confirmed'],
+      properties: { ...appointmentIdentity, confirmed: { type: 'boolean', description: 'True only after the caller explicitly agrees to cancel the selected appointment.' } },
     },
   }, {
     ...tool, name: 'recepta_book_appointment',
@@ -738,7 +778,7 @@ const buildReceptaAppointmentTools = (siteUrl: string, scheduling: boolean) => {
       type: 'object', required: ['start', 'customer_name', 'customer_phone', 'appointment_details'],
       properties: {
         ...contact,
-        start: { type: 'string', description: 'Use the exact ISO timestamp with UTC offset returned by recepta_check_availability.' },
+        start: { type: 'string', description: 'Use the exact ISO timestamp with UTC offset returned by check_appointment_availability.' },
       },
     },
   }]

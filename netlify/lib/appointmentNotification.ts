@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isEmailAddress } from '../../src/lib/callEmailSettings'
 import { formatAppointmentPreference } from '../../src/lib/appointmentRequests'
+import { spokenBookingReference } from './callerAppointmentManagement'
 import { callEmailSender } from './emailEnvironment'
 
 export const loadAppointmentEmail = async (db: SupabaseClient, clientId: string, payload: Record<string, unknown>) => {
@@ -23,9 +24,14 @@ export const loadAppointmentEmail = async (db: SupabaseClient, clientId: string,
   const company = client.company_name || 'the business'
   const ownerAddress = client.contact_email?.trim()
   const pending = record.status === 'pending'
-  const state = pending ? 'Awaiting Confirmation' : 'Appointment Confirmed'
+  const cancelled = record.status === 'cancelled'
+  const rescheduled = record.status === 'booked' && payload.action === 'rescheduled'
+  const state = cancelled ? 'Appointment Cancelled' : rescheduled ? 'Appointment Rescheduled'
+    : pending ? 'Awaiting Confirmation' : 'Appointment Confirmed'
   const lines = [
-    pending ? 'The business will follow up to confirm the appointment.' : 'The appointment is confirmed.',
+    cancelled ? 'The appointment has been cancelled.' : rescheduled ? 'The appointment has been moved to the new time below.'
+      : pending ? 'The business will follow up to confirm the appointment.' : 'The appointment is confirmed.',
+    ...(!pending && typeof payload.appointment_id === 'string' ? [`Booking reference: ${spokenBookingReference(payload.appointment_id)}`] : []),
     `Customer: ${record.customer_name || 'Caller'}`,
   ]
 
@@ -35,9 +41,10 @@ export const loadAppointmentEmail = async (db: SupabaseClient, clientId: string,
     const timeZone = record.booking_time_zone || 'UTC'
     const format = new Intl.DateTimeFormat('en-CA', { timeZone, dateStyle: 'full', timeStyle: 'short' })
     lines.push(
-      `Starts: ${format.format(new Date(record.appointment_time))}`,
-      `Ends: ${format.format(new Date(record.appointment_end_time))}`,
-      `Timezone: ${timeZone}`, `Duration: ${record.duration_minutes} minutes`,
+      `${cancelled ? 'Cancelled start' : 'Starts'}: ${format.format(new Date(record.appointment_time))}`,
+      ...(record.appointment_end_time ? [`Ends: ${format.format(new Date(record.appointment_end_time))}`] : []),
+      `Timezone: ${timeZone}`,
+      ...(record.duration_minutes ? [`Duration: ${record.duration_minutes} minutes`] : []),
     )
   }
   if (!customer && record.customer_phone) lines.push(`Phone: ${record.customer_phone}`)
