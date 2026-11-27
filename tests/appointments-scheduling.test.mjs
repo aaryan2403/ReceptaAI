@@ -24,7 +24,7 @@ const fixture = `
   create table agent_phone_numbers(client_id uuid, phone_number text, is_primary boolean);
   create table call_minute_reservations(id uuid primary key default gen_random_uuid(), client_id uuid,
     retell_call_id text unique, period_start timestamptz, period_end timestamptz, reserved_seconds integer,
-    used_seconds integer, status text not null default 'active', retell_agent_id text, demo_mode boolean);
+    used_seconds integer, status text not null default 'active', retell_agent_id text, demo_mode boolean, created_at timestamptz not null default now());
   create table calls(client_id uuid, retell_call_id text, call_status text);
   create table employees(id uuid, client_id uuid, name text, role text, is_active boolean, created_at timestamptz);
   grant select on employees to service_role;
@@ -64,6 +64,7 @@ const migrationFiles = [
   '20261119185856_admin_service_access.sql',
   '20261119204250_admin_client_status.sql',
   '20261127004253_confirmed_appointment_activity.sql',
+  '20261127020100_pro_caller_appointment_management.sql',
 ]
 
 const pgUrl = process.env.RECEPTA_TEST_PG_URL
@@ -316,6 +317,7 @@ const initializeHandlers = async () => {
     recepta_scheduling_availability:['p_client','p_date','p_time','p_start','p_automatic','p_appointment_id'],
     capture_recepta_appointment_request:['p_client_id','p_call_id','p_details'],
     recepta_authorize_appointment_tool:['p_client','p_agent','p_call_id','p_tool'],
+    recepta_caller_appointment:['p_client','p_agent','p_call','p_phone','p_ref','p_action','p_version','p_date','p_time','p_confirmed'],
     recepta_appointment_test_check:['p_client','p_agent'],
     recepta_service_access:['p_client','p_agent'],
     recepta_save_service_access:['p_client','p_actor','p_action','p_mode','p_plan','p_agent','p_reason','p_expires_at','p_max_minutes','p_revision'],
@@ -770,7 +772,7 @@ test('settings save registers signed Retell tools, preserves other functions and
     assert.equal(written.default_dynamic_variables.business,'sample')
     assert.deepEqual(written.states,[{name:'fallback',tools:[existing[0]]}])
     assert.deepEqual(written.general_tools.slice(existing.length).map(tool=>tool.name),[
-      'recepta_save_appointment_details','recepta_check_availability','recepta_book_appointment',
+      'recepta_save_appointment_details','recepta_check_availability','check_appointment_availability','find_appointment','reschedule_appointment','cancel_appointment','recepta_book_appointment',
     ])
     assert.ok(written.general_tools.slice(existing.length).every(tool=>tool.args_at_root===false && tool.url==='https://example.test/.netlify/functions/retell-appointment'))
     assert.match(written.general_prompt,/Manual transfer instructions/)
@@ -1076,4 +1078,66 @@ test('Admin activation synchronizes an existing Retell line and plan, and reacti
     await call('recepta_manage_client_service', [tenant, '00000000-0000-0000-0000-000000000103',
       'save', 'automatic', null, null, null, null, null, current.revision, null])
   }
+})
+
+
+test('verified caller appointment management preserves the ledger, rejects unauthorized changes and queues cancellation once', async () => {
+  if (!signedHandler) await initializeHandlers()
+  await db.exec('begin')
+  try {
+    const date=futureDate(90)
+    await db.query("update agents set phone_number='+14165550100',status='live' where client_id=$1",[tenant])
+    await db.query("update agents set phone_number='+14165550101',status='live' where client_id=$1",[other])
+    await save(tenant,rules({capacity:1,hourly_limit:1,email_owner:true,email_customer:true}))
+    const first=await book(tenant,await localStart(date,'10:00'),'caller-management-original')
+    const occupied=await book(tenant,await localStart(date,'12:00'),'caller-management-occupied')
+    assert.equal(first.success,true)
+    assert.equal(occupied.success,true)
+    const id=first.appointment_id
+    const original=(await db.query('select created_at,appointment_time from appointments where id=$1',[id])).rows[0]
+    const callId='caller-management-verified'
+    await db.query("insert into call_minute_reservations(client_id,retell_call_id,retell_agent_id,period_start,period_end,reserved_seconds,status) values($1,$2,'agent_one',now(),now()+interval '1 day',600,'active')",[tenant,callId])
+    const context={call_type:'phone_call',direction:'inbound'}
+    const run=async(name,args,changes={},cid=callId)=> (await invoke(name,args,cid,{...context,...changes})).json()
+    const refs={booking_references:[id]}
+    const denied=await run('find_appointment',refs,{from_number:'+14165550199'})
+    assert.equal(denied.success,false)
+    assert.equal(denied.appointments,undefined)
+    assert.equal((await run('find_appointment',refs,{},'not-admitted')).success,false)
+    assert.equal((await run('find_appointment',refs,{call_type:'web_call'})).success,false)
+    const verified=await run('find_appointment',{booking_references:[id,occupied.appointment_id]})
+    assert.equal(verified.success,true)
+    assert.equal(verified.appointments.length,2)
+    const selected=verified.appointments.find(item=>item.appointment_id===id)
+    const identity={appointment_id:id,verified_session_token:selected.verified_session_token}
+    assert.equal((await run('reschedule_appointment',{...identity,verified_session_token:'forged',new_date:date,new_time:'11:00'})).success,false)
+    assert.equal((await run('reschedule_appointment',{...identity,new_date:date,new_time:'12:00'})).success,false)
+    assert.equal((await run('reschedule_appointment',{...identity,new_date:date,new_time:'03:00'})).success,false)
+    assert.deepEqual((await db.query('select created_at,appointment_time from appointments where id=$1',[id])).rows[0],original)
+    const moved=await run('reschedule_appointment',{...identity,new_date:date,new_time:'11:00'})
+    assert.equal(moved.success,true)
+    assert.equal(moved.appointment_id,id)
+    assert.equal(Date.parse(moved.start),Date.parse(await localStart(date,'11:00')))
+    const retry=await run('reschedule_appointment',{...identity,new_date:date,new_time:'11:00'})
+    assert.equal(retry.already_applied,true)
+    assert.equal((await db.query('select created_at from appointments where id=$1',[id])).rows[0].created_at.getTime(),original.created_at.getTime())
+    const afterMove={appointment_id:id,verified_session_token:moved.verified_session_token}
+    assert.equal((await run('cancel_appointment',{...afterMove,confirmed:false})).success,false)
+    const cancelled=await run('cancel_appointment',{...afterMove,confirmed:true})
+    assert.equal(cancelled.status,'cancelled')
+    assert.equal((await run('cancel_appointment',{...afterMove,confirmed:true})).already_applied,true)
+    assert.equal((await available(tenant,date,'11:00')).available,true)
+    const events=(await db.query('select action from appointment_history where appointment_id=$1 order by id',[id])).rows.map(x=>x.action)
+    assert.deepEqual(events,['booked','rescheduled','cancelled'])
+    const jobs=(await db.query("select payload from service_jobs where payload->>'appointment_id'=$1 and payload->>'status'='cancelled'",[id])).rows
+    assert.equal(jobs.length,2)
+    for(const job of jobs) assert.match((await emailBuilder(globalThis.__appointmentSchedulingDb,tenant,job.payload)).subject,/Appointment Cancelled/)
+    await db.query("insert into call_minute_reservations(client_id,retell_call_id,retell_agent_id,period_start,period_end,reserved_seconds,status) values($1,'caller-management-other','agent_two',now(),now()+interval '1 day',600,'active')",[other])
+    assert.equal((await run('find_appointment',{booking_references:[occupied.appointment_id]},{agent_id:'agent_two'},'caller-management-other')).success,false)
+    await db.query("update subscriptions set plan_name='Recepta Standard' where client_id=$1",[tenant])
+    assert.equal((await run('find_appointment',{booking_references:[occupied.appointment_id]})).success,false)
+    await db.query("update subscriptions set plan_name='Recepta Pro' where client_id=$1",[tenant])
+    await db.query("update agents set status='paused' where client_id=$1",[tenant])
+    assert.equal((await run('find_appointment',{booking_references:[occupied.appointment_id]})).success,false)
+  } finally { await db.exec('rollback') }
 })
