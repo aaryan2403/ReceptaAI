@@ -23,9 +23,11 @@ export const loadAppointmentEmail = async (db: SupabaseClient, clientId: string,
   const company = client.company_name || 'the business'
   const ownerAddress = client.contact_email?.trim()
   const pending = record.status === 'pending'
-  const state = pending ? 'Awaiting Confirmation' : 'Appointment Confirmed'
+  const cancelled = record.status === 'cancelled'
+  const state = cancelled ? 'Appointment Cancelled' : pending ? 'Awaiting Confirmation' : 'Appointment Confirmed'
   const lines = [
-    pending ? 'The business will follow up to confirm the appointment.' : 'The appointment is confirmed.',
+    cancelled ? 'The appointment has been cancelled.' : pending ? 'The business will follow up to confirm the appointment.' : 'The appointment is confirmed.',
+    `Booking reference: ${payload.appointment_id}`,
     `Customer: ${record.customer_name || 'Caller'}`,
   ]
 
@@ -35,7 +37,7 @@ export const loadAppointmentEmail = async (db: SupabaseClient, clientId: string,
     const timeZone = record.booking_time_zone || 'UTC'
     const format = new Intl.DateTimeFormat('en-CA', { timeZone, dateStyle: 'full', timeStyle: 'short' })
     lines.push(
-      `Starts: ${format.format(new Date(record.appointment_time))}`,
+      `${cancelled ? 'Cancelled start' : 'Starts'}: ${format.format(new Date(record.appointment_time))}`,
       `Ends: ${format.format(new Date(record.appointment_end_time))}`,
       `Timezone: ${timeZone}`, `Duration: ${record.duration_minutes} minutes`,
     )
