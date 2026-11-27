@@ -90,6 +90,21 @@ export const manageCallerAppointment = async (
   }
   if (tool==='find_appointment') {
     const refs = args.booking_references
+    // A supplied reference always takes precedence; name lookup is an operator opt-in.
+    if (refs === undefined || (Array.isArray(refs) && refs.length === 0)) {
+      const name = typeof args.customer_name === 'string' ? args.customer_name.trim() : ''
+      if (name.length < 2 || name.length > 160) return failed('reference_required')
+      const {data,error} = await db.rpc('recepta_find_appointments_by_name',{
+        p_client:context.clientId,p_agent:context.agentId,p_call:context.callId,p_phone:phone,p_name:name,
+      })
+      if (error) throw error
+      const result = objectValue(data)
+      if (result.success!==true || !Array.isArray(result.appointments) || result.appointments.length<1 || result.appointments.length>5) {
+        return { ...failed('reference_required'),instruction:'Ask for the original booking reference. Do not disclose whether an appointment exists.' }
+      }
+      return {success:true,appointments:result.appointments.map(record=>verified(objectValue(record))),
+        instruction:'Read only the verified appointment times and timezone. Never speak or ask for the session token. If multiple appointments were verified, ask the caller to select one.'}
+    }
     if (!Array.isArray(refs) || refs.length<1 || refs.length>5 || !refs.every(ref => bookingReference(ref) !== null)) return failed()
     const records = new Map<string, ReturnType<typeof verified>>()
     for (const ref of new Set(refs.map(bookingReference))) {
