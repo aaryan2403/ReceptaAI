@@ -66,6 +66,7 @@ const migrationFiles = [
   '20261127004253_confirmed_appointment_activity.sql',
   '20261127020100_pro_caller_appointment_management.sql',
   '20261127023000_harden_caller_appointment_management.sql',
+  '20261127032000_opt_in_caller_name_lookup.sql',
 ]
 
 const pgUrl = process.env.RECEPTA_TEST_PG_URL
@@ -344,6 +345,7 @@ const initializeHandlers = async () => {
     capture_recepta_appointment_request:['p_client_id','p_call_id','p_details'],
     recepta_authorize_appointment_tool:['p_client','p_agent','p_call_id','p_tool'],
     recepta_caller_appointment:['p_client','p_agent','p_call','p_phone','p_reference','p_action','p_version','p_date','p_time','p_confirmed'],
+    recepta_find_appointments_by_name:['p_client','p_agent','p_call','p_phone','p_name'],
     recepta_appointment_test_check:['p_client','p_agent'],
     recepta_service_access:['p_client','p_agent'],
     recepta_save_service_access:['p_client','p_actor','p_action','p_mode','p_plan','p_agent','p_reason','p_expires_at','p_max_minutes','p_revision'],
@@ -1125,6 +1127,20 @@ test('verified caller appointment management preserves the ledger, rejects unaut
     await db.query("insert into call_minute_reservations(client_id,retell_call_id,retell_agent_id,period_start,period_end,reserved_seconds,status) values($1,$2,'agent_one',now(),now()+interval '1 day',600,'active')",[tenant,callId])
     const context={call_type:'phone_call',direction:'inbound'}
     const run=async(name,args,changes={},cid=callId)=> (await invoke(name,args,cid,{...context,...changes})).json()
+    await db.query("update appointments set customer_name='Unique Caller' where id in ($1,$2)",[id,occupied.appointment_id])
+    const byName={customer_name:'  UNIQUE   Caller  '}
+    assert.equal((await run('find_appointment',byName)).reason,'reference_required')
+    await db.query('insert into recepta_caller_name_lookup_enabled(client_id) values($1)',[tenant])
+    const named=await run('find_appointment',byName)
+    assert.equal(named.success,true)
+    assert.deepEqual(named.appointments.map(a=>a.appointment_id),[id,occupied.appointment_id])
+    assert.ok(named.appointments.every(a=>a.verified_session_token))
+    assert.equal((await run('find_appointment',{customer_name:'Wrong Caller'})).reason,'reference_required')
+    assert.equal((await run('find_appointment',byName,{from_number:'+14165550199'})).success,false)
+    assert.equal((await run('find_appointment',byName,{},'not-admitted')).success,false)
+    assert.equal((await run('find_appointment',byName,{call_type:'web_call'})).success,false)
+    await db.query('delete from recepta_caller_name_lookup_enabled where client_id=$1',[tenant])
+    assert.equal((await run('find_appointment',byName)).reason,'reference_required')
     const compact = id.replaceAll('-', '').slice(0,12)
     const refs={booking_references:[compact.match(/.{4}/g).join('-')]}
     assert.equal((await run('find_appointment',refs)).appointments[0].appointment_id,id)
