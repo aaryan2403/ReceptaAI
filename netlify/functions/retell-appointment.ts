@@ -5,7 +5,7 @@ import { normalizeAppointmentFields, verifyRetellSignature } from '../lib/retell
 import { configuredRetellKey, isReceptaPreview } from '../lib/emailEnvironment'
 import { appointmentIntake, objectValue, textValue, validDate, validStart, validTime } from '../lib/appointmentScheduling'
 import { json } from '../lib/requestAuth'
-import { isCallerAppointmentTool, manageCallerAppointment } from '../lib/callerAppointmentManagement'
+import { isCallerAppointmentTool, manageCallerAppointment, spokenBookingReference } from '../lib/callerAppointmentManagement'
 
 const CHECK = 'recepta_check_availability'
 const BOOK = 'recepta_book_appointment'
@@ -66,10 +66,12 @@ export default async (request: Request) => {
   }
   let payload: Record<string, unknown>
   try { payload = objectValue(JSON.parse(raw)) } catch { return json(400, { error: 'Invalid JSON payload.' }) }
-  const name = payload.name === 'check_appointment_availability' ? CHECK : payload.name
+  const args = objectValue(payload.args)
+  const ordinaryAvailability = payload.name === 'check_appointment_availability' &&
+    args.appointment_id === undefined && args.verified_session_token === undefined
+  const name = ordinaryAvailability ? CHECK : payload.name
   if (name !== CHECK && name !== BOOK && name !== SAVE && !isCallerAppointmentTool(name)) return json(400, { error: 'Unknown Recepta appointment function.' })
   const call = objectValue(payload.call)
-  const args = objectValue(payload.args)
   const agentId = textValue(call.agent_id, 200)
   const callId = textValue(call.call_id, 200)
   if (!agentId || !callId) {
@@ -169,12 +171,12 @@ export default async (request: Request) => {
       if (data?.success && data.status === 'booked' && data.appointment_id && data.start) {
         console.info('Recepta appointment booked', { tool: name, call_trace: callTrace,
           status: data.status, elapsed_ms: Date.now() - startedAt })
-        return json(200, { ...data, booking_reference: data.appointment_id })
+        return json(200, { ...data, booking_reference: data.appointment_id, spoken_booking_reference: spokenBookingReference(data.appointment_id) })
       }
       if (data?.success !== false) throw new Error('The booking RPC returned no confirmed appointment.')
       if (data.reason === 'call_already_booked') return json(200, {
-        ...data, booking_reference: data.appointment_id,
-        instruction: 'This call already has a booking at the returned start. Tell the caller the existing booked time. A different time requires a reschedule by the business.',
+        ...data, booking_reference: data.appointment_id, spoken_booking_reference: spokenBookingReference(data.appointment_id),
+        instruction: 'This call already has a booking at the returned start. Tell the caller the existing booked time. For a different time, offer the verified reschedule flow.',
       })
       const { data: availability } = await db.rpc('recepta_scheduling_availability', {
         p_client: clientId, p_date: null, p_start: args.start,
@@ -194,7 +196,7 @@ export default async (request: Request) => {
         .eq('client_id', clientId).eq('id', data.id).eq('status', 'booked').maybeSingle()
       if (existing.error) throw existing.error
       if (existing.data?.appointment_time) return json(200, {
-        success: true, status: 'booked', booking_reference: data.id,
+        success: true, status: 'booked', booking_reference: data.id, spoken_booking_reference: spokenBookingReference(data.id),
         start: existing.data.appointment_time, time_zone: existing.data.booking_time_zone,
         instruction: 'This call already booked the returned time. Read it back in the business time zone.',
       })

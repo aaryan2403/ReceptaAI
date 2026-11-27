@@ -17,11 +17,16 @@ export default async (request: Request) => {
     const attempted = await db.from('booking_settings').update({
       caller_management_sync_attempted_at:new Date().toISOString(),
     }).eq('client_id',clientId)
+      .or('caller_management_sync_attempted_at.is.null,caller_management_sync_attempted_at.lt.' +
+        new Date(Date.now()-15*60_000).toISOString()).select('client_id').maybeSingle()
     if (attempted.error) { console.error('Appointment sync attempt could not be recorded.'); continue }
+    if (!attempted.data) continue
     try {
       const access = await loadServiceAccess(db,clientId)
-      if (access.plan!=='Recepta Pro' || !access.appointments || access.agent_id!==agentId) continue
-      await repairAppointmentAgent(db,clientId,deployment,{agentId,plan:'Recepta Pro',revision:access.revision})
+      if (access.plan!=='Recepta Pro' || !access.assignment_valid || access.agent_id!==agentId || access.retention_operation) continue
+      await repairAppointmentAgent(db,clientId,deployment,{agentId,plan:'Recepta Pro',expectedPlan:'Recepta Pro',revision:access.revision,ensureCallEvents:false})
+      const current = await loadServiceAccess(db,clientId)
+      if (current.plan!=='Recepta Pro' || current.agent_id!==agentId) continue
       const saved = await db.from('booking_settings').update({
         caller_management_synced_agent_id:agentId,
       }).eq('client_id',clientId)
