@@ -11,7 +11,9 @@ export type NoticeSubscription = {
 export const billingAccessNotice = (subscription: NoticeSubscription | null, now = Date.now(), service?: CustomerService | null) => {
   if (service?.service_status === 'ongoing') return null
   if (service?.service_status === 'paused') {
-    const message = service.retention_operation === 'deleted'
+    const message = service.reason === 'payment_failed'
+      ? 'Your latest subscription payment failed. Complete payment in Billing to resume calls and appointments. Your AI agent is retained until the scheduled deadline.'
+      : service.retention_operation === 'deleted'
       ? 'Your previous AI agent was removed. Reactivate your subscription to set up a replacement with your saved settings.'
       : service.retention_deadline
         ? service.retention_reason === 'cancellation'

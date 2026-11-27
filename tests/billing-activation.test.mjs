@@ -187,6 +187,7 @@ test.before(async () => {
     'supabase/migrations/20261014205655_shareable_demo_links.sql']) await db.exec(await readFile(path,'utf8'))
   await db.exec('alter table billing_notifications add column delivery_status text')
   await db.exec(await readFile('supabase/migrations/20261120080302_pro_service_lifecycle.sql','utf8'))
+  await db.exec(await readFile('supabase/migrations/20261127030000_pause_on_failed_renewal.sql','utf8'))
 })
 test.after(async () => { await db.close() })
 
@@ -579,12 +580,16 @@ test('initial nonpayment expires the entitlement and deletion requires a confirm
   assert.equal((await db.query('select result from recepta_pro_lifecycle_audit where client_id=$1',[client])).rows[0].result.status,'deleted')
 })
 
-test('renewal grace uses the Stripe invoice due date and payment fences a queued deletion', async () => {
+test('failed renewal pauses calls immediately; retention uses invoice due date and payment fences deletion', async () => {
   await fixture()
   await selectPro()
   await db.query("update subscriptions set status='past_due',pro_invoice_id='in_due',pro_invoice_due_at=now()-interval '8 days' where client_id=$1",[client])
   const grace = await proAccess()
-  assert.equal(grace.service_status,'ongoing')
+  assert.equal(grace.service_status,'paused')
+  assert.equal(grace.reason,'payment_failed')
+  assert.equal(grace.can_reserve,false)
+  assert.equal(grace.appointments,false)
+  assert.equal((await db.query("select * from reserve_recepta_agent_call($1,'unpaid-pro','agent_test')",[client])).rows.length,0)
   assert.equal(grace.billing_status,'past_due')
   assert.equal(Date.parse(grace.payment_grace_ends_at)-Date.parse(grace.retention_started_at),30*86400*1000)
   await db.query("update subscriptions set pro_invoice_due_at=now()-interval '32 days' where client_id=$1",[client])

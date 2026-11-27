@@ -57,7 +57,7 @@ export const buildBillingNotice = (
   const introductions: Record<NotificationKind, string> = {
     renewal_reminder: `Your subscription is due to renew automatically on ${renewal}. Stripe will attempt to charge your saved payment method.`,
     payment_success: 'Stripe has confirmed your payment. Your paid monthly allowance and eligible rollover minutes are available for the billing cycle below.',
-    payment_failed: `Stripe could not collect your subscription payment. Open Billing to update your card or complete payment. ${subscription.plan_name === 'Recepta Pro' ? 'Check your dashboard for the current service status and payment grace deadline.' : 'Paid minutes are available once payment is confirmed.'}`,
+    payment_failed: `Stripe could not collect your subscription payment. Open Billing to update your card or complete payment. ${subscription.plan_name === 'Recepta Pro' ? 'Your receptionist is paused until payment is confirmed. Check your dashboard for the agent retention deadline.' : 'Paid minutes are available once payment is confirmed.'}`,
     usage_80: 'You are approaching your paid call allowance. Open billing to request or pay for a higher allowance before it runs out.',
     usage_100: 'Your paid call allowance has been used. Recepta pauses new AI calls at the limit; calls already in progress can finish. Open billing to arrange more minutes or contact Recepta.',
   }

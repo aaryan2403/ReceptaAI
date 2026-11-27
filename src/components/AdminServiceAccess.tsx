@@ -242,7 +242,7 @@ export default function AdminServiceAccess({ clientId, onSaved }: { clientId: st
         <div><dt>Phone Number</dt><dd>{access.phone_number ?? 'Unassigned'}</dd></div>
         <div><dt>{access.mode === 'internal_test' ? 'Remaining Test Minutes' : 'Available Minutes'}</dt><dd>{minutes.format(access.remaining_seconds / 60)}</dd></div>
         {pro
-          ? access.payment_grace_ends_at && <div><dt>Payment grace ends</dt><dd>{formatDate(access.payment_grace_ends_at)}</dd></div>
+          ? access.payment_grace_ends_at && <div><dt>Agent retention deadline</dt><dd>{formatDate(access.payment_grace_ends_at)}</dd></div>
           : <div><dt>Access Expires</dt><dd>{access.mode === 'manual' && access.status === 'active' && !access.expires_at ? 'Ongoing' : formatDate(access.expires_at)}</dd></div>}
         {pro && access.service_status === 'paused' && access.retention_deadline && access.retention_operation !== 'deleted' && <>
           <div><dt>{access.retention_reason === 'cancellation' ? 'Cancelled' : access.retention_reason === 'admin_pause' ? 'Paused since' : 'Payment due'}</dt><dd>{formatDate(access.retention_started_at ?? null)}</dd></div>
