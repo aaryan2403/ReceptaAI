@@ -1,8 +1,10 @@
 import type { RetellSchedule } from './retell'
 
-export const getAnsweringMode = (stored?: string | null): '24/7' | 'business_hours' => {
-  try { return JSON.parse(stored ?? '{}')?.answeringMode === 'business_hours' ? 'business_hours' : '24/7' }
-  catch { return '24/7' }
+// Store opening hours never gate receptionist call admission.
+// Retain the argument for compatibility with existing schedule readers.
+export const getAnsweringMode = (_stored?: string | null): '24/7' => {
+  void _stored
+  return '24/7'
 }
 
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
